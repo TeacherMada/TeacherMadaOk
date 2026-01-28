@@ -9,22 +9,21 @@ interface AuthScreenProps {
   onBack: () => void;
   isDarkMode: boolean;
   toggleTheme: () => void;
+  notify: (message: string, type: 'success' | 'error' | 'info') => void;
 }
 
-const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMode, toggleTheme }) => {
+const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMode, toggleTheme, notify }) => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
 
     if (!username.trim() || !password.trim()) {
-        setError("Veuillez remplir tous les champs obligatoires.");
+        notify("Veuillez remplir tous les champs obligatoires.", 'error');
         return;
     }
 
@@ -44,7 +43,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
         if (result.success && result.user) {
             onAuthSuccess(result.user);
         } else {
-            setError(result.error || "Une erreur est survenue.");
+            notify(result.error || "Une erreur est survenue.", 'error');
         }
     }, 1000);
   };
@@ -88,13 +87,13 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
         {/* Toggle Tabs */}
         <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl mb-6 relative z-10">
             <button 
-                onClick={() => { setIsRegistering(false); setError(''); }}
+                onClick={() => { setIsRegistering(false); }}
                 className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${!isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}
             >
                 Connexion
             </button>
             <button 
-                onClick={() => { setIsRegistering(true); setError(''); }}
+                onClick={() => { setIsRegistering(true); }}
                 className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}
             >
                 Inscription
@@ -154,12 +153,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
                 />
             </div>
           </div>
-
-          {error && (
-              <div className="p-3 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 text-sm rounded-lg flex items-center animate-shake">
-                  ⚠️ {error}
-              </div>
-          )}
 
           <button
             type="submit"

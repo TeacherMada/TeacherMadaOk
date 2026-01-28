@@ -30,24 +30,27 @@ export interface UserPreferences {
   level: ProficiencyLevel;
   explanationLanguage: ExplanationLanguage;
   mode: LearningMode;
-  fontSize?: 'small' | 'normal' | 'large' | 'xl'; // New Font Size preference
+  fontSize?: 'small' | 'normal' | 'large' | 'xl';
 }
 
 export interface DailyChallenge {
   id: string;
   description: string;
-  targetCount: number; // e.g., 5 messages
+  targetCount: number;
   currentCount: number;
   xpReward: number;
   isCompleted: boolean;
   type: 'message_count' | 'lesson_complete' | 'vocabulary' | 'exercise_score';
 }
 
+export type UserRole = 'user' | 'admin';
+
 export interface UserProfile {
   id: string;
   username: string;
   email?: string;
   password?: string;
+  role: UserRole;
   createdAt: number;
   preferences: UserPreferences | null;
   stats: {
@@ -55,18 +58,57 @@ export interface UserProfile {
     streak: number;
     lessonsCompleted: number;
   };
-  // New Skills Breakdown for Smart Dashboard
   skills?: {
-    vocabulary: number; // 0-100
-    grammar: number; // 0-100
-    pronunciation: number; // 0-100
-    listening: number; // 0-100
+    vocabulary: number;
+    grammar: number;
+    pronunciation: number;
+    listening: number;
   };
   dailyChallenges?: DailyChallenge[];
-  lastChallengeDate?: string; // YYYY-MM-DD
+  lastChallengeDate?: string;
   aiMemory: string; 
   isPremium: boolean;
   hasSeenTutorial?: boolean;
+  
+  // Credit System
+  credits: number;
+  freeUsage: {
+    lastResetWeek: string; // ISO String of the Monday of the current week
+    count: number; // Max 2 per week
+  };
+  isSuspended?: boolean;
+}
+
+export interface Transaction {
+  id: string;
+  userId: string;
+  amount: number; // in Ariary
+  creditsAdded: number;
+  date: number;
+  status: 'pending' | 'completed' | 'rejected';
+  method: 'Mobile Money' | 'Admin Grant';
+}
+
+export interface AdminRequest {
+  id: string;
+  userId: string;
+  username: string;
+  type: 'credit' | 'message';
+  amount?: number;
+  message?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: number;
+}
+
+export interface SystemSettings {
+  apiKeys: string[];
+  activeModel: string;
+  adminContact: {
+    telma: string;
+    airtel: string;
+    orange: string;
+  };
+  creditPrice: number; // 50 Ariary
 }
 
 export interface ChatMessage {
@@ -81,15 +123,13 @@ export interface AppState {
   isLoading: boolean;
 }
 
-// --- New Exercise Types ---
-
 export type ExerciseType = 'multiple_choice' | 'true_false' | 'fill_blank';
 
 export interface ExerciseItem {
   id: string;
   type: ExerciseType;
   question: string;
-  options?: string[]; // For multiple choice
+  options?: string[];
   correctAnswer: string;
   explanation: string;
 }

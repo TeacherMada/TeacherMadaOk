@@ -15,10 +15,11 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
 
   const handleNext = (key: keyof UserPreferences, value: any) => {
     setPrefs(prev => ({ ...prev, [key]: value }));
-    if (step < 4) {
+    if (step < 3) {
       setStep(prev => prev + 1);
     } else {
-      onComplete({ ...prefs, [key]: value } as UserPreferences);
+      // Automatically set default mode to 'Course' (Cours structuré)
+      onComplete({ ...prefs, [key]: value, mode: LearningMode.Course } as UserPreferences);
     }
   };
 
@@ -63,7 +64,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
           <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
             <div 
               className="h-full bg-indigo-500 transition-all duration-300 ease-out"
-              style={{ width: `${(step / 4) * 100}%` }}
+              style={{ width: `${(step / 3) * 100}%` }}
             />
           </div>
         </div>
@@ -117,34 +118,6 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
                 >
                   <span className="text-4xl mb-3">{lang.split(' ').pop()}</span>
                   <span className="font-medium text-slate-700 dark:text-slate-200">{lang.split(' ')[0]}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {step === 4 && (
-          <div className="animate-fade-in">
-            <h2 className="text-xl font-semibold mb-6 text-center dark:text-white">Quel mode préfères-tu ?</h2>
-            <div className="space-y-3">
-              {[
-                { val: LearningMode.Course, icon: BookOpen, label: 'Cours Structuré', desc: 'Leçons progressives' },
-                { val: LearningMode.Chat, icon: MessageCircle, label: 'Discussion Libre', desc: 'Pratique naturelle' },
-                { val: LearningMode.Practice, icon: PlayCircle, label: 'Exercices', desc: 'Quiz & Tests' },
-                { val: LearningMode.Pronunciation, icon: Mic, label: 'Prononciation', desc: 'Focus audio' },
-              ].map((m) => (
-                <button
-                  key={m.val}
-                  onClick={() => handleNext('mode', m.val)}
-                  className="w-full p-4 flex items-center border dark:border-slate-700 rounded-xl hover:border-indigo-500 dark:hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-all group"
-                >
-                  <div className="bg-slate-100 dark:bg-slate-800 p-2 rounded-lg group-hover:bg-white dark:group-hover:bg-slate-700 transition-colors">
-                    <m.icon className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-                  </div>
-                  <div className="ml-4 text-left">
-                    <div className="font-semibold text-slate-800 dark:text-slate-200">{m.label}</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">{m.desc}</div>
-                  </div>
                 </button>
               ))}
             </div>
