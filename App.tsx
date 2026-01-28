@@ -98,16 +98,25 @@ const App: React.FC = () => {
   }, [user?.id, user?.preferences]);
 
   const initializeSession = async (userProfile: UserProfile, prefs: UserPreferences) => {
-    const history = storageService.getChatHistory(userProfile.id);
+    // Multi-course: Load history specific to the selected language
+    const history = storageService.getChatHistory(userProfile.id, prefs.targetLanguage);
     setMessages(history);
+    
     try {
       await startChatSession(userProfile, prefs, history);
+      
+      // If no history for this language, treat as new course and add greeting
       if (history.length === 0) {
         const greeting = prefs.explanationLanguage === ExplanationLanguage.French ? INITIAL_GREETING_FR : INITIAL_GREETING_MG;
-        const initialMsg: ChatMessage = { id: 'init', role: 'model', text: greeting + ` (${prefs.targetLanguage} - ${prefs.level})`, timestamp: Date.now() };
+        const initialMsg: ChatMessage = { 
+            id: 'init', 
+            role: 'model', 
+            text: greeting + ` (${prefs.targetLanguage} - ${prefs.level})`, 
+            timestamp: Date.now() 
+        };
         const newHistory = [initialMsg];
         setMessages(newHistory);
-        storageService.saveChatHistory(userProfile.id, newHistory);
+        storageService.saveChatHistory(userProfile.id, newHistory, prefs.targetLanguage);
       }
       setIsSessionStarted(true);
     } catch (error) { console.error(error); }
@@ -136,6 +145,7 @@ const App: React.FC = () => {
   
   const handleChangeLanguage = () => {
       if (!user) return;
+      // Resetting preferences to null triggers Onboarding, allowing new language selection.
       const updatedUser = { ...user, preferences: null };
       setUser(updatedUser);
       setMessages([]); 

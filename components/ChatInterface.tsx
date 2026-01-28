@@ -461,7 +461,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
     const updatedWithUser = [...messages, userMsg];
     setMessages(updatedWithUser);
-    storageService.saveChatHistory(user.id, updatedWithUser);
+    storageService.saveChatHistory(user.id, updatedWithUser, preferences.targetLanguage); // Update to save per language
     
     setInput('');
     setGeneratedImage(null);
@@ -483,7 +483,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() };
       const finalHistory = [...updatedWithUser, aiMsg];
       setMessages(finalHistory);
-      storageService.saveChatHistory(user.id, finalHistory);
+      storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage); // Update to save per language
       refreshUserData();
       
       // Voice Call Auto-Reply
@@ -655,7 +655,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setIsTrainingMode(false); 
       const resultMsg: ChatMessage = { id: Date.now().toString(), role: 'model', text: `🎯 **Session d'entraînement terminée !**\n\nScore : **${score}/${total}**\n\nContinuez comme ça !`, timestamp: Date.now() }; 
       setMessages([...messages, resultMsg]); 
-      storageService.saveChatHistory(user.id, [...messages, resultMsg]); 
+      storageService.saveChatHistory(user.id, [...messages, resultMsg], preferences.targetLanguage); // Save history
       onMessageSent(); 
   };
 

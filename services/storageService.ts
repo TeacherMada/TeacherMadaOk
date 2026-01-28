@@ -280,16 +280,26 @@ export const storageService = {
     }
   },
 
-  saveChatHistory: (userId: string, messages: ChatMessage[]) => {
-    localStorage.setItem(`chat_history_${userId}`, JSON.stringify(messages));
+  // Updated to support language-specific history
+  saveChatHistory: (userId: string, messages: ChatMessage[], language?: string) => {
+    const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
+    localStorage.setItem(`chat_history_${userId}_${langKey}`, JSON.stringify(messages));
   },
 
-  getChatHistory: (userId: string): ChatMessage[] => {
-    const data = localStorage.getItem(`chat_history_${userId}`);
+  getChatHistory: (userId: string, language?: string): ChatMessage[] => {
+    const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
+    const data = localStorage.getItem(`chat_history_${userId}_${langKey}`);
+    
+    // Fallback: If no language specific key, check generic (legacy migration)
+    if (!data && !language) {
+       return JSON.parse(localStorage.getItem(`chat_history_${userId}`) || '[]');
+    }
+    
     return data ? JSON.parse(data) : [];
   },
   
-  clearChatHistory: (userId: string) => {
-      localStorage.removeItem(`chat_history_${userId}`);
+  clearChatHistory: (userId: string, language?: string) => {
+      const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
+      localStorage.removeItem(`chat_history_${userId}_${langKey}`);
   }
 };
