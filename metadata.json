@@ -1,0 +1,7 @@
+{
+  "name": "TeacherMada",
+  "description": "L'assistant linguistique intelligent, puissant et élégant pour maîtriser les langues rapidement.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
