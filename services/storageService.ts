@@ -206,6 +206,10 @@ export const storageService = {
       const index = requests.findIndex(r => r.id === requestId);
       if (index !== -1) {
           const req = requests[index];
+          
+          // Safeguard: Only process pending requests
+          if (req.status !== 'pending') return;
+
           req.status = status;
           
           // Auto add credits if approved

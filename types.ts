@@ -133,3 +133,9 @@ export interface ExerciseItem {
   correctAnswer: string;
   explanation: string;
 }
+
+export interface VoiceCallSummary {
+  score: number;
+  feedback: string; // Markdown supported
+  tip: string;
+}

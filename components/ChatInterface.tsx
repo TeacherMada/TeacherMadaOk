@@ -1,8 +1,8 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, FileDown, Coins, Plus, Lock, BrainCircuit, Menu, FileText, Type, LogOut, RotateCcw, Sparkles, MessageCircle, Mic2, GraduationCap, Image as ImageIcon, Library, ChevronUp, Play } from 'lucide-react';
-import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage } from '../types';
-import { sendMessageToGemini, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage } from '../services/geminiService';
+import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, FileDown, Coins, Plus, Lock, BrainCircuit, Menu, FileText, Type, LogOut, RotateCcw, Sparkles, MessageCircle, Mic2, GraduationCap, Image as ImageIcon, Library, ChevronUp, Play, PhoneOff, VolumeX, Maximize2, Trophy } from 'lucide-react';
+import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage, VoiceCallSummary } from '../types';
+import { sendMessageToGemini, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import MarkdownRenderer from './MarkdownRenderer';
 import ExerciseSession from './ExerciseSession';
@@ -54,6 +54,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isTranslating, setIsTranslating] = useState(false);
   const [isListening, setIsListening] = useState(false);
   
+  // Voice Call State
+  const [isCallActive, setIsCallActive] = useState(false);
+  const [isCallConnecting, setIsCallConnecting] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [callSeconds, setCallSeconds] = useState(0);
+  const [loadingText, setLoadingText] = useState("Réflexion...");
+  const [callSummary, setCallSummary] = useState<VoiceCallSummary | null>(null);
+  const [isAnalyzingCall, setIsAnalyzingCall] = useState(false);
+  
+  const ringbackOscillatorRef = useRef<OscillatorNode | null>(null);
+
   // Image Gen State
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
@@ -89,6 +100,45 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const recognitionRef = useRef<any>(null);
   const preferences = user.preferences!;
+
+  // Logic to calculate Visual Level Progress (A1 -> A2, etc.)
+  const levelProgressData = useMemo(() => {
+      const lessons = user.stats.lessonsCompleted;
+      const levelLabel = user.preferences?.level || 'Débutant';
+      
+      let startCode = 'A1';
+      let targetCode = 'A2';
+      
+      // Determine base codes from preferences
+      if (levelLabel.includes('Intermédiaire')) {
+          startCode = 'B1'; targetCode = 'B2';
+      } else if (levelLabel.includes('Avancé')) {
+          startCode = 'C1'; targetCode = 'C2';
+      }
+
+      // Calculate localized progress (loops every 20 lessons for visual gratification)
+      const subLevelThreshold = 20; 
+      const percentage = Math.min(((lessons % subLevelThreshold) / subLevelThreshold) * 100, 100);
+      
+      return { startCode, targetCode, percentage };
+  }, [user.stats.lessonsCompleted, user.preferences?.level]);
+
+  // Dynamic Loading Text Logic for Voice Call
+  useEffect(() => {
+      let timer1: any, timer2: any;
+      if (isLoading && isCallActive) {
+          setLoadingText("Réflexion...");
+          timer1 = setTimeout(() => {
+              setLoadingText("Andraso kely fa ratsiratsy ny réseau...");
+          }, 3500);
+          timer2 = setTimeout(() => {
+              setLoadingText("Eo am-panoratana ny valiny...");
+          }, 8000);
+      } else {
+          setLoadingText("Réflexion...");
+      }
+      return () => { clearTimeout(timer1); clearTimeout(timer2); };
+  }, [isLoading, isCallActive]);
 
   // Search Logic
   const matchingMessages = useMemo(() => {
@@ -154,6 +204,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const startListening = () => {
+    if (isMuted && isCallActive) {
+        notify("Micro désactivé.", 'info');
+        return;
+    }
+
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       notify("Reconnaissance vocale non supportée", 'error');
@@ -188,6 +243,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     else startListening();
   };
 
+  // Auto-send in Call Mode when listening stops and input exists
+  useEffect(() => {
+      if (!isListening && isCallActive && input.trim().length > 0 && !isLoading && !isAnalyzing) {
+          handleSend();
+      }
+  }, [isListening, isCallActive]);
+
   const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); };
 
   useEffect(() => { if (!isTrainingMode && !isDialogueActive && !searchQuery) scrollToBottom(); }, [messages, isTrainingMode, isDialogueActive]);
@@ -201,7 +263,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   useEffect(() => {
     textareaRef.current?.focus();
-    return () => { stopAudio(); stopListening(); };
+    return () => { 
+        stopAudio(); 
+        stopListening();
+        stopRingback();
+    };
   }, []);
 
   const isFreeTier = user.role !== 'admin' && user.credits <= 0;
@@ -219,10 +285,162 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
      if (err.message === 'INSUFFICIENT_CREDITS') {
          setShowPaymentModal(true);
          notify("Crédits insuffisants. Rechargez pour continuer.", 'error');
+         if (isCallActive) handleEndCall();
      } else {
          notify("Une erreur est survenue.", 'error');
      }
   };
+
+  // --- Call Handlers ---
+  
+  // Call Timer Logic & Credit Deduction
+  useEffect(() => {
+      let interval: any;
+      if (isCallActive && !isCallConnecting && !callSummary) {
+          interval = setInterval(() => {
+              setCallSeconds(prev => {
+                  const newVal = prev + 1;
+                  
+                  // Deduct credit every 60 seconds (1 minute = 1 credit)
+                  if (newVal > 0 && newVal % 60 === 0) {
+                      const updatedUser = storageService.deductCreditOrUsage(user.id);
+                      
+                      if (updatedUser) {
+                          onUpdateUser(updatedUser);
+                          notify("1 min écoulée : -1 Crédit", 'info');
+                      } else {
+                          // Crucial: Auto-cut if deduction fails (returns null)
+                          clearInterval(interval);
+                          notify("Crédit épuisé. Fin de l'appel.", 'error');
+                          handleEndCall();
+                      }
+                  }
+                  
+                  // Warning at 50s mark of a minute if low credits
+                  if (newVal % 60 === 50 && user.credits <= 1 && user.role !== 'admin') {
+                      notify("Attention : Il vous reste 10 secondes...", 'info');
+                  }
+                  
+                  return newVal;
+              });
+          }, 1000);
+      }
+      return () => clearInterval(interval);
+  }, [isCallActive, isCallConnecting, callSummary, user.id, user.credits]);
+
+  const playRingbackTone = () => {
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') ctx.resume();
+      
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      // Standard Ringback Tone freq (approx 425Hz)
+      osc.frequency.value = 425; 
+      
+      // Pattern: "tu-tu... tu-tu..."
+      // Pulse 1
+      gain.gain.setValueAtTime(0.5, ctx.currentTime);
+      gain.gain.setValueAtTime(0, ctx.currentTime + 0.4);
+      // Pulse 2
+      gain.gain.setValueAtTime(0.5, ctx.currentTime + 0.8);
+      gain.gain.setValueAtTime(0, ctx.currentTime + 1.2);
+      
+      osc.start();
+      
+      // Create a pulse effect
+      const pulse = setInterval(() => {
+          if (ctx.state === 'closed') return;
+          const t = ctx.currentTime;
+          gain.gain.setValueAtTime(0.5, t);
+          gain.gain.setValueAtTime(0, t + 0.4);
+          gain.gain.setValueAtTime(0.5, t + 0.8);
+          gain.gain.setValueAtTime(0, t + 1.2);
+      }, 3000); // Repeat every 3s
+
+      ringbackOscillatorRef.current = osc;
+      
+      // Store pulse interval to clear it
+      // @ts-ignore
+      osc.pulseInterval = pulse;
+  };
+
+  const stopRingback = () => {
+      if (ringbackOscillatorRef.current) {
+          try {
+              ringbackOscillatorRef.current.stop();
+              ringbackOscillatorRef.current.disconnect();
+              // @ts-ignore
+              clearInterval(ringbackOscillatorRef.current.pulseInterval);
+          } catch(e) {}
+          ringbackOscillatorRef.current = null;
+      }
+  };
+
+  const handleStartCall = () => {
+      if (!storageService.canPerformRequest(user.id).allowed) {
+          setShowPaymentModal(true);
+          return;
+      }
+      setShowSmartOptions(false);
+      setIsCallActive(true);
+      setIsCallConnecting(true);
+      setCallSeconds(0);
+      setCallSummary(null);
+      setIsAnalyzingCall(false);
+      
+      // Play Ringback
+      playRingbackTone();
+      
+      // Connect after 5 seconds
+      setTimeout(() => {
+          stopRingback();
+          setIsCallConnecting(false);
+          
+          // Initial Greeting based on Explanation Language
+          const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
+          const greeting = isMg 
+            ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika, niveau ${preferences.level}...`
+            : `Allô ${user.username} ! 😊 Nous allons pratiquer ensemble le ${preferences.targetLanguage}, niveau ${preferences.level}...`;
+          
+          handleSpeak(greeting);
+      }, 5000);
+  };
+
+  const handleEndCall = async () => {
+      stopListening();
+      stopAudio();
+      stopRingback();
+      
+      if (callSeconds > 10) {
+          // Analyze call
+          setIsAnalyzingCall(true);
+          try {
+              const summary = await analyzeVoiceCallPerformance(messages, user.id);
+              setCallSummary(summary);
+          } catch (e) {
+              setCallSummary({ score: 5, feedback: "Erreur analyse.", tip: "Réessayez plus tard." });
+          } finally {
+              setIsAnalyzingCall(false);
+          }
+      } else {
+          // Too short, just close
+          closeCallOverlay();
+      }
+  };
+  
+  const closeCallOverlay = () => {
+      setIsCallActive(false);
+      setIsCallConnecting(false);
+      setCallSummary(null);
+      setIsMuted(false);
+      setCallSeconds(0);
+  };
+
+  const toggleMute = () => setIsMuted(!isMuted);
 
   // --- Core Handlers ---
 
@@ -236,6 +454,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (!creditStatus.allowed) {
         notify("Solde insuffisant. Veuillez recharger vos crédits.", 'error');
         setShowPaymentModal(true);
+        if (isCallActive) handleEndCall();
         return;
     }
     
@@ -251,12 +470,27 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     onMessageSent();
 
     try {
-      const responseText = await sendMessageToGemini(textToSend, user.id);
+      let responseText = "";
+      
+      if (isCallActive) {
+          // Use specific Voice AI Logic
+          responseText = await generateVoiceChatResponse(textToSend, user.id, updatedWithUser);
+      } else {
+          // Standard Chat Logic
+          responseText = await sendMessageToGemini(textToSend, user.id);
+      }
+
       const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() };
       const finalHistory = [...updatedWithUser, aiMsg];
       setMessages(finalHistory);
       storageService.saveChatHistory(user.id, finalHistory);
       refreshUserData();
+      
+      // Voice Call Auto-Reply
+      if (isCallActive) {
+          handleSpeak(responseText);
+      }
+
     } catch (error) {
       handleErrorAction(error);
     } finally { 
@@ -337,6 +571,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (msgId) lastSpokenMessageId.current = msgId;
     if (!storageService.canPerformRequest(user.id).allowed) {
         notify("Crédits insuffisants pour l'audio.", 'error');
+        if (isCallActive) handleEndCall();
         return;
     }
     setIsPlayingAudio(true);
@@ -476,11 +711,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     return `${parts[0]} ${parts[parts.length - 1]}`;
   };
 
+  // Explanation Language for UI strings
+  const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
+
   return (
     <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
       
       {/* Modals */}
-      {showPaymentModal && <PaymentModal userId={user.username} onClose={() => setShowPaymentModal(false)} />}
+      {showPaymentModal && <PaymentModal user={user} onClose={() => setShowPaymentModal(false)} />}
       {showTutorial && <TutorialOverlay onComplete={handleTutorialComplete} />}
       
       {/* Dialogue Session Modal */}
@@ -491,6 +729,120 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             onUpdateUser={onUpdateUser}
             notify={notify}
           />
+      )}
+
+      {/* Voice Call Overlay */}
+      {isCallActive && (
+        <div className="fixed inset-0 z-[160] bg-slate-900/95 backdrop-blur-2xl flex flex-col items-center justify-between py-12 px-6 transition-all animate-fade-in overflow-hidden">
+            
+            {/* End Call Analysis View */}
+            {isAnalyzingCall || callSummary ? (
+                <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-2xl animate-fade-in-up mt-20 relative border border-slate-100 dark:border-white/10">
+                    {isAnalyzingCall ? (
+                        <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                            <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+                            <p className="text-slate-600 dark:text-slate-300 font-bold animate-pulse">
+                                {isMg ? "Mamakafaka ny resaka..." : "Analyse de la conversation..."}
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="text-center">
+                            <div className="w-20 h-20 mx-auto bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mb-4 relative">
+                                <Trophy className="w-10 h-10 text-indigo-600 dark:text-indigo-400 absolute opacity-20" />
+                                <span className="text-4xl font-black text-indigo-600 dark:text-indigo-400 relative z-10">{callSummary?.score}</span>
+                            </div>
+                            <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">{isMg ? "Bilan'ny antso" : "Bilan de l'appel"}</h3>
+                            <div className="bg-slate-50 dark:bg-black/20 p-4 rounded-xl mb-4 text-sm text-slate-600 dark:text-slate-300 text-left border border-slate-100 dark:border-white/5">
+                                <p className="mb-3"><strong>Feedback:</strong> {callSummary?.feedback}</p>
+                                <div className="p-3 bg-emerald-50 dark:bg-emerald-900/10 rounded-lg border border-emerald-100 dark:border-emerald-900/20">
+                                    <p className="text-emerald-700 dark:text-emerald-400 font-medium text-xs">💡 <strong>Tip:</strong> {callSummary?.tip}</p>
+                                </div>
+                            </div>
+                            <button onClick={closeCallOverlay} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-500/30">
+                                {isMg ? "Hikatona" : "Fermer"}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <>
+                    <div className="text-center space-y-4 mt-12 z-20">
+                        <div className="flex flex-col items-center">
+                            <h2 className="text-3xl font-bold text-white tracking-tight drop-shadow-md">TeacherMada</h2>
+                            <p className="text-slate-300 text-lg">{preferences.targetLanguage}</p>
+                        </div>
+                        
+                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 backdrop-blur-sm text-indigo-200 text-sm font-medium">
+                            <div className={`w-2 h-2 rounded-full ${isCallConnecting ? 'bg-amber-500 animate-pulse' : isLoading ? 'bg-indigo-400 animate-pulse' : 'bg-emerald-500'}`}></div>
+                            {isCallConnecting ? (isMg ? "Mampiditra..." : "Appel en cours...") : (isLoading ? loadingText : (isMg ? "Mihaino..." : "Connecté"))}
+                        </div>
+                        
+                        {!isCallConnecting && (
+                            <p className="text-4xl font-mono text-white/50 tracking-widest">{Math.floor(callSeconds / 60)}:{(callSeconds % 60).toString().padStart(2, '0')}</p>
+                        )}
+                    </div>
+                    
+                    <div className="relative flex items-center justify-center w-full max-w-sm aspect-square z-10">
+                        {/* Ripple Animations */}
+                        {!isCallConnecting && (isPlayingAudio || isLoading) && (
+                            <>
+                                <div className="absolute w-40 h-40 rounded-full border border-indigo-500/30 animate-ripple-1"></div>
+                                <div className="absolute w-40 h-40 rounded-full border border-indigo-500/20 animate-ripple-2"></div>
+                                <div className="absolute w-40 h-40 rounded-full border border-indigo-500/10 animate-ripple-3"></div>
+                            </>
+                        )}
+                        
+                        <div className={`w-40 h-40 rounded-full bg-gradient-to-br from-indigo-600 to-violet-700 p-1 shadow-[0_0_60px_rgba(99,102,241,0.4)] z-20 transition-transform duration-500 relative ${isPlayingAudio ? 'scale-110' : 'scale-100'}`}>
+                            <div className="w-full h-full bg-slate-900 rounded-full flex items-center justify-center border-4 border-white/10 relative overflow-hidden">
+                                {isCallConnecting ? (
+                                    <Phone className="w-16 h-16 text-white animate-bounce" />
+                                ) : (
+                                    <div className="text-6xl select-none">🎓</div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {/* Controls */}
+                    <div className="w-full max-w-xs grid grid-cols-3 gap-6 mb-12 relative z-20">
+                        <button 
+                            onClick={toggleMute} 
+                            className={`flex flex-col items-center gap-2 group`}
+                        >
+                            <div className={`p-4 rounded-full transition-all ${isMuted ? 'bg-white text-slate-900' : 'bg-slate-800/50 text-white border border-slate-700 hover:bg-slate-700'}`}>
+                                {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
+                            </div>
+                            <span className="text-xs text-slate-400 font-medium">Mute</span>
+                        </button>
+
+                        <button 
+                            onClick={handleEndCall} 
+                            className="flex flex-col items-center gap-2 transform hover:scale-105 transition-transform"
+                        >
+                            <div className="p-6 bg-red-500 hover:bg-red-600 text-white rounded-full shadow-[0_0_30px_rgba(239,68,68,0.4)] border-4 border-slate-900/50">
+                                <PhoneOff className="w-8 h-8 fill-current" />
+                            </div>
+                            <span className="text-xs text-slate-400 font-medium">Raccrocher</span>
+                        </button>
+
+                        <div className="relative flex flex-col items-center gap-2">
+                             {/* Permanent Tooltip Indicator */}
+                            <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-white text-slate-900 text-[10px] font-bold px-2 py-1 rounded shadow-lg animate-bounce pointer-events-none z-30 whitespace-nowrap">
+                                {isMg ? "Tsindrio eto" : "Appuyez ici"}
+                                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 rotate-45 w-1.5 h-1.5 bg-white"></div>
+                            </div>
+
+                            <button 
+                                onClick={toggleListening} 
+                                className={`p-4 rounded-full transition-all ${isListening ? 'bg-white text-slate-900 ring-4 ring-emerald-500/50' : 'bg-slate-800/50 text-white border border-slate-700 hover:bg-slate-700'}`}>
+                                {isListening ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+                            </button>
+                            <span className="text-xs text-slate-400 font-medium">Micro</span>
+                        </div>
+                    </div>
+                </>
+            )}
+        </div>
       )}
 
       {/* Training Mode Overlay */}
@@ -560,7 +912,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                           <BrainCircuit className="w-4 h-4 text-orange-500"/>
                           <span className="text-slate-700 dark:text-slate-300">Exercice Pratique</span>
                       </button>
-                      <button onClick={() => { setShowSmartOptions(false); notify("Appel vocal simulé (Bêta).", "info"); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors">
+                      <button onClick={handleStartCall} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors">
                           <Phone className="w-4 h-4 text-purple-500"/>
                           <span className="text-slate-700 dark:text-slate-300">Appel Vocal</span>
                       </button>
@@ -790,17 +1142,31 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
         )}
 
-        {/* Quick Actions Toolbar */}
+        {/* Quick Actions Toolbar with Progress Bar */}
         <div className="max-w-4xl mx-auto mb-2 flex items-center gap-2 px-2 overflow-x-auto scrollbar-hide">
             <Tooltip text="Appel Vocal">
-                <button onClick={() => notify("Fonctionnalité d'appel bientôt disponible", "info")} className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded-full shadow-sm border border-purple-100 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors">
+                <button onClick={handleStartCall} className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded-full shadow-sm border border-purple-100 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors">
                     <Phone className="w-4 h-4" />
                 </button>
             </Tooltip>
             
-            <div className="flex-1"></div>
+            {/* Smart Level Progress Bar */}
+            <div className="flex-1 mx-3 flex flex-col justify-center">
+                <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 px-1">
+                    <span className="text-indigo-500 dark:text-indigo-400">{levelProgressData.startCode}</span>
+                    <span className="text-slate-300 dark:text-slate-600">{Math.round(levelProgressData.percentage)}%</span>
+                    <span>{levelProgressData.targetCode}</span>
+                </div>
+                <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative shadow-inner">
+                    <div 
+                        className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 animate-gradient-x absolute top-0 left-0 transition-all duration-1000 ease-out"
+                        style={{ width: `${levelProgressData.percentage}%` }}
+                    ></div>
+                </div>
+            </div>
+            
              <Tooltip text="Leçon Suivante">
-                <button onClick={() => handleSend("Passe à la suite / Leçon suivante")} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors">
+                <button onClick={() => handleSend("Passe à la suite / Leçon suivante")} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-900/50">
                     Suivant <ArrowRight className="w-3 h-3" />
                 </button>
             </Tooltip>

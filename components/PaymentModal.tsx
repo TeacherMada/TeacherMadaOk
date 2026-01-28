@@ -1,15 +1,16 @@
 
 import React, { useState } from 'react';
-import { X, Smartphone, ShieldCheck, Calculator, ArrowRight, Send, CheckCircle, Copy, Check } from 'lucide-react';
+import { X, Smartphone, ShieldCheck, Calculator, ArrowRight, Send, CheckCircle, Copy, Check, Coins } from 'lucide-react';
 import { ADMIN_CONTACTS, CREDIT_PRICE_ARIARY } from '../constants';
 import { storageService } from '../services/storageService';
+import { UserProfile } from '../types';
 
 interface PaymentModalProps {
   onClose: () => void;
-  userId: string;
+  user: UserProfile;
 }
 
-const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, userId }) => {
+const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   const [view, setView] = useState<'info' | 'request'>('info');
   const [amount, setAmount] = useState<number>(2000); // Default 2000 Ar
   const [refMessage, setRefMessage] = useState('');
@@ -20,7 +21,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, userId }) => {
   
   // Motif Generation: Crd_{username} (Max 20 chars)
   // Clean username first
-  const cleanUsername = userId.replace(/[^a-zA-Z0-9]/g, ''); 
+  const cleanUsername = user.username.replace(/[^a-zA-Z0-9]/g, ''); 
   const motifCode = `Crd_${cleanUsername}`.substring(0, 20); 
 
   const handleSendRequest = () => {
@@ -29,8 +30,8 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, userId }) => {
       const creditRequest = Math.floor(amount / CREDIT_PRICE_ARIARY);
       
       storageService.sendAdminRequest(
-          userId, 
-          userId,
+          user.id, // Use the real ID for the system
+          user.username, // Display name
           'credit',
           creditRequest,
           `Paiement Mobile Money. Réf/Détails: ${refMessage}`
@@ -74,6 +75,15 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, userId }) => {
             
             {view === 'info' ? (
                 <>
+                    {/* Current Balance Display */}
+                    <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <div className="flex items-center gap-2">
+                            <Coins className="w-5 h-5 text-amber-500" />
+                            <span className="text-sm font-bold text-slate-600 dark:text-slate-300">Solde actuel :</span>
+                        </div>
+                        <span className="text-lg font-black text-slate-800 dark:text-white">{user.credits} Crd</span>
+                    </div>
+
                     {/* Calculator */}
                     <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
                         <div className="flex items-center gap-2 mb-4 text-slate-500 dark:text-slate-400 text-sm font-bold uppercase">
@@ -93,7 +103,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, userId }) => {
                             </div>
                             <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded-xl">
                                 <span className="font-medium text-indigo-800 dark:text-indigo-300">Crédits obtenus :</span>
-                                <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{credits}</span>
+                                <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{credits} Crd</span>
                             </div>
                             <p className="text-xs text-center text-slate-400">1 Crédit = {CREDIT_PRICE_ARIARY} Ar</p>
                         </div>

@@ -1,22 +1,25 @@
 
 import { GoogleGenAI, Chat, Content, Type, Modality } from "@google/genai";
-import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem } from "../types";
+import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, ExplanationLanguage, VoiceCallSummary } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
 let aiClient: GoogleGenAI | null = null;
-let chatSession: Chat | null = null;
 let currentKeyIndex = 0;
 
-// Model Configuration: Robust Fallback Chain
-// If the primary model (gemini-3-flash-preview) fails, we try these in order.
+// === MODEL CONFIGURATION ===
+// Primary Model: "Pro" tier quality (Subject to stricter rate limits)
+const PRIMARY_MODEL = 'gemini-3-flash-preview'; 
+
+// Fallback Chain: Used when Primary Model quotas are exhausted across ALL keys.
+// 'gemini-2.0-flash' is a high-speed, generous free-tier model.
 const FALLBACK_CHAIN = [
-    'gemini-2.0-flash',              // Standard Fast & Free-tier eligible
-    'gemini-2.0-flash-lite-preview', // Extremely fast/cheap
-    'gemini-1.5-flash'               // Legacy Stable fallback
+    'gemini-2.0-flash',              
+    'gemini-2.0-flash-lite-preview', 
+    'gemini-1.5-flash'               
 ];
 
-// Helper to get all available keys
+// Helper to get all available keys from "Backend" (Storage)
 const getAvailableKeys = (): string[] => {
     const settings = storageService.getSystemSettings();
     let keys = settings.apiKeys && settings.apiKeys.length > 0 ? settings.apiKeys : [];
@@ -27,7 +30,8 @@ const getAvailableKeys = (): string[] => {
         keys.push(envKey);
     }
     
-    return keys.filter(k => k && k.trim().length > 0);
+    // Deduplicate and filter empty
+    return Array.from(new Set(keys)).filter(k => k && k.trim().length > 0);
 };
 
 const initializeGenAI = (forceNextKey: boolean = false) => {
@@ -48,15 +52,20 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
     const apiKey = keys[currentKeyIndex];
     aiClient = new GoogleGenAI({ apiKey });
     
-    return getActiveModelName();
+    return getActiveModelName(); // Returns currently active model based on settings/fallback
 };
 
+// Determines the starting model. Defaults to PRIMARY_MODEL unless overridden by Admin settings.
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
-    return settings.activeModel || 'gemini-3-flash-preview';
+    return settings.activeModel || PRIMARY_MODEL;
 };
 
-// Wrapper to handle retries on Quota Exceeded and Model Fallback
+// === CORE FALLBACK LOGIC ===
+// 1. Try Current Model with Current Key.
+// 2. If Quota Error (429): Rotate through ALL available keys for Current Model.
+// 3. If ALL keys fail for Current Model: Switch to Next Model in Fallback Chain.
+// 4. Repeat until success or total exhaustion.
 const executeWithRetry = async <T>(
     operation: (modelName: string) => Promise<T>, 
     userId: string,
@@ -77,26 +86,27 @@ const executeWithRetry = async <T>(
         
         const keys = getAvailableKeys();
 
-        // LOGIC:
-        // 1. If 429 (Quota), try rotating keys on CURRENT model first.
-        // 2. If 404 (Not Found) OR all keys exhausted for current model, switch to NEXT model in chain.
-
         if (isQuotaError || isModelNotFoundError) {
             const errorType = isQuotaError ? 'Quota' : 'ModelNot Found';
-            console.warn(`${errorType} error. KeyIdx: ${currentKeyIndex}. ModelFallbackIdx: ${fallbackIndex}. Retrying...`);
+            console.warn(`${errorType} error on ${fallbackIndex === -1 ? 'Primary' : 'Fallback ' + fallbackIndex}. KeyIdx: ${currentKeyIndex}. Retrying...`);
 
-            // Strategy A: Rotate Key (Only for Quota errors, not Model Not Found)
+            // Strategy A: Rotate Key (Prioritize this for Quota errors)
+            // We retry as many times as we have keys.
             if (isQuotaError && attempt < keys.length) {
-                initializeGenAI(true); // Rotate key
+                initializeGenAI(true); // Rotate to next key
                 return executeWithRetry(operation, userId, attempt + 1, fallbackIndex);
             } 
             
-            // Strategy B: Switch Model (If Key rotation failed OR Model Not Found)
+            // Strategy B: Switch Model (If Key rotation exhausted OR Model Not Found)
+            // If we are at the end of the chain, we fail.
             if (fallbackIndex < FALLBACK_CHAIN.length - 1) {
                 const nextFallbackIndex = fallbackIndex + 1;
-                console.warn(`Switching to fallback model: ${FALLBACK_CHAIN[nextFallbackIndex]}`);
-                // Reset key attempts for the new model
-                initializeGenAI(false); 
+                console.warn(`>> Switching to fallback model: ${FALLBACK_CHAIN[nextFallbackIndex]}`);
+                
+                // Reset key strategy slightly (optional, but good to start fresh)
+                initializeGenAI(true); 
+                
+                // Reset attempt counter for the new model
                 return executeWithRetry(operation, userId, 0, nextFallbackIndex);
             }
         }
@@ -163,6 +173,103 @@ export const sendMessageToGemini = async (message: string, userId: string): Prom
   }, userId);
 };
 
+export const generateVoiceChatResponse = async (
+    message: string, 
+    userId: string, 
+    history: ChatMessage[]
+): Promise<string> => {
+    // Note: Voice credits are time-based, checked in the component.
+    // However, we still check generic access here.
+    const status = storageService.canPerformRequest(userId);
+    if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
+
+    // For voice, latency is critical. We might prefer starting with a faster model directly if configured,
+    // but sticking to the standard chain ensures quality first, speed fallback second.
+    
+    return executeWithRetry(async (modelName) => {
+        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("AI not init");
+
+        const user = storageService.getUserById(userId);
+        if (!user || !user.preferences) throw new Error("User data missing");
+
+        // Specialized Prompt for Voice Calls - Optimized for speed and natural flow
+        const systemInstruction = `
+            ACT: Friendly language tutor on a phone call.
+            USER: ${user.username}. LEVEL: ${user.preferences.level}. TARGET: ${user.preferences.targetLanguage}.
+            
+            RULES:
+            1. KEEP IT SHORT. Max 2 sentences. No lists. No markdown.
+            2. Be encouraging but correct big mistakes softly ("You mean...?").
+            3. Ask ONE simple follow-up question to keep conversation going.
+            4. Speak naturally.
+        `;
+
+        const historyParts = history.slice(-6).map(msg => ({
+            role: msg.role,
+            parts: [{ text: msg.text }]
+        }));
+
+        const chat = aiClient.chats.create({
+            model: modelName,
+            config: {
+                systemInstruction: systemInstruction,
+                temperature: 0.6, // Lower temp for faster, more focused results
+                maxOutputTokens: 150, // Limit output size for speed
+            },
+            history: historyParts as Content[],
+        });
+
+        const result = await chat.sendMessage({ message });
+        return result.text || "Je vous écoute.";
+    }, userId);
+};
+
+export const analyzeVoiceCallPerformance = async (
+    history: ChatMessage[],
+    userId: string
+): Promise<VoiceCallSummary> => {
+    return executeWithRetry(async (modelName) => {
+        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("AI not init");
+
+        const user = storageService.getUserById(userId);
+        if (!user || !user.preferences) throw new Error("User data missing");
+
+        // Get only the user audio parts from recent history
+        const conversation = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
+
+        const prompt = `
+            Analyze this short language practice conversation.
+            Target Language: ${user.preferences.targetLanguage}.
+            Explanation Language: ${user.preferences.explanationLanguage}.
+            
+            Conversation:
+            ${conversation}
+
+            Output valid JSON only:
+            {
+                "score": number (1-10),
+                "feedback": "string (Brief summary of strengths/weaknesses in ${user.preferences.explanationLanguage}, max 3 sentences)",
+                "tip": "string (One actionable tip in ${user.preferences.explanationLanguage})"
+            }
+        `;
+
+        const response = await aiClient.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+        });
+
+        const json = JSON.parse(response.text || "{}");
+        return {
+            score: json.score || 7,
+            feedback: json.feedback || "Bonne pratique !",
+            tip: json.tip || "Continuez à pratiquer régulièrement."
+        };
+    }, userId);
+};
+
 export const translateText = async (text: string, targetLang: string, userId: string): Promise<string> => {
     checkCreditsBeforeAction(userId);
     
@@ -198,7 +305,8 @@ export const getLessonSummary = async (lessonNumber: number, context: string, us
 };
 
 export const generateSpeech = async (text: string, userId: string, voiceName: string = 'Kore'): Promise<ArrayBuffer | null> => {
-    checkCreditsBeforeAction(userId);
+    const status = storageService.canPerformRequest(userId);
+    if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
     
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI(); 
@@ -223,8 +331,6 @@ export const generateSpeech = async (text: string, userId: string, voiceName: st
 
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (!base64Audio) return null;
-
-        storageService.deductCreditOrUsage(userId);
 
         const binaryString = atob(base64Audio);
         const len = binaryString.length;
@@ -259,7 +365,6 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
 
         storageService.deductCreditOrUsage(userId);
 
-        // Iterate parts to find the image
         if (response.candidates?.[0]?.content?.parts) {
             for (const part of response.candidates[0].content.parts) {
                 if (part.inlineData && part.inlineData.data) {
@@ -337,7 +442,6 @@ export const generatePracticalExercises = async (
       if (!aiClient) initializeGenAI();
       if (!aiClient) throw new Error("AI Client not initialized");
 
-      // Contextual exercise generation based on recent chat
       const recentTopics = history.slice(-5).map(m => m.text).join(" ");
       
       const prompt = `
@@ -368,7 +472,6 @@ export const generatePracticalExercises = async (
       storageService.deductCreditOrUsage(profile.id);
       
       let jsonStr = response.text || "[]";
-      // Cleanup if model returns markdown block
       jsonStr = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
       
       const json = JSON.parse(jsonStr);
@@ -391,7 +494,6 @@ export const generateRoleplayResponse = async (
     userProfile: UserProfile,
     isClosing: boolean = false
 ): Promise<RoleplayResponse> => {
-    // Note: Credits for roleplay are deducted by time in the component, not per message here.
     const status = storageService.canPerformRequest(userProfile.id);
     if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
 
@@ -399,11 +501,8 @@ export const generateRoleplayResponse = async (
         if (!aiClient) initializeGenAI();
         if (!aiClient) throw new Error("AI Client not initialized");
 
-        // Format history for the model
         const context = history.map(m => `${m.role === 'user' ? 'Student' : 'Partner'}: ${m.text}`).join('\n');
         
-        // Intelligent Persona Definition based on Scenario context
-        // This makes the AI "smarter" and not just a generic chatbot
         let personaDescription = "A helpful native speaker.";
         if (scenario.includes("market")) personaDescription = "A friendly but shrewd market vendor selling fresh produce. You want to sell more, but you are open to bargaining.";
         if (scenario.includes("Meeting")) personaDescription = "A friendly local meeting the student at a cafe. You are curious about where they are from.";
@@ -465,7 +564,7 @@ export const generateRoleplayResponse = async (
             contents: prompt,
             config: { 
                 responseMimeType: "application/json",
-                temperature: 0.8 // Slightly higher temperature for more creative roleplay
+                temperature: 0.8 
             }
         });
 
