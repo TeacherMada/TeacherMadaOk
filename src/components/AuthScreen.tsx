@@ -103,49 +103,59 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
           <button onClick={toggleTheme} className="p-3 rounded-full bg-white dark:bg-slate-900 shadow-md hover:shadow-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all cursor-pointer"><Sun className="w-5 h-5" /></button>
       </div>
 
-      <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-8 transform transition-all duration-500 animate-fade-in relative overflow-visible mt-10">
+      <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-8 pt-0 transform transition-all duration-500 animate-fade-in relative overflow-visible mt-12 border border-slate-100 dark:border-slate-800">
         
-        {/* Logo Area with Pop-out Effect */}
-        <div className="flex flex-col items-center justify-center mb-8 relative z-10 -mt-20">
-          <div className="w-28 h-28 bg-white dark:bg-slate-800 rounded-3xl shadow-2xl flex items-center justify-center relative z-20 group">
-             {/* Background glow for the logo container */}
-             <div className="absolute inset-0 bg-indigo-500/20 rounded-3xl blur-xl group-hover:bg-indigo-500/30 transition-all duration-500"></div>
+        {/* Professional Floating Logo Container */}
+        <div className="flex flex-col items-center justify-center -mt-12 mb-6 relative z-20">
+          <div className="group w-24 h-24 bg-white dark:bg-slate-800 rounded-2xl shadow-[0_20px_50px_-12px_rgba(79,70,229,0.3)] flex items-center justify-center relative z-20 border-4 border-slate-50 dark:border-slate-900 transform transition-transform duration-500 hover:scale-105 hover:-rotate-2">
+             {/* Inner Glow */}
+             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 rounded-xl"></div>
              
-             {/* The Image itself, scaled up and floating */}
+             {/* Logo Image */}
              <img 
                 src="https://i.ibb.co/B2XmRwmJ/logo.png" 
                 onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }}
-                alt="Logo" 
-                className="w-full h-full object-contain scale-125 transform transition-transform duration-700 animate-float drop-shadow-2xl" 
+                alt="TeacherMada Logo" 
+                className="w-full h-full object-contain p-3 drop-shadow-md" 
             />
+            
+            {/* Online Status Dot */}
+            <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-500 border-4 border-slate-50 dark:border-slate-900 rounded-full"></div>
           </div>
-          <h1 className="text-2xl font-black text-slate-800 dark:text-white text-center mt-6 tracking-tight">
-              {isRegistering ? "Créer un compte" : "Bienvenue"}
+          
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white text-center mt-5 tracking-tight">
+              {isRegistering ? "Créer un compte" : "Heureux de vous revoir"}
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">TeacherMada AI</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mt-1 text-center max-w-[250px]">
+            {isRegistering 
+                ? "Débutez votre apprentissage dès maintenant." 
+                : "Reprenez votre progression là où vous l'avez laissée."}
+          </p>
         </div>
 
         {/* Tabs */}
-        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl mb-6 relative z-10">
-            <button onClick={() => setIsRegistering(false)} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${!isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>Connexion</button>
-            <button onClick={() => setIsRegistering(true)} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>Inscription</button>
+        <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl mb-6 relative z-10">
+            <button onClick={() => setIsRegistering(false)} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${!isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>Connexion</button>
+            <button onClick={() => setIsRegistering(true)} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>Inscription</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 relative z-10">
           
           <div>
-            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1 ml-1 tracking-wider">
-                {isRegistering ? "NOM D'UTILISATEUR" : "EMAIL / TÉL / NOM UTILISATEUR"}
+            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 ml-1 tracking-wider">
+                {isRegistering ? "NOM D'UTILISATEUR" : "EMAIL / TÉL / NOM D'UTILISATEUR"}
             </label>
-            <div className="relative">
-                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <div className="relative group">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors">
+                    <User className="w-full h-full" />
+                </div>
                 <input
                 type="text"
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder={isRegistering ? "Votre pseudo" : "ex: 034... ou email@..."}
-                className="w-full bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium"
+                placeholder={isRegistering ? "Choisissez un pseudo" : "Votre identifiant"}
+                className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400"
                 />
             </div>
           </div>
@@ -153,32 +163,36 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
           {isRegistering && (
             <div className="space-y-4 animate-fade-in">
                 <div>
-                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1 ml-1 tracking-wider">
+                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 ml-1 tracking-wider">
                         EMAIL (OPTIONNEL)
                     </label>
-                    <div className="relative">
-                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <div className="relative group">
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors">
+                            <Mail className="w-full h-full" />
+                        </div>
                         <input
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="exemple@email.com"
-                        className="w-full bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium"
+                        placeholder="pour la récupération"
+                        className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400"
                         />
                     </div>
                 </div>
                 <div>
-                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1 ml-1 tracking-wider">
+                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 ml-1 tracking-wider">
                         TÉLÉPHONE (OPTIONNEL)
                     </label>
-                    <div className="relative">
-                        <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <div className="relative group">
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors">
+                            <Phone className="w-full h-full" />
+                        </div>
                         <input
                         type="tel"
                         value={phoneNumber}
                         onChange={(e) => setPhoneNumber(e.target.value)}
                         placeholder="034 00 000 00"
-                        className="w-full bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium"
+                        className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400"
                         />
                     </div>
                 </div>
@@ -186,18 +200,20 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
           )}
 
           <div>
-            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1 ml-1 tracking-wider">
+            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 ml-1 tracking-wider">
                 MOT DE PASSE
             </label>
-            <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <div className="relative group">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors">
+                    <Lock className="w-full h-full" />
+                </div>
                 <input
                 type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium"
+                className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium placeholder:text-slate-400"
                 />
             </div>
           </div>
@@ -205,16 +221,16 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed group transform active:scale-95"
+            className="w-full mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed group transform active:scale-[0.98]"
           >
             {isLoading ? (
               <span className="flex items-center gap-2">
                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                 Connexion...
+                 Connexion en cours...
               </span>
             ) : (
               <>
-                {isRegistering ? "S'inscrire" : "Se connecter"}
+                {isRegistering ? "Commencer l'aventure" : "Se connecter"}
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </>
             )}
@@ -222,9 +238,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
         </form>
 
         {!isRegistering && (
-             <div className="mt-4 text-center">
-                 <button onClick={() => setShowForgotModal(true)} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 hover:underline flex items-center justify-center gap-1 mx-auto transition-colors">
-                     <HelpCircle className="w-3 h-3"/> Mot de passe oublié ?
+             <div className="mt-6 text-center">
+                 <button onClick={() => setShowForgotModal(true)} className="text-xs font-bold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 flex items-center justify-center gap-1.5 mx-auto transition-colors px-4 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800">
+                     <HelpCircle className="w-3.5 h-3.5"/> Mot de passe oublié ?
                  </button>
              </div>
         )}
