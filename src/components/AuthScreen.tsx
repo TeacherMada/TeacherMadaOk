@@ -22,7 +22,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
   
   // Forgot Password Modal State
   const [showForgotModal, setShowForgotModal] = useState(false);
-  const [forgotInput, setForgotInput] = useState('');
+  // State object for the 3 separate inputs
+  const [forgotData, setForgotData] = useState({
+      username: '',
+      phone: '',
+      email: ''
+  });
   const [forgotLoading, setForgotLoading] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -65,23 +70,31 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
   };
 
   const handleForgotPasswordRequest = () => {
-      if (!forgotInput.trim()) return;
+      // Validate that at least one field is filled to help identification
+      if (!forgotData.username.trim() && !forgotData.phone.trim() && !forgotData.email.trim()) {
+          notify("Veuillez remplir au moins un champ pour que l'admin puisse vous retrouver.", 'error');
+          return;
+      }
+
       setForgotLoading(true);
+      
+      // Construct a summary string of the provided info
+      const contactSummary = `User: ${forgotData.username || 'N/A'}, Tél: ${forgotData.phone || 'N/A'}, Email: ${forgotData.email || 'N/A'}`;
       
       // Simulate API call
       setTimeout(() => {
           storageService.sendAdminRequest(
               '', // No User ID known yet
-              'Utilisateur Anonyme',
+              forgotData.username || 'Utilisateur Inconnu',
               'password_reset',
               undefined,
-              `Demande réinitialisation MDP pour: ${forgotInput}`,
-              forgotInput // Contact info
+              `Demande réinitialisation MDP.\nDonnées fournies : ${contactSummary}`,
+              forgotData.email || forgotData.phone || 'Aucun contact direct' // Primary contact info for admin UI
           );
           setForgotLoading(false);
           setShowForgotModal(false);
-          setForgotInput('');
-          notify("Demande envoyée ! L'admin vous contactera par Email/Tél.", 'success');
+          setForgotData({ username: '', phone: '', email: '' });
+          notify("Demande envoyée ! L'administrateur vous enverra un nouveau mot de passe par Email.", 'success');
       }, 1000);
   };
 
@@ -228,23 +241,58 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
                           <Lock className="w-7 h-7" />
                       </div>
                       <h3 className="text-xl font-bold text-slate-800 dark:text-white">Récupération</h3>
-                      <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                          Entrez votre identifiant. L'administrateur vous enverra un nouveau mot de passe.
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                          Entrez vos identifiants. L'administrateur vous enverra un nouveau mot de passe par <strong>Email</strong>.
                       </p>
                   </div>
 
-                  <div className="space-y-4">
-                      <input 
-                        type="text" 
-                        placeholder="Email, Tél ou Nom d'utilisateur" 
-                        value={forgotInput}
-                        onChange={e => setForgotInput(e.target.value)}
-                        className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 dark:text-white"
-                      />
+                  <div className="space-y-3">
+                      <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Nom d'utilisateur</label>
+                          <div className="relative">
+                              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                              <input 
+                                type="text" 
+                                placeholder="Votre pseudo" 
+                                value={forgotData.username}
+                                onChange={e => setForgotData({...forgotData, username: e.target.value})}
+                                className="w-full pl-9 pr-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-slate-800 dark:text-white"
+                              />
+                          </div>
+                      </div>
+
+                      <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Téléphone</label>
+                          <div className="relative">
+                              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                              <input 
+                                type="tel" 
+                                placeholder="034 00 000 00" 
+                                value={forgotData.phone}
+                                onChange={e => setForgotData({...forgotData, phone: e.target.value})}
+                                className="w-full pl-9 pr-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-slate-800 dark:text-white"
+                              />
+                          </div>
+                      </div>
+
+                      <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Adresse Email</label>
+                          <div className="relative">
+                              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                              <input 
+                                type="email" 
+                                placeholder="exemple@email.com" 
+                                value={forgotData.email}
+                                onChange={e => setForgotData({...forgotData, email: e.target.value})}
+                                className="w-full pl-9 pr-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-slate-800 dark:text-white"
+                              />
+                          </div>
+                      </div>
+
                       <button 
                         onClick={handleForgotPasswordRequest}
-                        disabled={forgotLoading || !forgotInput.trim()}
-                        className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 disabled:opacity-70 transition-all"
+                        disabled={forgotLoading || (!forgotData.username && !forgotData.phone && !forgotData.email)}
+                        className="w-full mt-2 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 disabled:opacity-70 transition-all shadow-lg"
                       >
                           {forgotLoading ? "Envoi..." : "Envoyer Demande"} <Send className="w-4 h-4"/>
                       </button>

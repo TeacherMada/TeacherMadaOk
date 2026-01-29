@@ -115,7 +115,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                          
                          {/* Chat Bubble 1 */}
                          <div className="absolute -top-6 -right-12 bg-white dark:bg-slate-800 p-3 rounded-2xl rounded-bl-none shadow-xl border border-slate-100 dark:border-slate-700 animate-bounce-slight">
-                             <span className="text-2xl">Salama e 👋</span>
+                             <span className="text-2xl">👋</span>
                          </div>
                          {/* Chat Bubble 2 */}
                          <div className="absolute bottom-10 -left-16 bg-indigo-600 text-white p-4 rounded-2xl rounded-tr-none shadow-xl shadow-indigo-500/30 flex items-center gap-2 animate-bounce-slight delay-500">

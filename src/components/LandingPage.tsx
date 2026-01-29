@@ -114,21 +114,21 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                 <div className="relative w-[300px] md:w-[400px] h-[300px] md:h-[400px]">
                     <div className="absolute inset-0 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full opacity-20 blur-3xl animate-blob"></div>
                     
-                    {/* Robot Image */}
+                    {/* Robot Image with Scale Effect (140% overflow) */}
                     <div className="relative z-10 w-full h-full flex items-center justify-center animate-float">
                          <img 
                             src="https://i.ibb.co/B2XmRwmJ/logo.png" 
                             onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }}
                             alt="TeacherMada Mascot" 
-                            className="w-full h-full object-contain drop-shadow-2xl" 
+                            className="w-full h-full object-contain drop-shadow-2xl scale-[1.4] -translate-y-4" 
                          />
                          
                          {/* Chat Bubble 1 */}
-                         <div className="absolute -top-6 -right-12 bg-white dark:bg-slate-800 p-3 rounded-2xl rounded-bl-none shadow-xl border border-slate-100 dark:border-slate-700 animate-bounce-slight">
+                         <div className="absolute -top-6 -right-12 bg-white dark:bg-slate-800 p-3 rounded-2xl rounded-bl-none shadow-xl border border-slate-100 dark:border-slate-700 animate-bounce-slight z-20">
                              <span className="text-2xl">👋</span>
                          </div>
                          {/* Chat Bubble 2 */}
-                         <div className="absolute bottom-10 -left-16 bg-indigo-600 text-white p-4 rounded-2xl rounded-tr-none shadow-xl shadow-indigo-500/30 flex items-center gap-2 animate-bounce-slight delay-500">
+                         <div className="absolute bottom-10 -left-16 bg-indigo-600 text-white p-4 rounded-2xl rounded-tr-none shadow-xl shadow-indigo-500/30 flex items-center gap-2 animate-bounce-slight delay-500 z-20">
                              <MessageCircle className="w-5 h-5" />
                              <span className="font-bold text-sm">Prêt à apprendre ?</span>
                          </div>
