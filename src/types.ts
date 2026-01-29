@@ -49,7 +49,7 @@ export interface UserProfile {
   id: string;
   username: string;
   email?: string;
-  phoneNumber?: string; // Added field
+  phoneNumber?: string; 
   password?: string;
   role: UserRole;
   createdAt: number;
@@ -92,12 +92,12 @@ export interface Transaction {
 
 export interface AdminRequest {
   id: string;
-  userId: string; // Can be empty string if user not logged in (e.g. forgot password)
-  username: string; // Used for identification
-  type: 'credit' | 'message' | 'password_reset'; // Added password_reset
+  userId: string; 
+  username: string; 
+  type: 'credit' | 'message' | 'password_reset'; 
   amount?: number;
   message?: string;
-  contactInfo?: string; // Added for external contact (email/phone provided in form)
+  contactInfo?: string; 
   status: 'pending' | 'approved' | 'rejected';
   createdAt: number;
 }
@@ -138,6 +138,6 @@ export interface ExerciseItem {
 
 export interface VoiceCallSummary {
   score: number;
-  feedback: string; // Markdown supported
+  feedback: string; 
   tip: string;
 }

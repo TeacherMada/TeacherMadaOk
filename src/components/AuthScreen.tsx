@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
 import { storageService } from '../services/storageService';
-import { GraduationCap, ArrowRight, Sun, Moon, Mail, Lock, User, ArrowLeft, HelpCircle, Phone, X, Send } from 'lucide-react';
+import { GraduationCap, ArrowRight, Sun, Moon, Mail, Lock, User, ArrowLeft, HelpCircle, Phone, X, Send, AlertTriangle } from 'lucide-react';
 
 interface AuthScreenProps {
   onAuthSuccess: (user: UserProfile) => void;
@@ -19,6 +19,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   // State pour la modale mot de passe oublié
   const [showForgotModal, setShowForgotModal] = useState(false);
@@ -31,19 +32,20 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
 
     if (!username.trim() && isRegistering) {
-        notify("Le nom d'utilisateur est nécessaire pour commencer.", 'error');
+        setErrorMessage("Le nom d'utilisateur est nécessaire.");
         return;
     }
     
     if (!isRegistering && !username.trim()) {
-        notify("Veuillez entrer votre identifiant.", 'error');
+        setErrorMessage("Veuillez entrer votre identifiant.");
         return;
     }
 
     if (!password.trim()) {
-        notify("Le mot de passe est requis.", 'error');
+        setErrorMessage("Le mot de passe est requis.");
         return;
     }
 
@@ -60,11 +62,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
         if (result.success && result.user) {
             onAuthSuccess(result.user);
         } else {
-            notify(result.error || "Une petite erreur est survenue.", 'error');
+            setErrorMessage(result.error || "Erreur inconnue.");
+            notify(result.error || "Une erreur est survenue.", 'error');
         }
     } catch (error) {
         console.error(error);
-        notify("Erreur de connexion serveur.", 'error');
+        setErrorMessage("Erreur critique. Vérifiez votre connexion.");
     } finally {
         setIsLoading(false);
     }
@@ -139,12 +142,19 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
 
         {/* Onglets de Navigation */}
         <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl mb-8 relative z-10">
-            <button onClick={() => setIsRegistering(false)} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider rounded-xl transition-all ${!isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>Connexion</button>
-            <button onClick={() => setIsRegistering(true)} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider rounded-xl transition-all ${isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>Inscription</button>
+            <button onClick={() => { setIsRegistering(false); setErrorMessage(null); }} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider rounded-xl transition-all ${!isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>Connexion</button>
+            <button onClick={() => { setIsRegistering(true); setErrorMessage(null); }} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider rounded-xl transition-all ${isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>Inscription</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5 relative z-10">
           
+          {errorMessage && (
+              <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300 text-xs font-bold p-3 rounded-xl flex items-center gap-2 animate-fade-in">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  {errorMessage}
+              </div>
+          )}
+
           <div>
             <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1.5 ml-3 tracking-widest uppercase">
                 {isRegistering ? "NOM D'UTILISATEUR" : "EMAIL / TÉL / NOM"}
@@ -230,7 +240,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
             {isLoading ? (
               <span className="flex items-center gap-2">
                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                 Vérification...
+                 Connexion...
               </span>
             ) : (
               <>

@@ -32,8 +32,10 @@ export const storageService = {
   
   login: async (identifier: string, password?: string): Promise<{ success: boolean, user?: UserProfile, error?: string }> => {
     try {
+        // Validation Basique
+        if (!identifier) return { success: false, error: "Identifiant requis." };
+
         // 1. Check Cloud (Supabase 'profiles' table)
-        // Note: On utilise 'maybeSingle' pour éviter une erreur si l'user n'existe pas
         const { data, error } = await supabase
             .from('profiles')
             .select('*')
@@ -42,6 +44,8 @@ export const storageService = {
 
         if (error) {
             console.error("Supabase Login Error:", error);
+            if (error.code === '42P01') return { success: false, error: "Erreur système: Tables manquantes (SQL non exécuté)." };
+            if (error.message?.includes('FetchError')) return { success: false, error: "Impossible de joindre le serveur. Vérifiez votre connexion." };
             return { success: false, error: "Erreur de connexion serveur." };
         }
 
@@ -49,7 +53,7 @@ export const storageService = {
             return { success: false, error: "Utilisateur introuvable." };
         }
 
-        // 2. Verify Password (Simple check for Hybrid mode, implies trust in SSL)
+        // 2. Verify Password (Simple check for Hybrid mode)
         if (password && data.password !== password) {
             return { success: false, error: "Mot de passe incorrect." };
         }
@@ -92,11 +96,17 @@ export const storageService = {
   register: async (username: string, password?: string, email?: string, phoneNumber?: string): Promise<{ success: boolean, user?: UserProfile, error?: string }> => {
     try {
         // 1. Check if user exists in Cloud
-        const { data: existing } = await supabase
+        const { data: existing, error: checkError } = await supabase
             .from('profiles')
             .select('id')
             .eq('username', username)
             .maybeSingle();
+
+        if (checkError) {
+             console.error("Registration Check Error:", checkError);
+             if (checkError.code === '42P01') return { success: false, error: "Erreur Config: Table 'profiles' inexistante." };
+             return { success: false, error: "Erreur de vérification serveur." };
+        }
 
         if (existing) {
             return { success: false, error: "Ce nom d'utilisateur est déjà pris." };
@@ -139,8 +149,8 @@ export const storageService = {
         });
 
         if (error) {
-            console.error("Register Error:", error);
-            return { success: false, error: "Erreur lors de la création du compte." };
+            console.error("Register Insert Error:", error);
+            return { success: false, error: "Impossible de créer le compte. Réessayez." };
         }
 
         // 3. Cache Locally
@@ -150,6 +160,7 @@ export const storageService = {
         return { success: true, user: newUser };
 
     } catch (err) {
+        console.error("Register Exception:", err);
         return { success: false, error: "Erreur réseau." };
     }
   },
