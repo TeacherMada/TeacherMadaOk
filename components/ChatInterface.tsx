@@ -691,8 +691,36 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       try {
           // @ts-ignore
           if (typeof window.html2canvas === 'undefined') { notify("Erreur: Bibliothèque d'export indisponible", 'error'); return; }
+          
+          // Use onclone to add signature before capture
           // @ts-ignore
-          const canvas = await window.html2canvas(element, { scale: 2, backgroundColor: null, useCORS: true });
+          const canvas = await window.html2canvas(element, { 
+              scale: 2, 
+              backgroundColor: null, 
+              useCORS: true,
+              onclone: (clonedDoc: Document) => {
+                  const node = clonedDoc.getElementById(`msg-content-${msgId}`);
+                  if (node) {
+                      const footer = clonedDoc.createElement('div');
+                      footer.innerHTML = `
+                        <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+                           <div style="display: flex; align-items: center; gap: 8px;">
+                              <div style="background: linear-gradient(to right, #4f46e5, #7c3aed); padding: 6px; border-radius: 6px; color: white; font-weight: bold; font-size: 14px;">TM</div>
+                              <div>
+                                  <div style="font-weight: 900; color: #6366f1; font-size: 16px;">TeacherMada 🎓</div>
+                                  <div style="font-size: 10px; color: #94a3b8; font-weight: bold;">Votre Professeur</div>
+                              </div>
+                           </div>
+                           <div style="font-size: 12px; color: #94a3b8; font-weight: 500;">
+                              www.teachermada.mg
+                           </div>
+                        </div>
+                      `;
+                      node.appendChild(footer);
+                  }
+              }
+          });
+          
           const link = document.createElement('a');
           link.download = `lesson-${msgId}.png`;
           link.href = canvas.toDataURL("image/png");
@@ -1067,8 +1095,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             return (
                 <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
                     <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 mx-2 shadow-sm ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border'}`}>
-                            {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <span className="text-lg">🎓</span>}
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 mx-2 shadow-sm ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1'}`}>
+                            {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <img src="/logo.png" className="w-full h-full object-contain" alt="Teacher" />}
                         </div>
                         <div 
                             id={`msg-content-${msg.id}`} 
@@ -1108,7 +1136,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         })}
         {(isLoading || isAnalyzing) && (
              <div className="flex justify-start animate-fade-in">
-                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2"><span className="text-lg">🎓</span></div>
+                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1"><img src="/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
                  <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border shadow-sm flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin text-indigo-500"/> <span className="text-sm text-slate-500">TeacherMada écrit...</span>
                  </div>

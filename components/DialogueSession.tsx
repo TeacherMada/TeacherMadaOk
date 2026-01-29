@@ -103,7 +103,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
           setMessages(prev => [...prev, aiMsg]);
       } catch (e) {
           console.error(e);
-          notify("Erreur de connexion IA", 'error');
+          notify("Erreur de connexion", 'error');
       } finally {
           setIsLoading(false);
       }

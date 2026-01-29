@@ -1,6 +1,6 @@
 {
   "name": "TeacherMada",
-  "description": "L'assistant linguistique intelligent, puissant et élégant pour maîtriser les langues rapidement.",
+  "description": "Le professeur de langue personnel, puissant et élégant pour maîtriser les langues rapidement.",
   "requestFramePermissions": [
     "microphone"
   ]

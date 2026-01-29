@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
 import { storageService } from '../services/storageService';
-import { GraduationCap, ArrowRight, Sun, Moon, Mail, Lock, User, ArrowLeft } from 'lucide-react';
+import { GraduationCap, ArrowRight, Sun, Moon, Mail, Lock, User, ArrowLeft, HelpCircle } from 'lucide-react';
 
 interface AuthScreenProps {
   onAuthSuccess: (user: UserProfile) => void;
@@ -48,6 +48,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
     }, 1000);
   };
 
+  const handleForgotPassword = () => {
+      notify("Veuillez contacter l'administrateur TeacherMada sur Facebook ou par Mobile Money pour réinitialiser votre compte.", 'info');
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 transition-colors duration-300 relative">
        {/* Top Controls */}
@@ -72,8 +76,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
         <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-bl-full -z-0"></div>
         
         <div className="flex flex-col items-center justify-center mb-8 relative z-10">
-          <div className="bg-indigo-600 p-4 rounded-2xl shadow-lg mb-4 transform -rotate-3 hover:rotate-0 transition-transform">
-            <GraduationCap className="w-10 h-10 text-white" />
+          <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 p-2 rounded-2xl shadow-lg mb-4 transform -rotate-3 hover:rotate-0 transition-transform">
+            <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
           </div>
           <h2 className="text-sm font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest mb-1">TeacherMada</h2>
           <h1 className="text-2xl font-bold text-slate-800 dark:text-white text-center">
@@ -172,6 +176,14 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
             )}
           </button>
         </form>
+
+        {!isRegistering && (
+             <div className="mt-4 text-center">
+                 <button onClick={handleForgotPassword} className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center justify-center gap-1 mx-auto">
+                     <HelpCircle className="w-3 h-3"/> Mot de passe oublié ?
+                 </button>
+             </div>
+        )}
         
         <div className="mt-8 text-center border-t border-slate-100 dark:border-slate-800 pt-4">
             <p className="text-xs text-slate-400 dark:text-slate-500">

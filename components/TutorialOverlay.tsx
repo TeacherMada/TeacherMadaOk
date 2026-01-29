@@ -37,7 +37,7 @@ const TutorialOverlay: React.FC<TutorialOverlayProps> = ({ onComplete }) => {
     {
       targetId: 'input-area',
       title: "Zone de Chat",
-      text: "Tapez votre message ou utilisez le micro pour parler. L'IA vous corrigera.",
+      text: "Tapez votre message ou utilisez le micro pour parler. Le professeur vous corrigera.",
       position: 'bottom-24 left-1/2 -translate-x-1/2'
     }
   ];

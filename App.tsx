@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import LandingPage from './components/LandingPage';
 import AuthScreen from './components/AuthScreen';
@@ -6,7 +5,7 @@ import Onboarding from './components/Onboarding';
 import ChatInterface from './components/ChatInterface';
 import SmartDashboard from './components/SmartDashboard';
 import AdminDashboard from './components/AdminDashboard';
-import { UserPreferences, ChatMessage, ExplanationLanguage, UserProfile } from './types';
+import { UserPreferences, ChatMessage, ExplanationLanguage, UserProfile, LearningMode } from './types';
 import { startChatSession, analyzeUserProgress, generateDailyChallenges } from './services/geminiService';
 import { storageService } from '../services/storageService';
 import { INITIAL_GREETING_FR, INITIAL_GREETING_MG } from './constants';
@@ -180,11 +179,11 @@ const App: React.FC = () => {
         setIsAnalyzing(true);
         try {
             const { newMemory, xpEarned, feedback } = await analyzeUserProgress(messages, user.aiMemory, user.id);
-            if (user.preferences?.mode === 'Course') handleUpdateChallengeProgress('lesson_complete');
+            if (user.preferences?.mode === LearningMode.Course) handleUpdateChallengeProgress('lesson_complete');
             const updatedUser: UserProfile = {
                 ...user,
                 aiMemory: newMemory,
-                stats: { ...user.stats, xp: user.stats.xp + xpEarned, lessonsCompleted: user.stats.lessonsCompleted + (user.preferences?.mode === 'Course' ? 1 : 0) },
+                stats: { ...user.stats, xp: user.stats.xp + xpEarned, lessonsCompleted: user.stats.lessonsCompleted + (user.preferences?.mode === LearningMode.Course ? 1 : 0) },
                 preferences: null
             };
             setUser(updatedUser);
