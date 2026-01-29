@@ -1,8 +1,17 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// Utilisation des clés fournies directement pour garantir le fonctionnement immédiat
-const SUPABASE_URL = (import.meta as any).env.VITE_SUPABASE_URL || 'https://parlmoragdqyrfzhdyqr.supabase.co';
-const SUPABASE_ANON_KEY = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBhcmxtb3JhZ2RxeXJmemhkeXFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0NzEzNjMsImV4cCI6MjA4NTA0NzM2M30.H_FE6XE3VzAUuQjoRthwkCGYLDw8aAXUxLYrpXES8pE';
+// En production, ces variables DOIVENT être définies dans l'interface de Render/Vercel/Netlify.
+// Ne jamais laisser de clés "en dur" dans le code pour la sécurité finale.
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
+const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn("⚠️ ATTENTION: Les clés Supabase (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY) sont manquantes.");
+}
+
+export const supabase = createClient(
+    supabaseUrl || '', 
+    supabaseAnonKey || ''
+);

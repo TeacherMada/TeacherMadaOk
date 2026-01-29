@@ -1,54 +1,51 @@
 
-# 🎓 TeacherMada - Plateforme d'Apprentissage Hybride (Cloud-Connected)
+# 🎓 TeacherMada - Plateforme Hybride (Production Ready)
 
-TeacherMada est une application d'apprentissage des langues assistée par IA.
-Cette version est configurée en mode **Hybride Connecté**, utilisant Supabase comme source de vérité pour l'authentification et les données, tout en conservant une expérience utilisateur fluide.
-
----
-
-## 🏗️ Architecture Technique
-
-1.  **Frontend (React + Vite)** :
-    *   Hébergé sur Render (Static Site).
-    *   Communique directement avec Supabase pour synchroniser les profils et envoyer les demandes Admin.
-    *   Gère l'IA via Google Gemini API.
-2.  **Base de Données (Supabase)** :
-    *   Stocke les profils utilisateurs (`profiles`).
-    *   Gère les demandes de crédits/paiements (`admin_requests`).
-    *   Authentification "Douce" (Pseudo/Pass stocké, synchronisé).
+TeacherMada utilise une architecture **Serverless Hybride**. 
+Le Frontend communique directement avec Supabase pour la gestion des utilisateurs (Auth custom) et des données, garantissant une réactivité maximale et une synchronisation en ligne.
 
 ---
 
-## 🛠️ Étape 1 : Initialisation Base de Données (OBLIGATOIRE)
+## 🚀 État de la Connexion (Architecture)
 
-Pour que l'application fonctionne en ligne, exécutez ce SQL dans votre projet Supabase (SQL Editor).
+1.  **Frontend (Vite + React)** : Gère l'UI et la logique d'appel IA (Gemini).
+2.  **Base de Données (Supabase)** : Agit comme le véritable Backend pour :
+    *   L'authentification (Table `profiles`).
+    *   Les crédits et abonnements.
+    *   Le panel Admin et les demandes de paiement.
+
+---
+
+## 🛠️ Étape 1 : Base de Données (Supabase)
+
+Pour que le mode "En Ligne" fonctionne, exécutez ce script SQL dans l'éditeur SQL de Supabase.
 
 ```sql
--- 1. Extensions
-create extension if not exists "uuid-ossp";
-
--- 2. Table Profils (Source de vérité Utilisateurs)
+-- 1. Table Profils (Auth & Données)
 create table if not exists public.profiles (
   id text primary key,
   username text,
   email text,
   phone_number text,
-  password text, -- Hachage recommandé en prod réelle, ici texte pour mode "Simulé"
+  password text, -- Mode "Auth Simplifié"
   role text default 'user',
   credits int default 0,
   is_suspended boolean default false,
   preferences jsonb,
   stats jsonb,
   free_usage jsonb,
-  created_at bigint
+  ai_memory text,
+  has_seen_tutorial boolean,
+  created_at bigint,
+  skills jsonb
 );
 
--- 3. Table Demandes Admin (Paiements, Support)
+-- 2. Table Demandes Admin
 create table if not exists public.admin_requests (
   id text primary key,
   user_id text,
   username text,
-  type text, -- 'credit', 'message', 'password_reset'
+  type text,
   amount int,
   message text,
   contact_info text,
@@ -56,38 +53,32 @@ create table if not exists public.admin_requests (
   created_at bigint
 );
 
--- 4. Sécurité RLS (Ouverte pour le mode Hybride Demo)
+-- 3. Sécurité (RLS - Ouvert pour le mode Hybride)
 alter table public.profiles enable row level security;
-create policy "Public Access Profiles" on public.profiles for all using (true);
+create policy "Enable all access for all users" on public.profiles for all using (true);
 
 alter table public.admin_requests enable row level security;
-create policy "Public Access Requests" on public.admin_requests for all using (true);
+create policy "Enable all access for all users" on public.admin_requests for all using (true);
 ```
 
 ---
 
-## 🚀 Déploiement Production (Render)
+## ☁️ Étape 2 : Variables d'Environnement (Render / Vercel)
 
-### Frontend (Static Site)
-1.  **Build Command** : `npm install && npm run build`
-2.  **Publish Directory** : `dist`
-3.  **Variables d'Environnement** :
-    *   `VITE_SUPABASE_URL` : Votre URL Supabase.
-    *   `VITE_SUPABASE_ANON_KEY` : Votre clé publique Supabase.
-    *   `VITE_GOOGLE_API_KEY` : Votre clé Gemini AI.
-4.  **Rewrite Rule** :
-    *   Source: `/*`
-    *   Destination: `/index.html`
-    *   Action: `Rewrite`
+Dans les paramètres de votre hébergeur (Render > Environment), ajoutez :
+
+| Clé | Valeur |
+| :--- | :--- |
+| `VITE_SUPABASE_URL` | Votre URL de projet Supabase (https://xyz.supabase.co) |
+| `VITE_SUPABASE_ANON_KEY` | Votre clé publique (anon) Supabase |
+| `VITE_GOOGLE_API_KEY` | Votre clé API Google Gemini |
 
 ---
 
-## ✅ Validation de la Connexion
+## ✅ Comment vérifier la connexion ?
 
-1.  Lancez l'app.
-2.  Créez un compte.
-3.  Vérifiez dans Supabase > Table `profiles` si la ligne apparaît.
-4.  Allez dans "Profil" > "Message Admin", envoyez une demande.
-5.  Vérifiez dans Supabase > Table `admin_requests`.
+1.  **Test Auth** : Créez un compte sur le site déployé. Allez dans Supabase > Table Editor > `profiles`. Si une nouvelle ligne apparaît, la connexion Frontend -> DB est **OK**.
+2.  **Test Admin** : Dans l'app, allez sur le profil > "Message Direct Admin" > Envoyez un message. Vérifiez la table `admin_requests`.
+3.  **Test IA** : Lancez un chat. Si Gemini répond, la clé API est correcte.
 
-*L'application est maintenant prête pour la production en ligne.*
+> **Note**: Le dossier `/backend` (Node.js) est optionnel dans cette configuration Serverless. L'application est entièrement fonctionnelle en déployant uniquement le Frontend (Static Site) connecté à Supabase.
