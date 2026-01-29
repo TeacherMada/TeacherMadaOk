@@ -5,6 +5,16 @@ Ce guide vous explique comment configurer Supabase et déployer sur Render sans 
 
 ---
 
+## 🎨 Identité Visuelle & Logo
+
+Le logo officiel de l'application est configuré pour être utilisé uniformément (Favicon, UI, En-têtes).
+
+*   **Chemin du fichier** : `/public/logo.png`
+*   **Usage** : Ce fichier est automatiquement référencé dans `index.html`, `metadata.json` et les composants React (`LandingPage`, `Navbar`, etc.).
+*   **Modification** : Pour changer le branding, remplacez simplement le fichier `logo.png` dans le dossier public par votre propre image (format PNG carré recommandé).
+
+---
+
 ## 🛠️ Étape 1 : Récupérer les Clés Supabase (Vital !)
 
 Pour connecter votre App à sa base de données, il faut les bonnes clés.
