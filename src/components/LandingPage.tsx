@@ -26,7 +26,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
           <div className="flex items-center gap-3 group cursor-pointer" onClick={onStart}>
              {/* Logo TeacherMada */}
              <div className="relative w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-xl group-hover:scale-105 transition-transform duration-300 overflow-hidden">
-                <img src="/logo.svg" alt="TeacherMada Logo" className="w-full h-full object-contain" />
+                <img 
+                    src="/logo.png" 
+                    onError={(e) => e.currentTarget.src = '/logo.svg'} 
+                    alt="TeacherMada Logo" 
+                    className="w-full h-full object-contain" 
+                />
              </div>
              <div className="flex flex-col">
                  <span className="text-xl md:text-2xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-indigo-700 dark:from-white dark:to-indigo-300 leading-none">TeacherMada</span>
@@ -111,7 +116,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                     
                     {/* Robot Image */}
                     <div className="relative z-10 w-full h-full flex items-center justify-center animate-float">
-                         <img src="/logo.svg" alt="TeacherMada Mascot" className="w-full h-full object-contain drop-shadow-2xl" />
+                         <img 
+                            src="/logo.png" 
+                            onError={(e) => e.currentTarget.src = '/logo.svg'}
+                            alt="TeacherMada Mascot" 
+                            className="w-full h-full object-contain drop-shadow-2xl" 
+                         />
                          
                          {/* Chat Bubble 1 */}
                          <div className="absolute -top-6 -right-12 bg-white dark:bg-slate-800 p-3 rounded-2xl rounded-bl-none shadow-xl border border-slate-100 dark:border-slate-700 animate-bounce-slight">
@@ -258,7 +268,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden">
-                   <img src="/logo.svg" alt="TeacherMada" className="w-full h-full object-cover" />
+                   <img 
+                        src="/logo.png" 
+                        onError={(e) => e.currentTarget.src = '/logo.svg'}
+                        alt="TeacherMada" 
+                        className="w-full h-full object-cover" 
+                   />
                 </div>
                 <div className="flex flex-col">
                     <span className="font-bold text-slate-900 dark:text-white tracking-tight leading-none">TeacherMada</span>

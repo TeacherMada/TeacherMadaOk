@@ -1099,7 +1099,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
                     <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                         <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 mx-2 shadow-sm ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1'}`}>
-                            {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <img src="/logo.svg" className="w-full h-full object-contain" alt="Teacher" />}
+                            {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <img src="/logo.png" onError={(e) => e.currentTarget.src = '/logo.svg'} className="w-full h-full object-contain" alt="Teacher" />}
                         </div>
                         <div 
                             id={`msg-content-${msg.id}`} 
@@ -1139,7 +1139,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         })}
         {(isLoading || isAnalyzing) && (
              <div className="flex justify-start animate-fade-in">
-                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1"><img src="/logo.svg" className="w-full h-full object-contain" alt="Teacher" /></div>
+                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1"><img src="/logo.png" onError={(e) => e.currentTarget.src = '/logo.svg'} className="w-full h-full object-contain" alt="Teacher" /></div>
                  <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border shadow-sm flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin text-indigo-500"/> <span className="text-sm text-slate-500">TeacherMada écrit...</span>
                  </div>
