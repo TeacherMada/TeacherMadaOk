@@ -16,6 +16,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   const [refMessage, setRefMessage] = useState('');
   const [isSent, setIsSent] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(false);
   
   const credits = Math.floor(amount / CREDIT_PRICE_ARIARY);
   
@@ -23,23 +24,30 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   const cleanUsername = user.username.replace(/[^a-zA-Z0-9]/g, ''); 
   const motifCode = `Crd_${cleanUsername}`.substring(0, 20); 
 
-  const handleSendRequest = () => {
+  const handleSendRequest = async () => {
       if (!refMessage.trim()) return;
+      setLoading(true);
       
       const creditRequest = Math.floor(amount / CREDIT_PRICE_ARIARY);
       
-      storageService.sendAdminRequest(
-          user.id, // Use the real ID for the system
-          user.username, // Display name
-          'credit',
-          creditRequest,
-          `Paiement Mobile Money. Réf/Détails: ${refMessage}`
-      );
-      
-      setIsSent(true);
-      setTimeout(() => {
-          onClose();
-      }, 2500);
+      try {
+          await storageService.sendAdminRequest(
+              user.id, // Use the real ID for the system
+              user.username, // Display name
+              'credit',
+              creditRequest,
+              `Paiement Mobile Money. Réf/Détails: ${refMessage}`
+          );
+          
+          setIsSent(true);
+          setTimeout(() => {
+              onClose();
+          }, 2500);
+      } catch (e) {
+          console.error("Payment Request Error", e);
+      } finally {
+          setLoading(false);
+      }
   };
 
   const handleCopyMotif = () => {
@@ -183,8 +191,8 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                 <button onClick={() => setView('info')} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
                                     Retour
                                 </button>
-                                <button onClick={handleSendRequest} disabled={!refMessage.trim()} className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
-                                    Envoyer la demande <Send className="w-4 h-4" />
+                                <button onClick={handleSendRequest} disabled={!refMessage.trim() || loading} className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+                                    {loading ? 'Envoi...' : 'Envoyer la demande'} <Send className="w-4 h-4" />
                                 </button>
                             </div>
                         </>

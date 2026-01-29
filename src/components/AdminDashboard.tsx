@@ -19,6 +19,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
   const [search, setSearch] = useState('');
   const [settings, setSettings] = useState<SystemSettings>(storageService.getSystemSettings());
   const [newApiKey, setNewApiKey] = useState('');
+  const [loading, setLoading] = useState(false);
 
   // Manual Credit Input State (Key: userId, Value: amount string)
   const [manualCreditInputs, setManualCreditInputs] = useState<Record<string, string>>({});
@@ -29,22 +30,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
     refreshData();
   }, []);
 
-  const refreshData = () => {
-    setUsers(storageService.getAllUsers());
-    setRequests(storageService.getAdminRequests().sort((a, b) => b.createdAt - a.createdAt));
+  const refreshData = async () => {
+    setLoading(true);
+    try {
+        const [fetchedUsers, fetchedRequests] = await Promise.all([
+            storageService.getAllUsers(),
+            storageService.getAdminRequests()
+        ]);
+        setUsers(fetchedUsers);
+        setRequests(fetchedRequests);
+    } catch (e) {
+        notify("Erreur lors du chargement des données.", 'error');
+    } finally {
+        setLoading(false);
+    }
   };
 
   const handleManualCreditChange = (userId: string, val: string) => {
       setManualCreditInputs(prev => ({ ...prev, [userId]: val }));
   };
 
-  const executeManualCredit = (userId: string, multiplier: number) => {
+  const executeManualCredit = async (userId: string, multiplier: number) => {
       const val = parseInt(manualCreditInputs[userId] || '0');
       if (!isNaN(val) && val !== 0) {
           const finalAmt = val * multiplier;
-          storageService.addCredits(userId, finalAmt);
+          await storageService.addCredits(userId, finalAmt);
           setManualCreditInputs(prev => ({ ...prev, [userId]: '' })); // Reset
-          refreshData();
+          await refreshData();
           notify(`Crédits ${finalAmt > 0 ? 'ajoutés' : 'retirés'}: ${finalAmt}`, 'success');
       }
   };
@@ -65,13 +77,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
   const toggleSuspend = (user: UserProfile) => {
       const updated = { ...user, isSuspended: !user.isSuspended };
       storageService.saveUserProfile(updated);
-      refreshData();
+      // Optimistic update locally for immediate UI feedback
+      setUsers(prev => prev.map(u => u.id === user.id ? updated : u));
       notify(`Utilisateur ${updated.isSuspended ? 'suspendu' : 'réactivé'}.`, 'info');
   };
 
-  const handleResolveRequest = (reqId: string, status: 'approved' | 'rejected') => {
-      storageService.resolveRequest(reqId, status);
-      refreshData();
+  const handleResolveRequest = async (reqId: string, status: 'approved' | 'rejected') => {
+      await storageService.resolveRequest(reqId, status);
+      await refreshData();
       notify(`Demande ${status === 'approved' ? 'approuvée' : 'rejetée'}.`, status === 'approved' ? 'success' : 'info');
   };
 
@@ -105,12 +118,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
                 </div>
                 <div>
                     <h1 className="text-xl md:text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">ADMINISTRATEUR</h1>
-                    <p className="text-xs md:text-sm text-slate-500">Master Control Panel</p>
+                    <p className="text-xs md:text-sm text-slate-500">Master Control Panel {loading && "(Chargement...)"}</p>
                 </div>
             </div>
             <div className="flex flex-wrap gap-2 w-full md:w-auto">
                 <button onClick={refreshData} className="p-2.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors">
-                    <RefreshCw className="w-5 h-5 text-slate-500" />
+                    <RefreshCw className={`w-5 h-5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
                 </button>
                 <button onClick={onBack} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 font-bold transition-colors">
                     <MessageCircle className="w-4 h-4" /> Mode Chat

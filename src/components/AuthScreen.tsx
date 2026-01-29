@@ -29,7 +29,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
   });
   const [forgotLoading, setForgotLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!username.trim() && isRegistering) {
@@ -49,25 +49,28 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
 
     setIsLoading(true);
     
-    setTimeout(() => {
+    try {
         let result;
         if (isRegistering) {
-            result = storageService.register(username, password, email, phoneNumber);
+            result = await storageService.register(username, password, email, phoneNumber);
         } else {
-            result = storageService.login(username, password);
+            result = await storageService.login(username, password);
         }
-
-        setIsLoading(false);
 
         if (result.success && result.user) {
             onAuthSuccess(result.user);
         } else {
             notify(result.error || "Une petite erreur est survenue.", 'error');
         }
-    }, 800);
+    } catch (error) {
+        console.error(error);
+        notify("Erreur de connexion serveur.", 'error');
+    } finally {
+        setIsLoading(false);
+    }
   };
 
-  const handleForgotPasswordRequest = () => {
+  const handleForgotPasswordRequest = async () => {
       if (!forgotData.username.trim() && !forgotData.phone.trim() && !forgotData.email.trim()) {
           notify("Remplissez au moins un champ pour qu'on vous retrouve.", 'error');
           return;
@@ -77,8 +80,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
       
       const contactSummary = `User: ${forgotData.username || 'N/A'}, Tél: ${forgotData.phone || 'N/A'}, Email: ${forgotData.email || 'N/A'}`;
       
-      setTimeout(() => {
-          storageService.sendAdminRequest(
+      try {
+          await storageService.sendAdminRequest(
               '', 
               forgotData.username || 'Utilisateur Inconnu',
               'password_reset',
@@ -86,11 +89,14 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
               `Demande réinitialisation MDP.\nDonnées : ${contactSummary}`,
               forgotData.email || forgotData.phone || 'Aucun contact direct'
           );
-          setForgotLoading(false);
           setShowForgotModal(false);
           setForgotData({ username: '', phone: '', email: '' });
-          notify("Demande reçue ! L'équipe vous enverra un nouveau code par message.", 'success');
-      }, 1000);
+          notify("Demande reçue ! L'équipe vous contactera.", 'success');
+      } catch (e) {
+          notify("Erreur d'envoi. Vérifiez votre connexion.", 'error');
+      } finally {
+          setForgotLoading(false);
+      }
   };
 
   return (
