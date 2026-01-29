@@ -4,7 +4,7 @@ import { UserProfile, ChatMessage, UserPreferences, SystemSettings, AdminRequest
 
 // L'URL de votre backend déployé sur Render (ex: https://teachermada-api.onrender.com)
 // Pour le dév local : http://localhost:3000
-const API_URL = 'http://localhost:3000'; 
+const API_URL = 'https://teachermada-api.onrender.com'; 
 
 export const storageService = {
   
