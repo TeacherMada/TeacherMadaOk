@@ -1,6 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star } from 'lucide-react';
+import LiveChatDemo from './LiveChatDemo';
 
 interface LandingPageProps {
   onStart: () => void;
@@ -130,7 +131,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                          {/* Chat Bubble 2 */}
                          <div className="absolute bottom-10 -left-16 bg-indigo-600 text-white p-4 rounded-2xl rounded-tr-none shadow-xl shadow-indigo-500/30 flex items-center gap-2 animate-bounce-slight delay-500 z-20">
                              <MessageCircle className="w-5 h-5" />
-                             <span className="font-bold text-sm">Salama e 👋</span>
+                             <span className="font-bold text-sm">Prêt à apprendre ?</span>
                          </div>
                     </div>
                 </div>
@@ -191,17 +192,17 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
             <div className="flex flex-col lg:flex-row items-center gap-16">
                 <div className="flex-1 space-y-8">
                     <h2 className="text-4xl md:text-5xl font-black leading-tight text-slate-900 dark:text-white">
-                        Des leçons claires.<br/>
-                        <span className="text-indigo-600 dark:text-indigo-400">Visuelles & Efficaces.</span>
+                        Rejoignez des milliers<br/>
+                        <span className="text-indigo-600 dark:text-indigo-400">d'apprenants actifs.</span>
                     </h2>
                     <p className="text-lg text-slate-600 dark:text-slate-400 leading-relaxed">
-                        Regardez comment TeacherMada structure l'information. Tout est fait pour faciliter la mémorisation visuelle et auditive.
+                        Regardez comment la communauté TeacherMada progresse chaque jour grâce à des exercices interactifs, des jeux de rôle et des corrections instantanées.
                     </p>
                     <ul className="space-y-4 pt-4">
-                        <CheckItem text="Titre clair et Objectif précis" />
-                        <CheckItem text="Vocabulaire avec Audio intégré" />
-                        <CheckItem text="Mise en situation pratique immédiate" />
-                        <CheckItem text="Export en image pour réviser hors-ligne" />
+                        <CheckItem text="Corrections IA en temps réel" />
+                        <CheckItem text="Discussions vocales fluides" />
+                        <CheckItem text="Scénarios de la vie réelle (Marché, Voyage...)" />
+                        <CheckItem text="Suivi de progression détaillé (A1 vers C2)" />
                     </ul>
                     <button onClick={onStart} className="px-8 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-xl hover:scale-105 transition-transform shadow-lg">
                         Essayer une leçon
@@ -209,55 +210,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                 </div>
                 
                 {/* Visual Cards representing the lessons */}
-                <div className="flex-1 relative w-full flex justify-center perspective-1000">
-                    <div className="relative transform rotate-y-12 rotate-z-2 hover:rotate-0 transition-all duration-700 cursor-pointer group">
-                        {/* Fake Lesson Card UI */}
-                        <div className="w-[320px] md:w-[380px] bg-slate-900 text-white rounded-3xl p-6 shadow-2xl border border-slate-700 relative overflow-hidden">
-                            {/* Decorative Header */}
-                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-400 to-emerald-600"></div>
-                            
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                                <h3 className="font-bold text-lg text-indigo-300">LEÇON 2 : Se Présenter</h3>
-                            </div>
-
-                            {/* Section 1 */}
-                            <div className="mb-4 space-y-2">
-                                <div className="flex items-center gap-2 text-rose-400 font-bold text-sm">
-                                    <TargetIcon className="w-4 h-4" /> Tanjona (Objectif)
-                                </div>
-                                <p className="text-slate-300 text-xs leading-relaxed">
-                                    Apprendre à dire son nom et son origine en Mandarin de façon simple.
-                                </p>
-                            </div>
-
-                            {/* Section 2 */}
-                            <div className="mb-4 p-3 bg-slate-800 rounded-xl border border-slate-700">
-                                <div className="flex items-center gap-2 text-blue-400 font-bold text-sm mb-2">
-                                    <Layers className="w-4 h-4" /> Vocabulaire
-                                </div>
-                                <div className="space-y-2">
-                                    <VocabItem word="我 (wǒ)" trans="Izaho" />
-                                    <VocabItem word="叫 (jiào)" trans="S'appeler" />
-                                    <VocabItem word="名字 (míngzi)" trans="Anarana" />
-                                </div>
-                            </div>
-
-                             {/* Section 3 */}
-                            <div className="p-3 bg-indigo-900/30 rounded-xl border border-indigo-500/30">
-                                <div className="flex items-center gap-2 text-yellow-400 font-bold text-sm mb-1">
-                                    <Star className="w-4 h-4" /> Pratique
-                                </div>
-                                <p className="text-xs text-indigo-200">Comment diriez-vous "Je m'appelle Alex" ?</p>
-                            </div>
-                        </div>
-
-                        {/* Floating Badge */}
-                        <div className="absolute -top-6 -right-6 bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-xl flex flex-col items-center gap-1 animate-bounce-slight">
-                            <span className="text-2xl font-black text-indigo-600">A1</span>
-                            <span className="text-[10px] font-bold uppercase text-slate-500">Niveau</span>
-                        </div>
-                    </div>
+                <div className="flex-1 relative w-full flex justify-center">
+                    <LiveChatDemo />
                 </div>
             </div>
          </div>
