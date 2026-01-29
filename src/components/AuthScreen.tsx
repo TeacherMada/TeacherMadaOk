@@ -92,8 +92,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
         <div className="flex flex-col items-center justify-center mb-8 relative z-10">
           <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 p-2 rounded-2xl shadow-lg mb-4 transform -rotate-3 hover:rotate-0 transition-transform">
             <img 
-                src="/logo.png" 
-                onError={(e) => e.currentTarget.src = '/logo.svg'}
+                src="https://i.ibb.co/B2XmRwmJ/logo.png" 
+                onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }}
                 alt="Logo" 
                 className="w-full h-full object-contain" 
             />

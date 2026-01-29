@@ -27,8 +27,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
              {/* Logo TeacherMada */}
              <div className="relative w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-xl group-hover:scale-105 transition-transform duration-300 overflow-hidden">
                 <img 
-                    src="/logo.png" 
-                    onError={(e) => e.currentTarget.src = '/logo.svg'} 
+                    src="https://i.ibb.co/B2XmRwmJ/logo.png" 
+                    onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }}
                     alt="TeacherMada Logo" 
                     className="w-full h-full object-contain" 
                 />
@@ -117,8 +117,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                     {/* Robot Image */}
                     <div className="relative z-10 w-full h-full flex items-center justify-center animate-float">
                          <img 
-                            src="/logo.png" 
-                            onError={(e) => e.currentTarget.src = '/logo.svg'}
+                            src="https://i.ibb.co/B2XmRwmJ/logo.png" 
+                            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }}
                             alt="TeacherMada Mascot" 
                             className="w-full h-full object-contain drop-shadow-2xl" 
                          />
@@ -269,8 +269,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
             <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden">
                    <img 
-                        src="/logo.png" 
-                        onError={(e) => e.currentTarget.src = '/logo.svg'}
+                        src="https://i.ibb.co/B2XmRwmJ/logo.png" 
+                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }}
                         alt="TeacherMada" 
                         className="w-full h-full object-cover" 
                    />

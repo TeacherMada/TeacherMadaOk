@@ -56,8 +56,8 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
         <div className="flex items-center justify-center mb-8">
           <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-900/20 p-2 rounded-xl shadow-lg">
             <img 
-                src="/logo.png" 
-                onError={(e) => e.currentTarget.src = '/logo.svg'}
+                src="https://i.ibb.co/B2XmRwmJ/logo.png" 
+                onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }}
                 alt="Logo" 
                 className="w-full h-full object-contain" 
             />
