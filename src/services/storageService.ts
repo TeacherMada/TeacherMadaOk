@@ -1,3 +1,4 @@
+
 import { supabase } from '../lib/supabase';
 import { UserProfile, ChatMessage, UserPreferences, SystemSettings, AdminRequest } from "../types";
 
@@ -77,7 +78,7 @@ export const storageService = {
       // Géré par le backend
   },
 
-  getChatHistory: async (userId: string): Promise<ChatMessage[]> => {
+  getChatHistory: async (userId: string, language?: string): Promise<ChatMessage[]> => {
       const { data, error } = await supabase
         .from('chat_history')
         .select('*')
