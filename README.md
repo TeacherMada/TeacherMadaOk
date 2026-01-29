@@ -1,32 +1,38 @@
 
-# 🎓 TeacherMada - Guide de Déploiement & Initialisation
+# 🎓 TeacherMada - Plateforme d'Apprentissage Hybride
 
-Ce guide couvre le déploiement complet, l'initialisation de la base de données et les commandes manuelles pour valider la connexion entre le Frontend et le Backend.
-
----
-
-## 🚀 État de l'Intégration (Architecture)
-
-*   **Frontend** : React + Vite + Tailwind (Gère l'UI, l'IA Gemini via API, et le stockage local des conversations).
-*   **Backend** : Node.js + Express (Gère la validation des paiements et l'administration sécurisée via Supabase Admin).
-*   **Base de Données** : Supabase (PostgreSQL).
-
-> **Note importante** : Par défaut, l'application Frontend est configurée pour fonctionner en mode "Hybride" (Auth simulée + Stockage Local) pour garantir une démonstration instantanée sans bloquer l'utilisateur. Le Backend est requis pour la synchronisation multi-appareils et la validation réelle des paiements.
+Bienvenue dans le guide technique de TeacherMada. Cette application est conçue pour fonctionner en mode **Hybride** (Authentification locale simulée + Backend de validation) afin de garantir une expérience fluide même avec une connectivité limitée, tout en permettant une gestion sécurisée des crédits via un Backend.
 
 ---
 
-## 🛠️ Étape 1 : Initialisation Base de Données (MANUEL REQUIS)
+## 🏗️ Architecture Hybride
 
-Pour que le backend fonctionne, vous devez créer les tables dans Supabase.
-Allez dans **Supabase > SQL Editor**, cliquez sur **New Query**, collez le code ci-dessous et cliquez sur **RUN**.
+1.  **Frontend (React + Vite)** :
+    *   Gère toute l'interface utilisateur, l'authentification locale (stockage navigateur), et l'interaction directe avec l'IA Gemini.
+    *   **Pourquoi ?** Pour que l'élève puisse commencer à apprendre immédiatement sans attendre une validation serveur complexe.
+2.  **Backend (Node.js + Supabase)** :
+    *   Sert de "Source de Vérité" pour valider les paiements réels et synchroniser les données critiques si l'utilisateur change d'appareil.
+    *   Gère le panneau administrateur sécurisé.
+
+---
+
+## 🛠️ Étape 1 : Initialisation Base de Données (OBLIGATOIRE)
+
+Pour que le backend et le système de crédits fonctionnent, vous devez initialiser la structure de données dans Supabase.
+
+1.  Connectez-vous à votre projet **Supabase**.
+2.  Allez dans **SQL Editor**.
+3.  Créez un **New Query**.
+4.  Collez et exécutez le script suivant :
 
 ```sql
--- 1. Activer les extensions
+-- 1. Activation des extensions nécessaires
 create extension if not exists "uuid-ossp";
 
--- 2. Table des Profils Utilisateurs (Liée à Supabase Auth si activé, ou gestion custom)
-create table public.profiles (
-  id text primary key, -- On utilise text pour supporter les IDs locaux ou UUID
+-- 2. Table des Profils Utilisateurs
+-- Cette table stocke les infos publiques et les crédits validés par l'admin
+create table if not exists public.profiles (
+  id text primary key, -- Peut être un UUID ou un identifiant local synchronisé
   username text,
   email text,
   phone_number text,
@@ -39,10 +45,10 @@ create table public.profiles (
   free_usage jsonb
 );
 
--- 3. Table des Demandes Admin (Paiements, Messages)
-create table public.admin_requests (
+-- 3. Table des Demandes Administratives (Paiements, Support, Reset MDP)
+create table if not exists public.admin_requests (
   id text primary key,
-  user_id text references public.profiles(id),
+  user_id text, -- Référence libre pour supporter les utilisateurs non-sync
   username text,
   type text, -- 'credit', 'message', 'password_reset'
   amount int,
@@ -52,84 +58,83 @@ create table public.admin_requests (
   created_at bigint
 );
 
--- 4. Table d'Historique de Chat (Pour synchro future)
-create table public.chat_history (
+-- 4. Table d'Historique de Chat (Pour sauvegarde cloud optionnelle)
+create table if not exists public.chat_history (
   id uuid default uuid_generate_v4() primary key,
-  user_id text references public.profiles(id),
+  user_id text,
   role text,
   text text,
   timestamp bigint
 );
 
--- 5. Activer la sécurité (RLS) - Optionnel pour le démarrage rapide mais recommandé
-alter table profiles enable row level security;
-create policy "Public profiles are viewable by everyone." on profiles for select using ( true );
+-- 5. Sécurité (Row Level Security) - Permettre l'accès public pour le mode Hybride
+alter table public.profiles enable row level security;
+create policy "Public profiles access" on public.profiles for select using (true);
+create policy "Public profiles insert" on public.profiles for insert with check (true);
+create policy "Public profiles update" on public.profiles for update using (true);
+
+alter table public.admin_requests enable row level security;
+create policy "Public requests access" on public.admin_requests for select using (true);
+create policy "Public requests insert" on public.admin_requests for insert with check (true);
+create policy "Public requests update" on public.admin_requests for update using (true);
 ```
 
 ---
 
-## 💻 Étape 2 : Commandes Manuelles (Local)
+## 💻 Étape 2 : Commandes Manuelles (Local & Prod)
 
-Pour tester l'application sur votre machine avant de déployer.
-
-### 1. Démarrer le Backend
-Ouvrez un terminal dans le dossier racine :
+### 1. Démarrer le Backend (API & Admin Logic)
+Dans un terminal, naviguez vers le dossier `backend` :
 
 ```bash
 cd backend
 npm install
-# Créez un fichier .env dans /backend avec :
-# SUPABASE_URL=votre_url
-# SUPABASE_SERVICE_ROLE_KEY=votre_cle_service_role
+# Créez un fichier .env avec :
+# SUPABASE_URL=votre_url_supabase
+# SUPABASE_SERVICE_ROLE_KEY=votre_cle_secrete_service_role
 # GOOGLE_API_KEY=votre_cle_gemini
 node server.js
 ```
-*Le serveur démarrera sur le port 3000.*
+*Le serveur écoutera sur le port défini (ex: 3000).*
 
-### 2. Démarrer le Frontend
-Ouvrez un **deuxième** terminal dans le dossier racine :
+### 2. Démarrer le Frontend (App Client)
+Dans un **autre** terminal, à la racine du projet :
 
 ```bash
 npm install
 # Créez un fichier .env à la racine avec :
-# VITE_SUPABASE_URL=votre_url
-# VITE_SUPABASE_ANON_KEY=votre_cle_anon
+# VITE_SUPABASE_URL=votre_url_supabase
+# VITE_SUPABASE_ANON_KEY=votre_cle_publique_anon
 # VITE_GOOGLE_API_KEY=votre_cle_gemini
-# VITE_API_URL=http://localhost:3000
+# VITE_API_URL=http://localhost:3000 (ou l'URL de production Render)
 npm run dev
 ```
 *L'application sera accessible sur `http://localhost:5173`.*
 
 ---
 
-## ☁️ Étape 3 : Déploiement Production (Render)
+## ✅ Checklist de Validation (Connexion Frontend/Backend)
 
-### Backend (Web Service)
-1.  Command de build : `npm install`
-2.  Command de start : `node server.js`
-3.  **Variables d'Env** : `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_API_KEY`.
+Pour vous assurer que tout communique correctement :
 
-### Frontend (Static Site)
-1.  Command de build : `npm install && npm run build`
-2.  Dossier de publication : `dist`
-3.  **Variables d'Env** : `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_GOOGLE_API_KEY`, `VITE_API_URL` (L'URL de votre backend Render).
-4.  **Règle de Réécriture (Rewrite Rule)** :
-    *   Source : `/*`
-    *   Destination : `/index.html`
-    *   Action : `Rewrite`
+*   [ ] **Base de Données** : Les tables `profiles` et `admin_requests` existent dans Supabase.
+*   [ ] **Env Variables** :
+    *   Frontend : `VITE_API_URL` pointe vers le bon backend.
+    *   Backend : `SUPABASE_SERVICE_ROLE_KEY` est défini (nécessaire pour écrire les crédits).
+*   [ ] **Test Admin** :
+    1.  Ouvrez l'app (Frontend).
+    2.  Allez dans "Profil" -> "Message Direct Admin".
+    3.  Envoyez une demande.
+    4.  Vérifiez dans la table Supabase `admin_requests` si une nouvelle ligne apparaît. Si oui, la connexion est valide.
+
+## 🚀 Déploiement Production (Render.com)
+
+1.  **Backend** : Déployez le dossier `/backend` comme un **Web Service**. Ajoutez les variables d'environnement (`SUPABASE_...`).
+2.  **Frontend** : Déployez la racine comme un **Static Site**.
+    *   Build Command: `npm install && npm run build`
+    *   Publish Directory: `dist`
+    *   Add Environment Variables: `VITE_API_URL` (URL de votre service backend Render), `VITE_GOOGLE_API_KEY`, etc.
+    *   **Rewrite Rule** : Source `/*`, Destination `/index.html`, Action `Rewrite`.
 
 ---
-
-## ✅ Checklist de Validation
-
-*   [ ] Le fichier `.env` du frontend contient `VITE_GOOGLE_API_KEY`.
-*   [ ] Le fichier `.env` du backend contient `SUPABASE_SERVICE_ROLE_KEY`.
-*   [ ] Les tables SQL ont été créées dans Supabase via l'éditeur SQL.
-*   [ ] Le logo est présent dans `/public/logo.png`.
-
-## 🎨 Personnalisation
-
-*   **Logo** : Remplacez `/public/logo.png`.
-*   **Nom** : Modifiez `metadata.json` et `index.html`.
-*   **Couleurs** : `tailwind.config.js` (déjà configuré pour le thème Indigo/Slate).
-
+*TeacherMada - L'excellence pédagogique accessible à tous.*
