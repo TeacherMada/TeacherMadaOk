@@ -1,21 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// En Vite, on utilise import.meta.env.VITE_...
+// Si les variables ne sont pas définies, on met une chaîne vide pour éviter le crash immédiat, 
+// mais l'app affichera une erreur de connexion plus tard.
 
-// Log pour le débogage en prod (visible dans la console du navigateur)
-console.log("Supabase Init:", { 
-  urlExists: !!SUPABASE_URL, 
-  keyExists: !!SUPABASE_ANON_KEY 
-});
+// Fix: Cast import.meta to any to avoid TypeScript error 'Property env does not exist on type ImportMeta'
+const SUPABASE_URL = (import.meta as any).env.VITE_SUPABASE_URL || '';
+// Fix: Cast import.meta to any to avoid TypeScript error 'Property env does not exist on type ImportMeta'
+const SUPABASE_ANON_KEY = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error("ERREUR CRITIQUE: VITE_SUPABASE_URL ou VITE_SUPABASE_ANON_KEY manquant.");
+  console.error("ERREUR CRITIQUE: Les clés Supabase sont manquantes dans le fichier .env ou la config Render.");
 }
 
-// On exporte quand même le client pour éviter le crash total de l'import, 
-// mais les appels échoueront si l'URL est vide.
-export const supabase = createClient(
-  SUPABASE_URL || 'https://placeholder.supabase.co', 
-  SUPABASE_ANON_KEY || 'placeholder'
-);
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);

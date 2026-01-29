@@ -1,15 +1,18 @@
-
 import { supabase } from '../lib/supabase';
 import { UserProfile, ChatMessage, UserPreferences, SystemSettings, AdminRequest } from "../types";
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+// En Production (Render), cette variable doit être définie dans les "Environment Variables" du Frontend.
+// En Local, elle n'est pas nécessaire, on fallback sur localhost.
+// Fix: Cast import.meta to any to avoid TypeScript error 'Property env does not exist on type ImportMeta'
+const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:3000';
 
 const CURRENT_USER_KEY = 'smart_teacher_current_user_id';
 const SETTINGS_KEY = 'smart_teacher_system_settings';
 const REQUESTS_KEY = 'smart_teacher_admin_requests';
 
 const DEFAULT_SETTINGS: SystemSettings = {
-  apiKeys: [import.meta.env.VITE_GOOGLE_API_KEY || ''],
+  // Fix: Cast import.meta to any to avoid TypeScript error 'Property env does not exist on type ImportMeta'
+  apiKeys: [(import.meta as any).env.VITE_GOOGLE_API_KEY || ''], // Fallback sécurisé
   activeModel: 'gemini-3-flash-preview',
   adminContact: {
     telma: "034 93 102 68",
@@ -78,7 +81,7 @@ export const storageService = {
       // Géré par le backend
   },
 
-  getChatHistory: async (userId: string, language?: string): Promise<ChatMessage[]> => {
+  getChatHistory: async (userId: string): Promise<ChatMessage[]> => {
       const { data, error } = await supabase
         .from('chat_history')
         .select('*')
@@ -137,6 +140,7 @@ export const storageService = {
   },
 
   updateSystemSettings: (settings: SystemSettings) => {
+      // Localstorage fallback pour settings
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   },
   
@@ -173,7 +177,7 @@ export const storageService = {
           body: JSON.stringify({ requestId: id, status })
       });
   },
-  login: (i:string, p:string) => ({success:false}), 
-  register: (u:string, p:string) => ({success:false}), 
+  login: (i:string, p:string) => ({success:false}), // Obsolète
+  register: (u:string, p:string) => ({success:false}), // Obsolète
   markTutorialSeen: (uid:string) => {}
 };
