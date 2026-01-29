@@ -1,5 +1,6 @@
+
 import React, { useEffect, useState } from 'react';
-import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain } from 'lucide-react';
+import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target } from 'lucide-react';
 import LiveChatDemo from './LiveChatDemo';
 
 interface LandingPageProps {
@@ -103,7 +104,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                 
                 <p className="text-lg md:text-xl text-slate-600 dark:text-slate-400 mb-8 max-w-2xl mx-auto lg:mx-0 leading-relaxed font-medium animate-fade-in-up delay-200">
                     Imaginez-vous parler Chinois, Anglais ou Allemand avec <span className="text-indigo-600 dark:text-indigo-400 font-bold">confiance dès le premier jour</span>. <br className="hidden md:block"/> 
-                    TeacherMada est votre professeur IA personnel : disponible 24/7, patient, et incroyablement efficace.
+                    TeacherMada est votre professeur personnel : disponible 24/7, patient, et incroyablement efficace.
                 </p>
                 
                 <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start items-center animate-fade-in-up delay-300">
@@ -155,45 +156,45 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
         </div>
       </header>
 
-      {/* Languages Grid */}
+      {/* Languages Grid - Clickable */}
       <section className="py-12 bg-white dark:bg-[#0F1422] border-y border-slate-100 dark:border-slate-800/50">
           <div className="max-w-7xl mx-auto px-6">
-              <p className="text-center text-sm font-bold text-slate-400 uppercase tracking-widest mb-8">Langues Disponibles</p>
-              <div className="flex flex-wrap justify-center gap-4 md:gap-8 opacity-80">
-                  <LanguageBadge flag="🇫🇷" name="Français" />
-                  <LanguageBadge flag="🇬🇧" name="Anglais" />
-                  <LanguageBadge flag="🇨🇳" name="Mandarin" />
-                  <LanguageBadge flag="🇪🇸" name="Espagnol" />
-                  <LanguageBadge flag="🇩🇪" name="Allemand" />
+              <p className="text-center text-sm font-bold text-slate-400 uppercase tracking-widest mb-8">Choisissez votre langue</p>
+              <div className="flex flex-wrap justify-center gap-4 md:gap-8">
+                  <LanguageBadge flag="🇫🇷" name="Français" onClick={onStart} />
+                  <LanguageBadge flag="🇬🇧" name="Anglais" onClick={onStart} />
+                  <LanguageBadge flag="🇨🇳" name="Mandarin" onClick={onStart} />
+                  <LanguageBadge flag="🇪🇸" name="Espagnol" onClick={onStart} />
+                  <LanguageBadge flag="🇩🇪" name="Allemand" onClick={onStart} />
               </div>
           </div>
       </section>
 
-      {/* Philosophy Section */}
+      {/* Philosophy Section - SMART UPGRADE */}
       <section className="py-24 bg-slate-50 dark:bg-[#0B0F19] relative">
          <div className="max-w-7xl mx-auto px-6">
             <div className="text-center mb-16">
                 <h2 className="text-3xl md:text-4xl font-black mb-4 text-slate-900 dark:text-white">Pourquoi ça <span className="text-indigo-600 dark:text-indigo-400">Marche ?</span></h2>
-                <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">Nous ne vous donnons pas juste des mots. Nous vous donnons la confiance de parler.</p>
+                <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">Une approche scientifique et interactive pour des résultats concrets.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <ValueProp 
                     icon={<Brain className="w-6 h-6" />}
-                    title="Mémorisation Sans Effort"
-                    desc="Plus de listes ennuyeuses. Nos leçons structurent l'information pour que votre cerveau l'absorbe naturellement."
+                    title="Immersion Active"
+                    desc="Ne lisez pas seulement. Parlez. Notre technologie vous écoute et vous corrige dès la première seconde pour ancrer les mots."
                     delay={0}
                 />
                 <ValueProp 
-                    icon={<Mic className="w-6 h-6" />}
-                    title="Oral & Prononciation"
-                    desc="Entraînez-vous avec l'IA. Elle vous écoute, vous corrige et vous aide à perdre votre accent."
+                    icon={<Target className="w-6 h-6" />}
+                    title="Hyper-Personnalisation"
+                    desc="Votre cours s'adapte à vous. Débutant ou avancé, le contenu évolue en temps réel selon vos intérêts et votre vitesse."
                     delay={100}
                 />
                 <ValueProp 
                     icon={<Rocket className="w-6 h-6" />}
-                    title="Parlez comme un Natif"
-                    desc="Apprenez les vraies expressions, l'argot et les codes culturels pour ne plus jamais passer pour un touriste."
+                    title="Confiance Totale"
+                    desc="Brisez la barrière de la langue. Entraînez-vous avec des scénarios de la vie réelle sans peur du jugement."
                     delay={200}
                 />
             </div>
@@ -338,8 +339,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
 };
 
 // Sub-components for UI
-const LanguageBadge = ({ flag, name }: { flag: string, name: string }) => (
-    <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm hover:scale-105 transition-transform cursor-default">
+const LanguageBadge = ({ flag, name, onClick }: { flag: string, name: string, onClick?: () => void }) => (
+    <div 
+        onClick={onClick}
+        className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm hover:scale-105 transition-transform cursor-pointer hover:bg-white dark:hover:bg-slate-700 hover:border-indigo-200 dark:hover:border-indigo-800"
+    >
         <span className="text-lg">{flag}</span>
         <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{name}</span>
     </div>

@@ -5,34 +5,34 @@ import { CheckCircle2 } from 'lucide-react';
 // --- DATA ---
 const MOCK_USERS = [
   { 
-    id: 'u1', name: 'Sarah L.', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah', 
+    id: 'u1', name: 'Rindra', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Rindra', 
     lang: 'Chinois 🇨🇳', level: 'HSK 3', 
-    message: "你好！我叫莎拉。我正在学习中文，因为我想去北京旅游。TeacherMada 很有用！" 
+    message: "你好！Vao nanomboka herinandro aho dia efa mahay miarahaba. Tena mazava be ny lesona eto." 
   },
   { 
-    id: 'u2', name: 'Thomas B.', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Thomas', 
+    id: 'u2', name: 'Toky', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Toky', 
     lang: 'Allemand 🇩🇪', level: 'B1', 
-    message: "Hallo zusammen! Ich lerne Deutsch für meine Arbeit. Diese App hilft mir sehr bei der Grammatik." 
+    message: "Hallo! Mianatra Deutsch aho mba hiasa any Allemagne. Manampy be ilay correction automatique." 
   },
   { 
-    id: 'u3', name: 'Elena R.', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Elena', 
+    id: 'u3', name: 'Soa', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Soa', 
     lang: 'Espagnol 🇪🇸', level: 'A2', 
-    message: "¡Hola! Me llamo Elena. Me gusta mucho aprender español con los ejercicios interactivos." 
+    message: "¡Hola! Efa sahy miteny Espaniola aho izao. Tiako be ilay fomba fampianarana mivantana." 
   },
   { 
-    id: 'u4', name: 'Michael K.', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Michael', 
+    id: 'u4', name: 'Andry', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Andry', 
     lang: 'Anglais 🇬🇧', level: 'C1', 
-    message: "Hey there! I'm polishing my business English here. The AI roleplay scenarios are incredible." 
+    message: "Hello everyone! I'm polishing my Business English here. Tena ilaina amin'ny asako ilay pratique orale." 
   },
   { 
-    id: 'u5', name: 'Aina R.', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Aina', 
+    id: 'u5', name: 'Mialy', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Mialy', 
     lang: 'Français 🇫🇷', level: 'B2', 
-    message: "Bonjour ! J'améliore mon français pour mes études. J'adore les corrections instantanées." 
+    message: "Bonjour ! J'améliore mon français pour mes études. Tsy menatra intsony aho miteny galle." 
   },
   { 
-    id: 'u6', name: 'Wei Z.', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Wei', 
+    id: 'u6', name: 'Faly', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Faly', 
     lang: 'Anglais 🇺🇸', level: 'B2', 
-    message: "Hi! My pronunciation has improved a lot thanks to the voice chat feature. Highly recommend!" 
+    message: "Hi! My pronunciation is getting better every day. Misaotra an'i TeacherMada !" 
   }
 ];
 
