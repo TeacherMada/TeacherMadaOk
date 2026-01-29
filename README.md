@@ -1,95 +1,135 @@
 
-# 🎓 TeacherMada - Guide de Déploiement "Zéro Erreur"
+# 🎓 TeacherMada - Guide de Déploiement & Initialisation
 
-Ce guide vous explique comment configurer Supabase et déployer sur Render sans avoir de page blanche.
-
----
-
-## 🎨 Identité Visuelle & Logo
-
-Le logo officiel de l'application est configuré pour être utilisé uniformément (Favicon, UI, En-têtes).
-
-*   **Chemin du fichier** : `/public/logo.png`
-*   **Usage** : Ce fichier est automatiquement référencé dans `index.html`, `metadata.json` et les composants React (`LandingPage`, `Navbar`, etc.).
-*   **Modification** : Pour changer le branding, remplacez simplement le fichier `logo.png` dans le dossier public par votre propre image (format PNG carré recommandé).
+Ce guide couvre le déploiement complet, l'initialisation de la base de données et les commandes manuelles pour valider la connexion entre le Frontend et le Backend.
 
 ---
 
-## 🛠️ Étape 1 : Récupérer les Clés Supabase (Vital !)
+## 🚀 État de l'Intégration (Architecture)
 
-Pour connecter votre App à sa base de données, il faut les bonnes clés.
+*   **Frontend** : React + Vite + Tailwind (Gère l'UI, l'IA Gemini via API, et le stockage local des conversations).
+*   **Backend** : Node.js + Express (Gère la validation des paiements et l'administration sécurisée via Supabase Admin).
+*   **Base de Données** : Supabase (PostgreSQL).
 
-1.  Connectez-vous à votre projet sur [Supabase.com](https://supabase.com).
-2.  Allez dans le menu de gauche : **Project Settings** (l'icône d'engrenage).
-3.  Cliquez sur **API**.
-4.  Vous verrez une section **Project URL** et **Project API keys**.
-
-### 📝 Notez ces 3 informations précieuses :
-*   **URL** : (ex: `https://xyzxyzxyz.supabase.co`) -> C'est votre `SUPABASE_URL`.
-*   **anon public** : C'est une longue clé. -> C'est votre `SUPABASE_ANON_KEY`. **(Celle-ci va dans le Frontend)**.
-*   **service_role** : C'est une autre longue clé (ne la partagez jamais !). -> C'est votre `SUPABASE_SERVICE_ROLE_KEY`. **(Celle-ci va dans le Backend uniquement)**.
+> **Note importante** : Par défaut, l'application Frontend est configurée pour fonctionner en mode "Hybride" (Auth simulée + Stockage Local) pour garantir une démonstration instantanée sans bloquer l'utilisateur. Le Backend est requis pour la synchronisation multi-appareils et la validation réelle des paiements.
 
 ---
 
-## ☁️ Étape 2 : Déploiement Backend (Render)
+## 🛠️ Étape 1 : Initialisation Base de Données (MANUEL REQUIS)
 
-C'est le "cerveau" qui gère l'IA et les paiements.
+Pour que le backend fonctionne, vous devez créer les tables dans Supabase.
+Allez dans **Supabase > SQL Editor**, cliquez sur **New Query**, collez le code ci-dessous et cliquez sur **RUN**.
 
-1.  Sur [Render](https://dashboard.render.com), créez un **Web Service**.
-2.  Connectez votre GitHub.
-3.  **Paramètres** :
-    *   **Name**: `teachermada-api`
-    *   **Root Directory**: `backend`
-    *   **Environment**: `Node`
-    *   **Build Command**: `npm install`
-    *   **Start Command**: `node server.js`
-4.  **Environment Variables** (Section Advanced) - Ajoutez ceci :
-    *   `NODE_VERSION` = `20.11.0`
-    *   `SUPABASE_URL` = (Votre URL Supabase copiée à l'étape 1)
-    *   `SUPABASE_SERVICE_ROLE_KEY` = (Votre clé **service_role** copiée à l'étape 1)
-    *   `GOOGLE_API_KEY` = (Votre clé Gemini AI Studio)
-5.  Déployez. Une fois fini, copiez l'URL en haut (ex: `https://teachermada-api.onrender.com`).
+```sql
+-- 1. Activer les extensions
+create extension if not exists "uuid-ossp";
+
+-- 2. Table des Profils Utilisateurs (Liée à Supabase Auth si activé, ou gestion custom)
+create table public.profiles (
+  id text primary key, -- On utilise text pour supporter les IDs locaux ou UUID
+  username text,
+  email text,
+  phone_number text,
+  role text default 'user', -- 'user' ou 'admin'
+  credits int default 0,
+  is_suspended boolean default false,
+  preferences jsonb,
+  stats jsonb,
+  created_at bigint,
+  free_usage jsonb
+);
+
+-- 3. Table des Demandes Admin (Paiements, Messages)
+create table public.admin_requests (
+  id text primary key,
+  user_id text references public.profiles(id),
+  username text,
+  type text, -- 'credit', 'message', 'password_reset'
+  amount int,
+  message text,
+  contact_info text,
+  status text default 'pending', -- 'pending', 'approved', 'rejected'
+  created_at bigint
+);
+
+-- 4. Table d'Historique de Chat (Pour synchro future)
+create table public.chat_history (
+  id uuid default uuid_generate_v4() primary key,
+  user_id text references public.profiles(id),
+  role text,
+  text text,
+  timestamp bigint
+);
+
+-- 5. Activer la sécurité (RLS) - Optionnel pour le démarrage rapide mais recommandé
+alter table profiles enable row level security;
+create policy "Public profiles are viewable by everyone." on profiles for select using ( true );
+```
 
 ---
 
-## 🖥️ Étape 3 : Déploiement Frontend (Render)
+## 💻 Étape 2 : Commandes Manuelles (Local)
 
-C'est l'interface React. C'est ici que se joue le problème de la page blanche.
+Pour tester l'application sur votre machine avant de déployer.
 
-1.  Sur [Render](https://dashboard.render.com), créez un **Static Site**.
-2.  Connectez votre GitHub.
-3.  **Paramètres** :
-    *   **Name**: `teachermada-app`
-    *   **Root Directory**: `.` (Laisser vide ou mettre un point)
-    *   **Build Command**: `npm install && npm run build`
-    *   **Publish Directory**: `dist`
-4.  **Environment Variables** (Attention aux noms, ils commencent par VITE_) :
-    *   `VITE_SUPABASE_URL` = (Votre URL Supabase copiée à l'étape 1)
-    *   `VITE_SUPABASE_ANON_KEY` = (Votre clé **anon public** copiée à l'étape 1)
-    *   `VITE_API_URL` = (L'URL de votre Backend déployé à l'étape 2. ex: `https://teachermada-api.onrender.com`)
-5.  **🔴 CRUCIAL : Rewrite Rules (Pour éviter l'erreur 404/Page Blanche)**
-    *   Allez dans l'onglet **Redirects/Rewrites** dans le menu de gauche du service Render.
-    *   Cliquez sur **Add Rule**.
-    *   **Source**: `/*`
-    *   **Destination**: `/index.html`
-    *   **Action**: `Rewrite` (⚠️ Ne choisissez PAS Redirect, choisissez REWRITE)
-    *   Sauvegardez.
+### 1. Démarrer le Backend
+Ouvrez un terminal dans le dossier racine :
+
+```bash
+cd backend
+npm install
+# Créez un fichier .env dans /backend avec :
+# SUPABASE_URL=votre_url
+# SUPABASE_SERVICE_ROLE_KEY=votre_cle_service_role
+# GOOGLE_API_KEY=votre_cle_gemini
+node server.js
+```
+*Le serveur démarrera sur le port 3000.*
+
+### 2. Démarrer le Frontend
+Ouvrez un **deuxième** terminal dans le dossier racine :
+
+```bash
+npm install
+# Créez un fichier .env à la racine avec :
+# VITE_SUPABASE_URL=votre_url
+# VITE_SUPABASE_ANON_KEY=votre_cle_anon
+# VITE_GOOGLE_API_KEY=votre_cle_gemini
+# VITE_API_URL=http://localhost:3000
+npm run dev
+```
+*L'application sera accessible sur `http://localhost:5173`.*
 
 ---
 
-## ⚠️ Dépannage "Page Blanche"
+## ☁️ Étape 3 : Déploiement Production (Render)
 
-Si vous avez toujours une page blanche :
-1.  **Vérifiez les Logs** : Dans Render (Frontend), onglet "Logs". Si le build a échoué, c'est écrit.
-2.  **Console Navigateur** : Ouvrez votre site, faites Clic-Droit > Inspecter > Console.
-    *   Si vous voyez `Uncaught ReferenceError: process is not defined`, c'est que vous n'avez pas pris la mise à jour du code (fichier `supabase.ts`).
-    *   Si vous voyez `404 Not Found` sur des fichiers JS/CSS, vérifiez que le *Publish Directory* est bien `dist`.
-    *   Si vous voyez une erreur Supabase, vérifiez que `VITE_SUPABASE_URL` commence bien par `https://` et n'a pas d'espace.
+### Backend (Web Service)
+1.  Command de build : `npm install`
+2.  Command de start : `node server.js`
+3.  **Variables d'Env** : `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_API_KEY`.
 
-## 📞 Support
+### Frontend (Static Site)
+1.  Command de build : `npm install && npm run build`
+2.  Dossier de publication : `dist`
+3.  **Variables d'Env** : `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_GOOGLE_API_KEY`, `VITE_API_URL` (L'URL de votre backend Render).
+4.  **Règle de Réécriture (Rewrite Rule)** :
+    *   Source : `/*`
+    *   Destination : `/index.html`
+    *   Action : `Rewrite`
 
-Pour toute question technique :
-*   Développeur : Tsanta Fiderana
-*   Contact : via Facebook TeacherMada
+---
 
-*Bon déploiement !*
+## ✅ Checklist de Validation
+
+*   [ ] Le fichier `.env` du frontend contient `VITE_GOOGLE_API_KEY`.
+*   [ ] Le fichier `.env` du backend contient `SUPABASE_SERVICE_ROLE_KEY`.
+*   [ ] Les tables SQL ont été créées dans Supabase via l'éditeur SQL.
+*   [ ] Le logo est présent dans `/public/logo.png`.
+
+## 🎨 Personnalisation
+
+*   **Logo** : Remplacez `/public/logo.png`.
+*   **Nom** : Modifiez `metadata.json` et `index.html`.
+*   **Couleurs** : `tailwind.config.js` (déjà configuré pour le thème Indigo/Slate).
+
