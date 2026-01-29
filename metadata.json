@@ -1,7 +1,7 @@
 {
   "name": "TeacherMada",
   "description": "Le professeur de langue personnel, puissant et élégant pour maîtriser les langues rapidement.",
-  "icon": "logo.png",
+  "icon": "logo.svg",
   "requestFramePermissions": [
     "microphone"
   ]

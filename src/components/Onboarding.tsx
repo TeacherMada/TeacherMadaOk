@@ -55,7 +55,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
       <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-8 transform transition-all duration-500">
         <div className="flex items-center justify-center mb-8">
           <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-900/20 p-2 rounded-xl shadow-lg">
-            <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
+            <img src="/logo.svg" alt="Logo" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-2xl font-bold ml-3 text-slate-800 dark:text-white">TeacherMada</h1>
         </div>
