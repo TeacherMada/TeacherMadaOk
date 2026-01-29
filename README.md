@@ -143,6 +143,7 @@ Vous allez déployer deux services distincts sur Render : un **Web Service** (Ba
     *   **Build Command** : `npm install`
     *   **Start Command** : `node server.js`
 5.  **Environment Variables** (Ajoutez-les dans la section Advanced) :
+    *   `NODE_VERSION` : `20.11.0` (Ajoutez cette variable pour forcer une version récente de Node)
     *   `SUPABASE_URL` : Votre URL Supabase.
     *   `SUPABASE_SERVICE_ROLE_KEY` : Votre clé secrète Supabase.
     *   `GOOGLE_API_KEY` : Votre clé API Gemini.
