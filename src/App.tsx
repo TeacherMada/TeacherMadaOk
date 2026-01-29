@@ -7,8 +7,8 @@ import ChatInterface from './components/ChatInterface';
 import SmartDashboard from './components/SmartDashboard';
 import AdminDashboard from './components/AdminDashboard';
 import { UserPreferences, ChatMessage, ExplanationLanguage, UserProfile, LearningMode } from './types';
-import { startChatSession, generateDailyChallenges } from './services/geminiService';
-import { storageService } from '../services/storageService';
+import { startChatSession, generateDailyChallenges, analyzeUserProgress } from './services/geminiService';
+import { storageService } from './services/storageService';
 import { INITIAL_GREETING_FR, INITIAL_GREETING_MG } from './constants';
 import { CheckCircle, AlertTriangle, Info, X } from 'lucide-react';
 
@@ -87,11 +87,32 @@ const App: React.FC = () => {
       notify("Déconnexion réussie.", 'info');
   };
 
-  // ... (Other handlers like update user, end session remain mostly same but call storageService which now calls Supabase) ...
   const handleUpdateUser = (u: UserProfile) => setUser(u);
-  const handleEndSession = () => { setIsSessionStarted(false); };
+  const handleEndSession = async () => {
+      if (!user) return;
+      if (messages.length > 2 && user.role !== 'admin') {
+        setIsAnalyzing(true);
+        try {
+            const { newMemory, xpEarned, feedback } = await analyzeUserProgress(messages, user.aiMemory, user.id);
+            if (user.preferences?.mode === LearningMode.Course) {
+                 // Challenge progress logic here if needed
+            }
+            const updatedUser: UserProfile = {
+                ...user,
+                aiMemory: newMemory,
+                stats: { ...user.stats, xp: user.stats.xp + xpEarned, lessonsCompleted: user.stats.lessonsCompleted + (user.preferences?.mode === LearningMode.Course ? 1 : 0) },
+                preferences: null
+            };
+            setUser(updatedUser);
+            await storageService.saveUserProfile(updatedUser);
+            notify(`Session terminée ! +${xpEarned} XP`, 'success');
+        } catch (e) { setUser({ ...user, preferences: null }); } finally { setIsAnalyzing(false); setIsSessionStarted(false); setMessages([]); }
+    } else {
+        setUser({ ...user, preferences: null }); setIsSessionStarted(false); setMessages([]);
+    }
+  };
   const handleChangeLanguage = () => { if(user) setUser({...user, preferences: null}); setIsSessionStarted(false); };
-  const handleFontSizeChange = (s: any) => { if(user && user.preferences) setUser({...user, preferences: {...user.preferences, fontSize: s}}); };
+  const handleFontSizeChange = (s: any) => { if(user && user.preferences) { const u = {...user, preferences: {...user.preferences, fontSize: s}}; setUser(u); storageService.saveUserProfile(u); }};
 
   return (
     <>

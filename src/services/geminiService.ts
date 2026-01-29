@@ -148,8 +148,38 @@ export const generateSpeech = async (text: string, userId: string, voiceName: st
 };
 
 export const generateConceptImage = async (prompt: string, userId: string): Promise<string | null> => {
-    console.warn("Generation image déplacée vers le backend.");
-    return null;
+    checkCreditsBeforeAction(userId);
+
+    return executeWithRetry(async () => {
+        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("AI Client not initialized");
+
+        const imageModel = 'gemini-2.5-flash-image';
+        
+        const response = await aiClient.models.generateContent({
+            model: imageModel,
+            contents: {
+                parts: [{ text: prompt }]
+            },
+            // FIX: cast to any to resolve TS error with imageConfig property
+            config: {
+                imageConfig: {
+                    aspectRatio: "16:9",
+                }
+            } as any
+        });
+
+        storageService.deductCreditOrUsage(userId);
+
+        if (response.candidates?.[0]?.content?.parts) {
+            for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData && part.inlineData.data) {
+                    return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+                }
+            }
+        }
+        return null;
+    }, userId);
 };
 
 export const generateDailyChallenges = async (prefs: UserPreferences): Promise<DailyChallenge[]> => {
