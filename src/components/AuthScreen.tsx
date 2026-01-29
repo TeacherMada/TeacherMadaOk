@@ -1,9 +1,8 @@
 
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
-import { supabase } from '../lib/supabase';
 import { storageService } from '../services/storageService';
-import { GraduationCap, ArrowRight, Sun, Moon, Mail, Lock, User, ArrowLeft, HelpCircle } from 'lucide-react';
+import { GraduationCap, ArrowRight, Sun, Moon, Mail, Lock, User, ArrowLeft, HelpCircle, Phone, X, Send } from 'lucide-react';
 
 interface AuthScreenProps {
   onAuthSuccess: (user: UserProfile) => void;
@@ -17,66 +16,73 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
   const [isRegistering, setIsRegistering] = useState(false);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Forgot Password Modal State
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotInput, setForgotInput] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password || (isRegistering && !username)) {
-        notify("Veuillez remplir tous les champs.", 'error');
+
+    if (!username.trim() && isRegistering) {
+        notify("Le nom d'utilisateur est requis.", 'error');
+        return;
+    }
+    
+    // For login, 'username' state holds the identifier (email/phone/user)
+    if (!isRegistering && !username.trim()) {
+        notify("Veuillez entrer votre identifiant.", 'error');
+        return;
+    }
+
+    if (!password.trim()) {
+        notify("Mot de passe requis.", 'error');
         return;
     }
 
     setIsLoading(true);
-
-    try {
+    
+    setTimeout(() => {
+        let result;
         if (isRegistering) {
-            // INSCRIPTION SUPABASE
-            const { data, error } = await supabase.auth.signUp({
-                email,
-                password,
-                options: {
-                    data: { username: username } // Méta-données pour le trigger SQL
-                }
-            });
-            
-            if (error) throw error;
-            if (data.user) {
-                notify("Compte créé ! Connectez-vous.", 'success');
-                setIsRegistering(false);
-            }
+            result = storageService.register(username, password, email, phoneNumber);
         } else {
-            // CONNEXION SUPABASE
-            const { data, error } = await supabase.auth.signInWithPassword({
-                email,
-                password
-            });
-
-            if (error) throw error;
-            
-            if (data.user) {
-                // Récupérer le profil complet depuis notre service (qui interroge la table profiles)
-                const fullProfile = await storageService.getUserById(data.user.id);
-                if (fullProfile) {
-                    onAuthSuccess(fullProfile);
-                } else {
-                    // Fallback si le trigger n'a pas encore couru (rare)
-                    notify("Profil en cours de création, réessayez...", 'info');
-                }
-            }
+            result = storageService.login(username, password); // username acts as identifier here
         }
-    } catch (error: any) {
-        notify(error.message || "Erreur d'authentification", 'error');
-    } finally {
+
         setIsLoading(false);
-    }
+
+        if (result.success && result.user) {
+            onAuthSuccess(result.user);
+        } else {
+            notify(result.error || "Une erreur est survenue.", 'error');
+        }
+    }, 800);
   };
 
-  const handleForgotPassword = async () => {
-      if (!email) return notify("Entrez votre email ci-dessus d'abord.", 'info');
-      const { error } = await supabase.auth.resetPasswordForEmail(email);
-      if (error) notify("Erreur: " + error.message, 'error');
-      else notify("Email de réinitialisation envoyé !", 'success');
+  const handleForgotPasswordRequest = () => {
+      if (!forgotInput.trim()) return;
+      setForgotLoading(true);
+      
+      // Simulate API call
+      setTimeout(() => {
+          storageService.sendAdminRequest(
+              '', // No User ID known yet
+              'Utilisateur Anonyme',
+              'password_reset',
+              undefined,
+              `Demande réinitialisation MDP pour: ${forgotInput}`,
+              forgotInput // Contact info
+          );
+          setForgotLoading(false);
+          setShowForgotModal(false);
+          setForgotInput('');
+          notify("Demande envoyée ! L'admin vous contactera par Email/Tél.", 'success');
+      }, 1000);
   };
 
   return (
@@ -84,11 +90,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
        {/* Top Controls */}
       <div className="absolute top-0 left-0 w-full p-6 flex justify-between items-center z-10">
           <button onClick={onBack} className="p-2 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors"><ArrowLeft className="w-6 h-6" /></button>
-          <button onClick={toggleTheme} className="p-3 rounded-full bg-white dark:bg-slate-900 shadow-md hover:shadow-lg text-slate-500 dark:text-slate-400"><Sun className="w-5 h-5" /></button>
+          <button onClick={toggleTheme} className="p-3 rounded-full bg-white dark:bg-slate-900 shadow-md hover:shadow-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all cursor-pointer"><Sun className="w-5 h-5" /></button>
       </div>
 
       <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-8 transform transition-all duration-500 animate-fade-in relative overflow-hidden">
         
+        {/* Logo Area */}
         <div className="flex flex-col items-center justify-center mb-8 relative z-10">
           <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 p-2 rounded-2xl shadow-lg mb-4 transform -rotate-3 hover:rotate-0 transition-transform">
             <img 
@@ -103,53 +110,148 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
           </h1>
         </div>
 
-        {/* Toggle Tabs */}
+        {/* Tabs */}
         <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl mb-6 relative z-10">
             <button onClick={() => setIsRegistering(false)} className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${!isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>Connexion</button>
             <button onClick={() => setIsRegistering(true)} className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${isRegistering ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>Inscription</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 relative z-10">
+          
+          <div>
+            <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1 ml-1">
+                {isRegistering ? "NOM D'UTILISATEUR" : "EMAIL / TÉL / NOM UTILISATEUR"}
+            </label>
+            <div className="relative">
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input
+                type="text"
+                required
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder={isRegistering ? "Votre pseudo" : "ex: 034... ou email@..."}
+                className="w-full bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition-all border border-slate-200 dark:border-slate-700"
+                />
+            </div>
+          </div>
+
           {isRegistering && (
-            <div>
-                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1 ml-1">NOM D'UTILISATEUR</label>
-                <div className="relative">
-                    <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                    <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Votre pseudo" className="w-full bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 outline-none border border-slate-200 dark:border-slate-700" />
+            <div className="space-y-4 animate-fade-in">
+                <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1 ml-1">
+                        EMAIL (OPTIONNEL)
+                    </label>
+                    <div className="relative">
+                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                        <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="exemple@email.com"
+                        className="w-full bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition-all border border-slate-200 dark:border-slate-700"
+                        />
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1 ml-1">
+                        TÉLÉPHONE (OPTIONNEL)
+                    </label>
+                    <div className="relative">
+                        <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                        <input
+                        type="tel"
+                        value={phoneNumber}
+                        onChange={(e) => setPhoneNumber(e.target.value)}
+                        placeholder="034 00 000 00"
+                        className="w-full bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition-all border border-slate-200 dark:border-slate-700"
+                        />
+                    </div>
                 </div>
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1 ml-1">EMAIL</label>
-            <div className="relative">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="exemple@email.com" className="w-full bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 outline-none border border-slate-200 dark:border-slate-700" />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1 ml-1">MOT DE PASSE</label>
+            <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1 ml-1">
+                MOT DE PASSE
+            </label>
             <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 outline-none border border-slate-200 dark:border-slate-700" />
+                <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition-all border border-slate-200 dark:border-slate-700"
+                />
             </div>
           </div>
 
-          <button type="submit" disabled={isLoading} className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 disabled:opacity-70">
-            {isLoading ? "Chargement..." : (isRegistering ? "S'inscrire" : "Se connecter")}
-            <ArrowRight className="w-5 h-5" />
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed group"
+          >
+            {isLoading ? (
+              <span className="flex items-center gap-2">
+                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                 Connexion...
+              </span>
+            ) : (
+              <>
+                {isRegistering ? "S'inscrire" : "Se connecter"}
+                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </>
+            )}
           </button>
         </form>
 
         {!isRegistering && (
              <div className="mt-4 text-center">
-                 <button onClick={handleForgotPassword} className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center justify-center gap-1 mx-auto">
+                 <button onClick={() => setShowForgotModal(true)} className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center justify-center gap-1 mx-auto">
                      <HelpCircle className="w-3 h-3"/> Mot de passe oublié ?
                  </button>
              </div>
         )}
       </div>
+
+      {/* Forgot Password Smart Modal */}
+      {showForgotModal && (
+          <div className="fixed inset-0 z-[120] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+              <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl border border-white/20 p-6 relative">
+                  <button onClick={() => setShowForgotModal(false)} className="absolute top-4 right-4 p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+                      <X className="w-5 h-5 text-slate-500"/>
+                  </button>
+                  
+                  <div className="text-center mb-6">
+                      <div className="w-14 h-14 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-3 text-indigo-600 dark:text-indigo-400">
+                          <Lock className="w-7 h-7" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800 dark:text-white">Récupération</h3>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                          Entrez votre identifiant. L'administrateur vous enverra un nouveau mot de passe.
+                      </p>
+                  </div>
+
+                  <div className="space-y-4">
+                      <input 
+                        type="text" 
+                        placeholder="Email, Tél ou Nom d'utilisateur" 
+                        value={forgotInput}
+                        onChange={e => setForgotInput(e.target.value)}
+                        className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 dark:text-white"
+                      />
+                      <button 
+                        onClick={handleForgotPasswordRequest}
+                        disabled={forgotLoading || !forgotInput.trim()}
+                        className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 disabled:opacity-70 transition-all"
+                      >
+                          {forgotLoading ? "Envoi..." : "Envoyer Demande"} <Send className="w-4 h-4"/>
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 };

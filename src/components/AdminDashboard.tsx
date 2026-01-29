@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, SystemSettings, AdminRequest } from '../types';
 import { storageService } from '../services/storageService';
-import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle } from 'lucide-react';
+import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle, AlertTriangle } from 'lucide-react';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
@@ -30,9 +30,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
   }, []);
 
   const refreshData = () => {
-    // Note: This logic now needs to be async with Supabase, but for now we keep the mock
-    // In a real app, this would fetch from Supabase tables 'profiles' and 'admin_requests'
-    // storageService.getAllUsers() is currently localStorage based in the mock
+    setUsers(storageService.getAllUsers());
+    setRequests(storageService.getAdminRequests().sort((a, b) => b.createdAt - a.createdAt));
   };
 
   const handleManualCreditChange = (userId: string, val: string) => {
@@ -92,7 +91,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
       setSettings(prev => ({ ...prev, apiKeys: prev.apiKeys.filter(k => k !== key) }));
   };
 
-  const filteredUsers = users.filter(u => u.username.toLowerCase().includes(search.toLowerCase()));
+  const filteredUsers = users.filter(u => u.username.toLowerCase().includes(search.toLowerCase()) || (u.email && u.email.toLowerCase().includes(search.toLowerCase())) || (u.phoneNumber && u.phoneNumber.includes(search)));
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 p-4 md:p-6 pb-20">
@@ -143,7 +142,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                         <input 
                             type="text" 
-                            placeholder="Rechercher (Nom)..." 
+                            placeholder="Rechercher (Nom, Email, Tél)..." 
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-800 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
@@ -167,7 +166,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
                                 <tr key={user.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
                                     <td className="p-4">
                                         <div className="font-bold text-slate-800 dark:text-white">{user.username}</div>
-                                        <div className="text-xs text-slate-400 truncate max-w-[120px]">{user.email || 'No Email'}</div>
+                                        <div className="flex flex-col gap-0.5 mt-1">
+                                            {user.email && <div className="text-xs text-slate-400 flex items-center gap-1"><MessageSquare className="w-3 h-3"/> {user.email}</div>}
+                                            {user.phoneNumber && <div className="text-xs text-slate-400 flex items-center gap-1"><Settings className="w-3 h-3"/> {user.phoneNumber}</div>}
+                                        </div>
                                     </td>
                                     <td className="p-4">
                                         <span className="font-mono font-black text-indigo-600 dark:text-indigo-400 text-lg">{user.credits}</span>
@@ -238,15 +240,28 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
                                  <span className="font-bold text-lg text-slate-800 dark:text-white">{req.username}</span>
                                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full">{new Date(req.createdAt).toLocaleDateString()}</span>
                              </div>
+                             
+                             {/* Content Type Handling */}
                              <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
-                                 {req.amount && (
+                                 {req.type === 'credit' && req.amount && (
                                      <div className="inline-flex items-center gap-1 text-indigo-600 font-bold bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1.5 rounded-lg text-sm w-fit">
                                          <CreditCard className="w-4 h-4" /> {req.amount} Crédits
                                      </div>
                                  )}
+                                 {req.type === 'password_reset' && (
+                                     <div className="inline-flex items-center gap-1 text-red-600 font-bold bg-red-50 dark:bg-red-900/20 px-3 py-1.5 rounded-lg text-sm w-fit animate-pulse">
+                                         <AlertTriangle className="w-4 h-4" /> RESET MDP
+                                     </div>
+                                 )}
+                                 
                                  {req.message && (
                                      <div className="text-slate-600 dark:text-slate-300 italic text-sm bg-slate-50 dark:bg-slate-800 p-2 rounded-lg border border-slate-100 dark:border-slate-700">
                                          "{req.message}"
+                                     </div>
+                                 )}
+                                 {req.contactInfo && (
+                                     <div className="text-xs font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-900/10 px-2 py-1 rounded">
+                                         Contact: {req.contactInfo}
                                      </div>
                                  )}
                              </div>
@@ -256,7 +271,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
                              {req.status === 'pending' ? (
                                  <div className="flex gap-2 w-full">
                                     <button onClick={() => handleResolveRequest(req.id, 'approved')} className="flex-1 md:flex-none flex items-center justify-center gap-1 px-4 py-3 md:py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold transition-colors shadow-sm">
-                                        <Check className="w-4 h-4" /> Approuver
+                                        <Check className="w-4 h-4" /> {req.type === 'password_reset' ? 'Traité' : 'Approuver'}
                                     </button>
                                     <button onClick={() => handleResolveRequest(req.id, 'rejected')} className="flex-1 md:flex-none flex items-center justify-center gap-1 px-4 py-3 md:py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-xl font-bold transition-colors">
                                         <X className="w-4 h-4" /> Rejeter
@@ -264,7 +279,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
                                  </div>
                              ) : (
                                  <div className={`w-full md:w-auto text-center font-bold uppercase text-xs px-3 py-1 rounded-full border ${req.status === 'approved' ? 'border-emerald-200 text-emerald-600 bg-emerald-50' : 'border-red-200 text-red-600 bg-red-50'}`}>
-                                     {req.status === 'approved' ? 'APPROUVÉ' : 'REJETÉ'}
+                                     {req.status === 'approved' ? 'APPROUVÉ / TRAITÉ' : 'REJETÉ'}
                                  </div>
                              )}
                          </div>

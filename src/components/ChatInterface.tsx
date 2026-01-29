@@ -275,11 +275,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const canSend = storageService.canPerformRequest(user.id).allowed;
   
   const refreshUserData = () => {
-     // User refresh should ideally be handled via subscription or manual fetch
-     // Assuming onUpdateUser propagates changes from parent if needed, or we refetch
-     storageService.getUserById(user.id).then(u => {
-         if (u) onUpdateUser(u);
-     });
+     const u = storageService.getUserById(user.id);
+     if (u) onUpdateUser(u);
   };
 
   const handleErrorAction = (err: any) => {
@@ -306,17 +303,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   
                   // Deduct credit every 60 seconds (1 minute = 1 credit)
                   if (newVal > 0 && newVal % 60 === 0) {
-                      storageService.deductCreditOrUsage(user.id).then((updatedUser) => {
-                          if (updatedUser) {
-                              onUpdateUser(updatedUser);
-                              notify("1 min écoulée : -1 Crédit", 'info');
-                          } else {
-                              // Crucial: Auto-cut if deduction fails (returns null)
-                              clearInterval(interval);
-                              notify("Crédit épuisé. Fin de l'appel.", 'error');
-                              handleEndCall();
-                          }
-                      });
+                      const updatedUser = storageService.deductCreditOrUsage(user.id);
+                      if (updatedUser) {
+                          onUpdateUser(updatedUser);
+                          notify("1 min écoulée : -1 Crédit", 'info');
+                      } else {
+                          // Crucial: Auto-cut if deduction fails (returns null)
+                          clearInterval(interval);
+                          notify("Crédit épuisé. Fin de l'appel.", 'error');
+                          handleEndCall();
+                      }
                   }
                   
                   // Warning at 50s mark of a minute if low credits

@@ -41,17 +41,16 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                 const newVal = prev + 1;
                 // Every 60 seconds, deduct 1 credit
                 if (newVal > 0 && newVal % 60 === 0) {
-                   storageService.deductCreditOrUsage(user.id).then((updatedUser) => {
-                       if (updatedUser) {
-                           onUpdateUser(updatedUser);
-                           notify("1 min écoulée : -1 Crédit", 'info');
-                       } else {
-                           // No credits left
-                           clearInterval(interval);
-                           notify("Crédits épuisés. Fin de la session.", 'error');
-                           handleFinish(); 
-                       }
-                   });
+                   const updatedUser = storageService.deductCreditOrUsage(user.id);
+                   if (updatedUser) {
+                       onUpdateUser(updatedUser);
+                       notify("1 min écoulée : -1 Crédit", 'info');
+                   } else {
+                       // No credits left
+                       clearInterval(interval);
+                       notify("Crédits épuisés. Fin de la session.", 'error');
+                       handleFinish(); 
+                   }
                 }
                 return newVal;
             });
@@ -69,7 +68,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       if (storageService.canPerformRequest(user.id).allowed) {
           setScenario(selected);
           // Deduct initial credit for starting
-          const u = await storageService.deductCreditOrUsage(user.id);
+          const u = storageService.deductCreditOrUsage(user.id);
           if (u) onUpdateUser(u);
           
           setMessages([{

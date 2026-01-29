@@ -49,6 +49,7 @@ export interface UserProfile {
   id: string;
   username: string;
   email?: string;
+  phoneNumber?: string; // Added field
   password?: string;
   role: UserRole;
   createdAt: number;
@@ -91,11 +92,12 @@ export interface Transaction {
 
 export interface AdminRequest {
   id: string;
-  userId: string;
-  username: string;
-  type: 'credit' | 'message';
+  userId: string; // Can be empty string if user not logged in (e.g. forgot password)
+  username: string; // Used for identification
+  type: 'credit' | 'message' | 'password_reset'; // Added password_reset
   amount?: number;
   message?: string;
+  contactInfo?: string; // Added for external contact (email/phone provided in form)
   status: 'pending' | 'approved' | 'rejected';
   createdAt: number;
 }
