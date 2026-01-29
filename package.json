@@ -16,7 +16,9 @@
     "lucide-react": "^0.563.0",
     "react-markdown": "^10.1.0",
     "jspdf": "2.5.1",
-    "@supabase/supabase-js": "^2.93.2"
+    "@supabase/supabase-js": "^2.93.2",
+    "vite": "^7.3.1",
+    "@vitejs/plugin-react": "^5.1.2"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

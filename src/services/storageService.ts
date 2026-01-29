@@ -1,17 +1,41 @@
-
 import { supabase } from '../lib/supabase';
 import { UserProfile, ChatMessage, UserPreferences, SystemSettings, AdminRequest } from "../types";
 
-// L'URL de votre backend déployé sur Render (ex: https://teachermada-api.onrender.com)
-// Pour le dév local : http://localhost:3000
-const API_URL = 'https://teachermada-api.onrender.com'; 
+// En Production (Render), cette variable doit être définie dans les "Environment Variables" du Frontend.
+// En Local, elle n'est pas nécessaire, on fallback sur localhost.
+// Fix: Cast import.meta to any to avoid TypeScript error 'Property env does not exist on type ImportMeta'
+const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:3000';
+
+const CURRENT_USER_KEY = 'smart_teacher_current_user_id';
+const SETTINGS_KEY = 'smart_teacher_system_settings';
+const REQUESTS_KEY = 'smart_teacher_admin_requests';
+
+const DEFAULT_SETTINGS: SystemSettings = {
+  // Fix: Cast import.meta to any to avoid TypeScript error 'Property env does not exist on type ImportMeta'
+  apiKeys: [(import.meta as any).env.VITE_GOOGLE_API_KEY || ''], // Fallback sécurisé
+  activeModel: 'gemini-3-flash-preview',
+  adminContact: {
+    telma: "034 93 102 68",
+    airtel: "033 38 784 20",
+    orange: "032 69 790 17"
+  },
+  creditPrice: 50
+};
+
+// --- Helper: Timezone Management ---
+const getMadagascarCurrentWeek = (): string => {
+  const now = new Date();
+  const madaTime = new Date(now.toLocaleString("en-US", { timeZone: "Indian/Antananarivo" }));
+  const day = madaTime.getDay() || 7; 
+  if (day !== 1) madaTime.setHours(-24 * (day - 1));
+  madaTime.setHours(0, 0, 0, 0);
+  return madaTime.toISOString().split('T')[0];
+};
 
 export const storageService = {
   
   // --- Auth & User Management ---
   
-  // L'inscription et le login sont gérés directement dans AuthScreen via supabase.auth
-  // Cette fonction sert à récupérer le profil enrichi (crédits, xp) après l'auth
   getUserById: async (userId: string): Promise<UserProfile | null> => {
       const { data, error } = await supabase
         .from('profiles')
@@ -21,7 +45,6 @@ export const storageService = {
       
       if (error) return null;
       
-      // Mapper les champs DB vers l'interface UserProfile
       return {
           ...data,
           createdAt: new Date(data.created_at).getTime(),
@@ -30,7 +53,7 @@ export const storageService = {
               streak: data.streak,
               lessonsCompleted: data.lessons_completed
           },
-          freeUsage: { count: 0, lastResetWeek: '' }, // Géré par backend maintenant
+          freeUsage: { count: 0, lastResetWeek: '' },
           credits: data.credits,
           isSuspended: data.is_suspended
       };
@@ -49,17 +72,13 @@ export const storageService = {
   // --- Credit System Logic ---
 
   canPerformRequest: (userId: string): { allowed: boolean } => {
-      // Cette vérification est purement visuelle côté front.
-      // La vraie vérification se fait côté Backend Node.js
       return { allowed: true }; 
   },
 
   // --- Chat History ---
 
   saveChatHistory: async (userId: string, messages: ChatMessage[], language?: string) => {
-      // Le backend sauvegarde déjà chaque message.
-      // Cette fonction peut être utilisée pour forcer une synchro si besoin, 
-      // mais avec le backend, c'est automatique.
+      // Géré par le backend
   },
 
   getChatHistory: async (userId: string): Promise<ChatMessage[]> => {
@@ -80,7 +99,6 @@ export const storageService = {
 
   // --- API Calls to Node.js Backend ---
 
-  // Appelle le backend Node.js pour générer la réponse IA
   generateAIResponse: async (message: string, history: ChatMessage[], model?: string): Promise<string> => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Non connecté");
@@ -89,7 +107,7 @@ export const storageService = {
           method: 'POST',
           headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${session.access_token}` // Envoi du token Supabase
+              'Authorization': `Bearer ${session.access_token}`
           },
           body: JSON.stringify({ message, history, model })
       });
@@ -122,37 +140,32 @@ export const storageService = {
   },
 
   updateSystemSettings: (settings: SystemSettings) => {
-      // À implémenter avec une table 'settings' dans Supabase
+      // Localstorage fallback pour settings
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   },
   
   getSystemSettings: (): SystemSettings => {
-      // Retourne valeurs par défaut pour l'instant
-      return {
-          apiKeys: [],
-          activeModel: 'gemini-2.0-flash',
-          adminContact: { telma: "...", airtel: "...", orange: "..." },
-          creditPrice: 50
-      };
+      const data = localStorage.getItem(SETTINGS_KEY);
+      return data ? JSON.parse(data) : DEFAULT_SETTINGS;
   },
   
-  // Helpers fictifs pour compatibilité interface
+  // Helpers legacy
   deductCreditOrUsage: (uid: string) => null, 
   getAllUsers: async () => {
       const { data } = await supabase.from('profiles').select('*');
       return data || [];
   },
   saveUserProfile: async (user: UserProfile) => {
-      // Met à jour les prefs
       await supabase.from('profiles').update({
           preferences: user.preferences,
           xp: user.stats.xp,
-          lessons_completed: user.stats.lessonsCompleted
+          lessons_completed: user.stats.lessons_completed
       }).eq('id', user.id);
   },
   updatePreferences: async (uid: string, prefs: UserPreferences) => {
       await supabase.from('profiles').update({ preferences: prefs }).eq('id', uid);
   },
-  addCredits: async (uid: string, amt: number) => {}, // Géré par API Admin
+  addCredits: async (uid: string, amt: number) => {}, 
   resolveRequest: async (id: string, status: string) => {
       const { data: { session } } = await supabase.auth.getSession();
       await fetch(`${API_URL}/api/admin/approve`, {
@@ -163,5 +176,8 @@ export const storageService = {
           },
           body: JSON.stringify({ requestId: id, status })
       });
-  }
+  },
+  login: (i:string, p:string) => ({success:false}), // Obsolète
+  register: (u:string, p:string) => ({success:false}), // Obsolète
+  markTutorialSeen: (uid:string) => {}
 };
