@@ -62,7 +62,7 @@ C'est l'interface React. C'est ici que se joue le problème de la page blanche.
     *   Cliquez sur **Add Rule**.
     *   **Source**: `/*`
     *   **Destination**: `/index.html`
-    *   **Action**: `Rewrite`
+    *   **Action**: `Rewrite` (⚠️ Ne choisissez PAS Redirect, choisissez REWRITE)
     *   Sauvegardez.
 
 ---
@@ -72,7 +72,7 @@ C'est l'interface React. C'est ici que se joue le problème de la page blanche.
 Si vous avez toujours une page blanche :
 1.  **Vérifiez les Logs** : Dans Render (Frontend), onglet "Logs". Si le build a échoué, c'est écrit.
 2.  **Console Navigateur** : Ouvrez votre site, faites Clic-Droit > Inspecter > Console.
-    *   Si vous voyez `Uncaught ReferenceError: process is not defined`, c'est que vous n'avez pas pris la mise à jour du code ci-dessus (fichier `supabase.ts`).
+    *   Si vous voyez `Uncaught ReferenceError: process is not defined`, c'est que vous n'avez pas pris la mise à jour du code (fichier `supabase.ts`).
     *   Si vous voyez `404 Not Found` sur des fichiers JS/CSS, vérifiez que le *Publish Directory* est bien `dist`.
     *   Si vous voyez une erreur Supabase, vérifiez que `VITE_SUPABASE_URL` commence bien par `https://` et n'a pas d'espace.
 

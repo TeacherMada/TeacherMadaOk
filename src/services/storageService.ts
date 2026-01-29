@@ -148,18 +148,41 @@ export const storageService = {
   },
   
   // Helpers legacy
-  deductCreditOrUsage: (uid: string) => null, 
+  deductCreditOrUsage: async (userId: string): Promise<UserProfile | null> => {
+      const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+      if (error || !data) return null;
+      
+      const user: UserProfile = {
+          ...data,
+          createdAt: new Date(data.created_at).getTime(),
+          stats: { xp: data.xp, streak: data.streak, lessonsCompleted: data.lessons_completed },
+          freeUsage: { count: 0, lastResetWeek: '' },
+          credits: data.credits,
+          isSuspended: data.is_suspended
+      };
+
+      if (user.role === 'admin') return user;
+
+      if (user.credits > 0) {
+          const { error: updateError } = await supabase.from('profiles').update({ credits: user.credits - 1 }).eq('id', userId);
+          if (!updateError) return { ...user, credits: user.credits - 1 };
+      }
+      return null;
+  }, 
+
   getAllUsers: async () => {
       const { data } = await supabase.from('profiles').select('*');
       return data || [];
   },
+
   saveUserProfile: async (user: UserProfile) => {
       await supabase.from('profiles').update({
           preferences: user.preferences,
           xp: user.stats.xp,
-          lessons_completed: user.stats.lessons_completed
+          lessons_completed: user.stats.lessonsCompleted
       }).eq('id', user.id);
   },
+
   updatePreferences: async (uid: string, prefs: UserPreferences) => {
       await supabase.from('profiles').update({ preferences: prefs }).eq('id', uid);
   },
