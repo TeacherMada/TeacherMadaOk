@@ -74,7 +74,7 @@ export const storageService = {
             password: data.password,
             role: data.role,
             credits: data.credits,
-            stats: data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, levelProgress: 0 },
+            stats: data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, levelProgress: 0, progressByLevel: {} },
             preferences: data.preferences,
             skills: data.skills || { vocabulary: 10, grammar: 5, pronunciation: 5, listening: 5 },
             aiMemory: data.ai_memory || "Nouvel utilisateur.",
@@ -84,9 +84,13 @@ export const storageService = {
             freeUsage: data.free_usage || { lastResetWeek: getMadagascarCurrentWeek(), count: 0 }
         };
 
-        // Ensure levelProgress exists (migration)
-        if (typeof user.stats.levelProgress === 'undefined') {
-            user.stats.levelProgress = 0;
+        // Ensure stats structure (migration)
+        if (!user.stats.progressByLevel) {
+            user.stats.progressByLevel = {};
+            // Init with old levelProgress if available
+            if (user.preferences?.level) {
+                user.stats.progressByLevel[user.preferences.level] = user.stats.levelProgress || 0;
+            }
         }
 
         localStorage.setItem(CURRENT_USER_KEY, user.id);
@@ -131,7 +135,7 @@ export const storageService = {
             role: 'user',
             createdAt: Date.now(),
             preferences: null,
-            stats: { xp: 0, streak: 1, lessonsCompleted: 0, levelProgress: 0 },
+            stats: { xp: 0, streak: 1, lessonsCompleted: 0, levelProgress: 0, progressByLevel: {} },
             skills: { vocabulary: 10, grammar: 5, pronunciation: 5, listening: 5 },
             aiMemory: "Nouvel utilisateur.",
             isPremium: false,
@@ -199,6 +203,11 @@ export const storageService = {
 
       if (data) {
           const local = storageService.getUserById(userId) || {} as UserProfile;
+          
+          // Ensure structure integrity on sync
+          const stats = data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, levelProgress: 0, progressByLevel: {} };
+          if (!stats.progressByLevel) stats.progressByLevel = {};
+
           const merged: UserProfile = { 
               ...local, 
               credits: data.credits,
@@ -206,7 +215,7 @@ export const storageService = {
               isSuspended: data.is_suspended,
               freeUsage: data.free_usage,
               username: data.username,
-              stats: data.stats
+              stats: stats
           };
           localStorage.setItem(`user_data_${userId}`, JSON.stringify(merged));
           return merged;

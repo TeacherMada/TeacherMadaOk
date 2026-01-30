@@ -64,7 +64,9 @@ export interface UserProfile {
     xp: number;
     streak: number;
     lessonsCompleted: number; // Total global
-    levelProgress: number; // 0-50 (Progression dans le niveau actuel)
+    // Nouvelle structure : Progression spécifique par niveau (0 à 100%)
+    progressByLevel?: Record<string, number>; 
+    levelProgress?: number; // Deprecated but kept for fallback
   };
   skills?: {
     vocabulary: number;

@@ -108,9 +108,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // --- CALCULATED VALUES ---
 
   const levelProgressData = useMemo(() => {
-      // Logic: 50 lessons per level. progress 0-50 maps to 0-100%
+      // Logic: Use progress specific to the selected level from user stats
       const currentLevelCode = user.preferences?.level || 'A1';
-      const progressCount = user.stats.levelProgress || 0;
+      // Use the new structure or fallback to 0
+      const progressCount = user.stats.progressByLevel?.[currentLevelCode] || user.stats.levelProgress || 0;
+      
+      // Calculate visual percentage (assuming 50 steps per level)
       const percentage = Math.min((progressCount / 50) * 100, 100); 
       
       let targetCode = 'MAX';
@@ -126,7 +129,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       }
       
       return { startCode: currentLevelCode, targetCode, percentage };
-  }, [user.stats.levelProgress, user.preferences?.level]);
+  }, [user.stats.progressByLevel, user.stats.levelProgress, user.preferences?.level]);
 
   // Search Logic
   const matchingMessages = useMemo(() => {
@@ -153,8 +156,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         const match = messages[i].text.match(/##\s*(?:🟢|🔴|🔵)?\s*(?:LEÇON|LECON|LESSON|LESONA)\s*(\d+)/i);
         if (match) return match[1];
     }
-    return (user.stats.levelProgress || 0) + 1;
-  }, [messages, user.stats.levelProgress]);
+    return Math.floor((user.stats.progressByLevel?.[preferences.level] || 0)) + 1;
+  }, [messages, user.stats.progressByLevel, preferences.level]);
 
   const getTextSizeClass = () => {
       switch (fontSize) {

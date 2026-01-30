@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { X, Smartphone, ShieldCheck, Calculator, ArrowRight, Send, CheckCircle, Copy, Check, Coins } from 'lucide-react';
+import { X, Smartphone, ShieldCheck, Calculator, ArrowRight, Send, CheckCircle, Copy, Check, Coins, CreditCard, ChevronRight } from 'lucide-react';
 import { ADMIN_CONTACTS, CREDIT_PRICE_ARIARY } from '../constants';
 import { storageService } from '../services/storageService';
 import { UserProfile } from '../types';
@@ -10,39 +10,46 @@ interface PaymentModalProps {
   user: UserProfile;
 }
 
+const AMOUNTS = [1000, 2000, 5000, 10000];
+
 const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
-  const [view, setView] = useState<'info' | 'request'>('info');
-  const [amount, setAmount] = useState<number>(2000); // Default 2000 Ar
+  const [view, setView] = useState<'amount' | 'operator' | 'confirm'>('amount');
+  const [amount, setAmount] = useState<number>(2000);
   const [refMessage, setRefMessage] = useState('');
   const [isSent, setIsSent] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selectedOperator, setSelectedOperator] = useState<'mvola' | 'airtel' | 'orange' | null>(null);
   
   const credits = Math.floor(amount / CREDIT_PRICE_ARIARY);
   
-  // Motif Generation: Crd_{username} (Max 20 chars)
+  // Motif Generation
   const cleanUsername = user.username.replace(/[^a-zA-Z0-9]/g, ''); 
   const motifCode = `Crd_${cleanUsername}`.substring(0, 20); 
+
+  const copyToClipboard = (text: string, key: string) => {
+      navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied(null), 2000);
+  };
 
   const handleSendRequest = async () => {
       if (!refMessage.trim()) return;
       setLoading(true);
       
-      const creditRequest = Math.floor(amount / CREDIT_PRICE_ARIARY);
-      
       try {
           await storageService.sendAdminRequest(
-              user.id, // Use the real ID for the system
-              user.username, // Display name
+              user.id,
+              user.username,
               'credit',
-              creditRequest,
-              `Paiement Mobile Money. Réf/Détails: ${refMessage}`
+              credits,
+              `Paiement ${selectedOperator?.toUpperCase()}. Réf: ${refMessage}`
           );
           
           setIsSent(true);
           setTimeout(() => {
               onClose();
-          }, 2500);
+          }, 3000);
       } catch (e) {
           console.error("Payment Request Error", e);
       } finally {
@@ -50,169 +57,215 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
       }
   };
 
-  const handleCopyMotif = () => {
-      navigator.clipboard.writeText(motifCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-fade-in">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border border-white/20 max-h-[90vh] overflow-y-auto scrollbar-hide">
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xl animate-fade-in">
+      <div className="bg-white dark:bg-[#0B0F19] w-full max-w-md rounded-[2rem] overflow-hidden shadow-2xl border border-white/20 dark:border-slate-800 max-h-[90vh] flex flex-col">
         
-        {/* Header */}
-        <div className="bg-gradient-to-r from-indigo-600 to-violet-600 p-6 text-white relative">
-            <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors">
+        {/* Header Moderne */}
+        <div className="relative h-32 bg-gradient-to-br from-indigo-600 to-violet-700 flex items-center justify-center overflow-hidden shrink-0">
+            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-black/10 rounded-full blur-xl -ml-5 -mb-5"></div>
+            
+            <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/30 rounded-full text-white transition-colors backdrop-blur-md z-20">
                 <X className="w-5 h-5" />
             </button>
-            <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-white/20 rounded-lg">
-                    <ShieldCheck className="w-6 h-6" />
+
+            <div className="text-center z-10">
+                <h2 className="text-2xl font-black text-white tracking-tight">Recharger</h2>
+                <div className="flex items-center justify-center gap-2 mt-1 opacity-90">
+                    <span className="text-xs font-bold uppercase tracking-widest text-indigo-200">Solde Actuel</span>
+                    <span className="bg-white/20 px-2 py-0.5 rounded text-sm font-bold text-white backdrop-blur-sm">{user.credits} CR</span>
                 </div>
-                <h2 className="text-xl font-bold">
-                    {view === 'info' ? "Recharger mes crédits" : "Confirmer le paiement"}
-                </h2>
             </div>
-            <p className="text-indigo-100 text-sm">
-                {view === 'info' ? "Investissez dans votre savoir. 1 Requête = 1 Crédit." : "Envoyez la référence pour validation rapide."}
-            </p>
         </div>
 
-        <div className="p-6 space-y-6">
+        {/* Content Body */}
+        <div className="flex-1 overflow-y-auto scrollbar-hide p-6">
             
-            {view === 'info' ? (
-                <>
-                    {/* Current Balance Display */}
-                    <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+            {/* ETAPE 1 : CHOIX MONTANT */}
+            {view === 'amount' && (
+                <div className="space-y-6 animate-slide-up">
+                    <div className="text-center">
+                        <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">Combien voulez-vous investir ?</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        {AMOUNTS.map((amt) => (
+                            <button 
+                                key={amt}
+                                onClick={() => setAmount(amt)}
+                                className={`p-4 rounded-2xl border-2 transition-all relative overflow-hidden group ${amount === amt 
+                                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' 
+                                    : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-200'}`}
+                            >
+                                <div className="text-lg font-black text-slate-800 dark:text-white group-hover:scale-105 transition-transform">{amt.toLocaleString()} Ar</div>
+                                <div className="text-xs font-bold text-indigo-500 dark:text-indigo-400">
+                                    {Math.floor(amt / CREDIT_PRICE_ARIARY)} Crédits
+                                </div>
+                                {amount === amt && (
+                                    <div className="absolute top-2 right-2 text-indigo-500"><CheckCircle className="w-4 h-4 fill-indigo-100 dark:fill-indigo-900" /></div>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Custom Amount Input */}
+                    <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                            <span className="text-slate-400 font-bold">Ar</span>
+                        </div>
+                        <input 
+                            type="number" 
+                            value={amount}
+                            onChange={(e) => setAmount(Number(e.target.value))}
+                            className="w-full pl-10 pr-4 py-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none border border-transparent focus:bg-white dark:focus:bg-slate-800 transition-all text-center text-lg"
+                        />
+                    </div>
+
+                    <div className="bg-indigo-500/5 p-4 rounded-2xl flex justify-between items-center border border-indigo-500/10">
+                        <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Vous recevrez :</span>
                         <div className="flex items-center gap-2">
-                            <Coins className="w-5 h-5 text-amber-500" />
-                            <span className="text-sm font-bold text-slate-600 dark:text-slate-300">Solde actuel :</span>
-                        </div>
-                        <span className="text-lg font-black text-slate-800 dark:text-white">{user.credits} Crd</span>
-                    </div>
-
-                    {/* Calculator */}
-                    <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
-                        <div className="flex items-center gap-2 mb-4 text-slate-500 dark:text-slate-400 text-sm font-bold uppercase">
-                            <Calculator className="w-4 h-4" /> Calculateur
-                        </div>
-                        <div className="flex flex-col gap-4">
-                            <div>
-                                <label className="text-xs font-bold text-slate-500 mb-1 block">Montant en Ariary</label>
-                                <input 
-                                    type="number" 
-                                    step="500"
-                                    min="500"
-                                    value={amount}
-                                    onChange={(e) => setAmount(Number(e.target.value))}
-                                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-3 text-lg font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                                />
-                            </div>
-                            <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded-xl">
-                                <span className="font-medium text-indigo-800 dark:text-indigo-300">Crédits obtenus :</span>
-                                <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{credits} Crd</span>
-                            </div>
-                            <p className="text-xs text-center text-slate-400">1 Crédit = {CREDIT_PRICE_ARIARY} Ar</p>
+                            <Coins className="w-5 h-5 text-amber-500 fill-amber-500" />
+                            <span className="text-2xl font-black text-slate-800 dark:text-white">{Math.floor(amount / CREDIT_PRICE_ARIARY)}</span>
+                            <span className="text-xs font-bold text-slate-400 self-end mb-1">CR</span>
                         </div>
                     </div>
 
-                    {/* Mobile Money Info */}
-                    <div className="space-y-4">
-                        <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                            <Smartphone className="w-5 h-5 text-emerald-500" />
-                            Envoyer Mobile Money à :
-                        </h3>
-
-                        {/* Animated Recipient Name */}
-                        <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
-                             <span className="text-xs font-bold text-slate-500 uppercase">Nom :</span>
-                             <span className="font-black text-lg bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 animate-pulse">
-                                Tsanta Fiderana
-                             </span>
-                        </div>
-                        
-                        {/* Reference Hint Block */}
-                        <div className="bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-800 rounded-xl p-3">
-                            <p className="text-xs text-indigo-800 dark:text-indigo-300 mb-2 font-medium">
-                                💡 <strong>Astuce :</strong> Ajoutez ceci comme "Motif" ou "Raison" lors de l'envoi pour validation instantanée :
-                            </p>
-                            <div className="flex items-center gap-2 bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                                <code className="flex-1 font-mono font-bold text-slate-800 dark:text-white text-sm text-center">
-                                    {motifCode}
-                                </code>
-                                <button 
-                                    onClick={handleCopyMotif}
-                                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md transition-colors"
-                                >
-                                    {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4 text-slate-500" />}
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 gap-2">
-                            <ContactRow operator="Telma (MVola)" number={ADMIN_CONTACTS.telma} color="bg-yellow-500" />
-                            <ContactRow operator="Airtel Money" number={ADMIN_CONTACTS.airtel} color="bg-red-500" />
-                            <ContactRow operator="Orange Money" number={ADMIN_CONTACTS.orange} color="bg-orange-500" />
-                        </div>
-                    </div>
-
-                    <button onClick={() => setView('request')} className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-xl hover:scale-[1.02] transition-transform flex items-center justify-center gap-2 shadow-lg">
-                        J'ai effectué le paiement <ArrowRight className="w-5 h-5" />
+                    <button 
+                        onClick={() => setView('operator')}
+                        className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl hover:scale-[1.02] transition-transform flex items-center justify-center gap-2 shadow-xl shadow-indigo-500/10"
+                    >
+                        Continuer <ArrowRight className="w-5 h-5" />
                     </button>
-                </>
-            ) : (
-                <div className="animate-slide-up space-y-6">
-                    {isSent ? (
-                        <div className="flex flex-col items-center justify-center py-8 text-center">
-                            <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4 animate-bounce">
-                                <CheckCircle className="w-8 h-8" />
-                            </div>
-                            <h3 className="text-xl font-bold text-slate-800 dark:text-white">Demande Envoyée !</h3>
-                            <p className="text-slate-500 dark:text-slate-400 mt-2">L'administrateur validera vos crédits sous peu.</p>
-                        </div>
-                    ) : (
-                        <>
-                            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl text-sm text-blue-800 dark:text-blue-200 border border-blue-100 dark:border-blue-900/50">
-                                <strong>Dernière étape :</strong> Veuillez saisir la référence de transaction ou un détail pour que l'admin identifie votre paiement de <strong>{amount} Ar</strong>.
-                            </div>
+                </div>
+            )}
 
-                            <div>
-                                <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Référence / Message</label>
+            {/* ETAPE 2 : OPERATEUR */}
+            {view === 'operator' && (
+                <div className="space-y-6 animate-slide-in-right">
+                    <button onClick={() => setView('amount')} className="text-xs font-bold text-slate-400 hover:text-indigo-500 flex items-center gap-1 mb-2">
+                        <ArrowRight className="w-3 h-3 rotate-180"/> Modifier montant
+                    </button>
+
+                    <div className="space-y-3">
+                        <OperatorCard 
+                            name="MVola" 
+                            color="bg-yellow-500" 
+                            number={ADMIN_CONTACTS.telma} 
+                            selected={selectedOperator === 'mvola'}
+                            onSelect={() => setSelectedOperator('mvola')}
+                            onCopy={(n) => copyToClipboard(n, 'mvola')}
+                            isCopied={copied === 'mvola'}
+                        />
+                        <OperatorCard 
+                            name="Airtel Money" 
+                            color="bg-red-500" 
+                            number={ADMIN_CONTACTS.airtel} 
+                            selected={selectedOperator === 'airtel'}
+                            onSelect={() => setSelectedOperator('airtel')}
+                            onCopy={(n) => copyToClipboard(n, 'airtel')}
+                            isCopied={copied === 'airtel'}
+                        />
+                        <OperatorCard 
+                            name="Orange Money" 
+                            color="bg-orange-500" 
+                            number={ADMIN_CONTACTS.orange} 
+                            selected={selectedOperator === 'orange'}
+                            onSelect={() => setSelectedOperator('orange')}
+                            onCopy={(n) => copyToClipboard(n, 'orange')}
+                            isCopied={copied === 'orange'}
+                        />
+                    </div>
+
+                    <div className="bg-slate-100 dark:bg-slate-800 p-4 rounded-2xl relative overflow-hidden group cursor-pointer" onClick={() => copyToClipboard(motifCode, 'motif')}>
+                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500"></div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Motif obligatoire</p>
+                        <div className="flex justify-between items-center">
+                            <code className="font-mono font-bold text-lg text-indigo-600 dark:text-indigo-400">{motifCode}</code>
+                            {copied === 'motif' ? <Check className="w-5 h-5 text-emerald-500"/> : <Copy className="w-5 h-5 text-slate-400 group-hover:text-indigo-500"/>}
+                        </div>
+                    </div>
+
+                    <button 
+                        onClick={() => setView('confirm')}
+                        disabled={!selectedOperator}
+                        className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl hover:scale-[1.02] transition-transform flex items-center justify-center gap-2 shadow-xl shadow-indigo-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        J'ai envoyé l'argent <ArrowRight className="w-5 h-5" />
+                    </button>
+                </div>
+            )}
+
+            {/* ETAPE 3 : CONFIRMATION */}
+            {view === 'confirm' && (
+                <div className="space-y-6 animate-slide-in-right h-full flex flex-col justify-between">
+                    {!isSent ? (
+                        <>
+                            <div className="space-y-4">
+                                <div className="text-center">
+                                    <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600 dark:text-indigo-400">
+                                        <Smartphone className="w-8 h-8" />
+                                    </div>
+                                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">Référence Transaction</h3>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                                        Collez la référence reçue par SMS pour valider vos <strong>{credits} crédits</strong>.
+                                    </p>
+                                </div>
+
                                 <textarea 
                                     rows={3}
-                                    placeholder={`Ex: Ref 123456. Motif: ${motifCode}`}
+                                    placeholder="Ex: Ref: 12345678 du 12/05..."
                                     value={refMessage}
                                     onChange={(e) => setRefMessage(e.target.value)}
-                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-3 text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none resize-none font-medium"
                                 />
                             </div>
 
-                            <div className="flex gap-3">
-                                <button onClick={() => setView('info')} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                                    Retour
-                                </button>
-                                <button onClick={handleSendRequest} disabled={!refMessage.trim() || loading} className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
-                                    {loading ? 'Envoi...' : 'Envoyer la demande'} <Send className="w-4 h-4" />
-                                </button>
-                            </div>
+                            <button 
+                                onClick={handleSendRequest}
+                                disabled={!refMessage.trim() || loading}
+                                className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl hover:shadow-lg hover:shadow-emerald-500/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                {loading ? 'Envoi...' : 'Valider maintenant'} <Send className="w-5 h-5" />
+                            </button>
                         </>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-center py-10">
+                            <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-6 animate-bounce">
+                                <CheckCircle className="w-10 h-10 text-emerald-500" />
+                            </div>
+                            <h3 className="text-2xl font-black text-slate-800 dark:text-white">Reçu 5/5 !</h3>
+                            <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">L'admin valide votre compte en un éclair.</p>
+                        </div>
                     )}
                 </div>
             )}
-        </div>
 
+        </div>
       </div>
     </div>
   );
 };
 
-const ContactRow = ({ operator, number, color }: { operator: string, number: string, color: string }) => (
-    <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl">
-        <div className="flex items-center gap-3">
-            <div className={`w-2 h-8 rounded-full ${color}`}></div>
-            <span className="font-medium text-slate-700 dark:text-slate-300">{operator}</span>
+const OperatorCard = ({ name, color, number, selected, onSelect, onCopy, isCopied }: any) => (
+    <div 
+        onClick={onSelect}
+        className={`p-3 rounded-2xl border-2 transition-all cursor-pointer flex items-center gap-4 ${selected ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-200 dark:hover:border-slate-700'}`}
+    >
+        <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center text-white shadow-md`}>
+            <Smartphone className="w-6 h-6" />
         </div>
-        <span className="font-mono font-bold text-slate-800 dark:text-white select-all cursor-pointer hover:text-indigo-500">{number}</span>
+        <div className="flex-1">
+            <h4 className="font-bold text-slate-800 dark:text-white">{name}</h4>
+            <div className="flex items-center gap-2" onClick={(e) => { e.stopPropagation(); onCopy(number); }}>
+                <span className="font-mono text-sm text-slate-500 dark:text-slate-400">{number}</span>
+                {isCopied ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3 text-slate-300 hover:text-indigo-500"/>}
+            </div>
+        </div>
+        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${selected ? 'border-indigo-500 bg-indigo-500' : 'border-slate-300'}`}>
+            {selected && <Check className="w-4 h-4 text-white" />}
+        </div>
     </div>
 );
 
