@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, FileText, Type, RotateCcw, BrainCircuit, Menu, Coins, Lock, Image as ImageIcon, Library, ChevronUp, PhoneOff, VolumeX, Trophy } from 'lucide-react';
+import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, FileText, Type, RotateCcw, BrainCircuit, Menu, Coins, Lock, Image as ImageIcon, Library, ChevronUp, PhoneOff, VolumeX, Trophy, MessageCircle } from 'lucide-react';
 import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage, VoiceCallSummary } from '../types';
 import { sendMessageToGemini, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -297,6 +297,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   // --- Call Handlers ---
   
+  // Call Timer Logic & Credit Deduction
   useEffect(() => {
       let interval: any;
       if (isCallActive && !isCallConnecting && !callSummary) {
@@ -304,6 +305,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               setCallSeconds(prev => {
                   const newVal = prev + 1;
                   
+                  // Deduct credit every 60 seconds (1 minute = 1 credit)
                   if (newVal > 0 && newVal % 60 === 0) {
                       const updatedUser = storageService.deductCreditOrUsage(user.id);
                       
@@ -311,12 +313,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                           onUpdateUser(updatedUser);
                           notify("1 min écoulée : -1 Crédit", 'info');
                       } else {
+                          // Crucial: Auto-cut if deduction fails (returns null)
                           clearInterval(interval);
                           notify("Crédit épuisé. Fin de l'appel.", 'error');
                           handleEndCall();
                       }
                   }
                   
+                  // Warning at 50s mark of a minute if low credits
                   if (newVal % 60 === 50 && user.credits <= 1 && user.role !== 'admin') {
                       notify("Attention : Il vous reste 10 secondes...", 'info');
                   }
@@ -338,15 +342,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       osc.connect(gain);
       gain.connect(ctx.destination);
       
+      // Standard Ringback Tone freq (approx 425Hz)
       osc.frequency.value = 425; 
       
+      // Pattern: "tu-tu... tu-tu..."
+      // Pulse 1
       gain.gain.setValueAtTime(0.5, ctx.currentTime);
       gain.gain.setValueAtTime(0, ctx.currentTime + 0.4);
+      // Pulse 2
       gain.gain.setValueAtTime(0.5, ctx.currentTime + 0.8);
       gain.gain.setValueAtTime(0, ctx.currentTime + 1.2);
       
       osc.start();
       
+      // Create a pulse effect
       const pulse = setInterval(() => {
           if (ctx.state === 'closed') return;
           const t = ctx.currentTime;
@@ -354,9 +363,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           gain.gain.setValueAtTime(0, t + 0.4);
           gain.gain.setValueAtTime(0.5, t + 0.8);
           gain.gain.setValueAtTime(0, t + 1.2);
-      }, 3000);
+      }, 3000); // Repeat every 3s
 
       ringbackOscillatorRef.current = osc;
+      
+      // Store pulse interval to clear it
       // @ts-ignore
       osc.pulseInterval = pulse;
   };
@@ -385,16 +396,19 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setCallSummary(null);
       setIsAnalyzingCall(false);
       
+      // Play Ringback
       playRingbackTone();
       
+      // Connect after 5 seconds
       setTimeout(() => {
           stopRingback();
           setIsCallConnecting(false);
           
+          // Initial Greeting based on Explanation Language
           const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
           const greeting = isMg 
-            ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika...`
-            : `Allô ${user.username} ! 😊 Nous allons pratiquer le ${preferences.targetLanguage}...`;
+            ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika, niveau ${preferences.level}...`
+            : `Allô ${user.username} ! 😊 Nous allons pratiquer ensemble le ${preferences.targetLanguage}, niveau ${preferences.level}...`;
           
           handleSpeak(greeting);
       }, 5000);
@@ -406,6 +420,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       stopRingback();
       
       if (callSeconds > 10) {
+          // Analyze call
           setIsAnalyzingCall(true);
           try {
               const summary = await analyzeVoiceCallPerformance(messages, user.id);
@@ -416,6 +431,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               setIsAnalyzingCall(false);
           }
       } else {
+          // Too short, just close
           closeCallOverlay();
       }
   };
@@ -461,8 +477,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       let responseText = "";
       
       if (isCallActive) {
+          // Use specific Voice AI Logic
           responseText = await generateVoiceChatResponse(textToSend, user.id, updatedWithUser);
       } else {
+          // Standard Chat Logic
           responseText = await sendMessageToGemini(textToSend, user.id);
       }
 
@@ -472,6 +490,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage);
       refreshUserData();
       
+      // Voice Call Auto-Reply
       if (isCallActive) {
           handleSpeak(responseText);
       }
@@ -507,11 +526,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         setShowPaymentModal(true);
         return;
     }
+    
     setIsGeneratingImage(true);
     setShowSmartOptions(false);
+    
     try {
         const prompt = `Digital illustration of ${preferences.targetLanguage} learning concept or culture, colorful, modern vector art style, educational context.`;
         const base64Image = await generateConceptImage(prompt, user.id);
+        
         if (base64Image) {
             setGeneratedImage(base64Image);
             refreshUserData();
@@ -724,6 +746,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // Explanation Language for UI strings
   const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
 
+  // Render variables for toolbar classes
+  const sendButtonClass = `p-2.5 rounded-full text-white transition-all shadow-md transform hover:scale-105 active:scale-95 flex items-center justify-center ${canSend ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-slate-400 cursor-not-allowed'}`;
+  const micButtonClass = `p-2 rounded-full ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-200'}`;
+
   return (
     <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
       
@@ -931,7 +957,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                           <span className="text-slate-700 dark:text-slate-300">Traduction</span>
                       </button>
                       <button onClick={() => { setShowSmartOptions(false); setIsDialogueActive(true); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors">
-                          <BrainCircuit className="w-4 h-4 text-emerald-500"/>
+                          <MessageCircle className="w-4 h-4 text-emerald-500"/>
                           <span className="text-slate-700 dark:text-slate-300">Dialogues</span>
                       </button>
                        <div className="my-1 border-t border-slate-100 dark:border-slate-800"></div>
@@ -1202,9 +1228,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                  <button 
                     onClick={() => handleSend()} 
                     disabled={!input.trim() || isLoading || isAnalyzing} 
-                    className={`p-2.5 rounded-full text-white transition-all shadow-md transform hover:scale-105 active:scale-95 flex items-center justify-center
-                        ${canSend ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-slate-400 cursor-not-allowed'}
-                    `}
+                    className={`p-2.5 rounded-full text-white transition-all shadow-md transform hover:scale-105 active:scale-95 flex items-center justify-center ${canSend ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-slate-400 cursor-not-allowed'}`}
                  >
                     {canSend ? <Send className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
                 </button>
