@@ -746,7 +746,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // Explanation Language for UI strings
   const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
 
-  // Render variables for toolbar classes
+  // Variables for dynamic classes to keep JSX clean
   const sendButtonClass = `p-2.5 rounded-full text-white transition-all shadow-md transform hover:scale-105 active:scale-95 flex items-center justify-center ${canSend ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-slate-400 cursor-not-allowed'}`;
   const micButtonClass = `p-2 rounded-full ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-200'}`;
 
