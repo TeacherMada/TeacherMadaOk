@@ -7,7 +7,7 @@ export enum TargetLanguage {
   German = 'Allemand 🇩🇪'
 }
 
-// Ancienne enum dépréciée remplacée par des types union plus flexibles
+// Types stricts pour les niveaux
 export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 export type HskLevel = 'HSK 1' | 'HSK 2' | 'HSK 3' | 'HSK 4' | 'HSK 5' | 'HSK 6';
 
@@ -17,7 +17,7 @@ export interface LevelDescriptor {
   code: LanguageLevel;
   title: string;
   description: string;
-  skills: string[]; // Bullet points
+  skills: string[]; // Points clés
   example: string; // Phrase type
 }
 

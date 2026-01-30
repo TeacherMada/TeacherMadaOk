@@ -197,10 +197,19 @@ const App: React.FC = () => {
         try {
             const { newMemory, xpEarned, feedback } = await analyzeUserProgress(messages, user.aiMemory, user.id);
             if (user.preferences?.mode === LearningMode.Course) handleUpdateChallengeProgress('lesson_complete');
+            
+            // Increment levelProgress if in course mode
+            const levelIncrement = user.preferences?.mode === LearningMode.Course ? 1 : 0;
+            
             const updatedUser: UserProfile = {
                 ...user,
                 aiMemory: newMemory,
-                stats: { ...user.stats, xp: user.stats.xp + xpEarned, lessonsCompleted: user.stats.lessonsCompleted + (user.preferences?.mode === LearningMode.Course ? 1 : 0) },
+                stats: { 
+                    ...user.stats, 
+                    xp: user.stats.xp + xpEarned, 
+                    lessonsCompleted: user.stats.lessonsCompleted + levelIncrement,
+                    levelProgress: (user.stats.levelProgress || 0) + levelIncrement
+                },
                 preferences: null
             };
             setUser(updatedUser);

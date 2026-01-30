@@ -101,15 +101,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const recognitionRef = useRef<any>(null);
   const preferences = user.preferences!;
 
-  // === REAL LEVEL PROGRESS CALCULATION ===
+  // === REAL LEVEL PROGRESS CALCULATION (0-50 Lessons) ===
   const levelProgressData = useMemo(() => {
       const currentLevelCode = user.preferences?.level || 'A1';
-      // Fallback if migration hasn't run
-      const progressCount = user.stats.levelProgress || (user.stats.lessonsCompleted % 50) || 0;
+      // Fallback if migration hasn't run or field is missing
+      const progressCount = user.stats.levelProgress || 0;
       
       const percentage = Math.min((progressCount / 50) * 100, 100);
       
-      // Determine next level target
+      // Determine next level target for UI display
       let targetCode = 'A2';
       const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
       const hskLevels = ['HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
@@ -123,7 +123,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       }
       
       return { startCode: currentLevelCode, targetCode, percentage };
-  }, [user.stats.levelProgress, user.preferences?.level, user.stats.lessonsCompleted]);
+  }, [user.stats.levelProgress, user.preferences?.level]);
 
   // Dynamic Loading Text Logic for Voice Call
   useEffect(() => {
