@@ -973,30 +973,42 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </div>
 
         {/* Right: Credits, Menu, Avatar */}
-        <div className="flex-1 flex items-center justify-end gap-2">
-             <button onClick={() => setShowPaymentModal(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group ${!canSend ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-900 animate-pulse' : 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/40'}`}>
-                  {isFreeTier ? (
-                      <>
-                        <div className={`w-2 h-2 rounded-full ${canSend ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse`}></div>
-                        <span className={`text-xs font-bold ${canSend ? 'text-indigo-700 dark:text-indigo-300' : 'text-red-600 dark:text-red-400'}`}>{freeUsageLeft}/2</span>
-                      </>
-                  ) : (
-                      <>
-                        <Coins className={`w-3.5 h-3.5 ${canSend ? 'text-amber-500' : 'text-red-500'} group-hover:rotate-12 transition-transform`} />
-                        <span className={`text-xs font-bold ${canSend ? 'text-indigo-900 dark:text-indigo-100' : 'text-red-600 dark:text-red-300'} hidden sm:inline`}>{user.role === 'admin' ? '∞' : user.credits}</span>
-                        <span className="text-xs font-bold sm:hidden">{user.role === 'admin' ? '∞' : user.credits}</span>
-                      </>
-                  )}
-             </button>
+<div className="flex-1 flex items-center justify-end gap-2">
+     <button 
+        onClick={() => setShowPaymentModal(true)} 
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group ${
+            !canSend 
+            ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-900 animate-pulse' 
+            : 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/40'
+        }`}
+     >
+          {isFreeTier ? (
+              <>
+                <div className={`w-2 h-2 rounded-full ${canSend ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse`}></div>
+                <span className={`text-xs font-bold ${canSend ? 'text-indigo-700 dark:text-indigo-300' : 'text-red-600 dark:text-red-400'}`}>
+                    {freeUsageLeft}/2
+                </span>
+              </>
+          ) : (
+              <>
+                <Coins className={`w-3.5 h-3.5 ${canSend ? 'text-amber-500' : 'text-red-500'} group-hover:rotate-12 transition-transform`} />
+                <span className={`text-xs font-bold ${canSend ? 'text-indigo-900 dark:text-indigo-100' : 'text-red-600 dark:text-red-300'} hidden sm:inline`}>
+                    {user.role === 'admin' ? '∞' : user.credits}
+                </span>
+                <span className="text-xs font-bold sm:hidden">
+                    {user.role === 'admin' ? '∞' : user.credits}
+                </span>
+              </>
+          )}
+     </button>
 
-             <div className="relative">
-                 <button 
-                    onClick={() => setShowMenu(!showMenu)} 
-                    className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                 >
-                    <Menu className="w-5 h-5" />
-                 </button>
-                 
+     <div className="relative">
+         <button 
+            onClick={() => setShowMenu(!showMenu)} 
+            className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+         >
+            <Menu className="w-5 h-5" />
+         </button>         
                  {/* MENU DROPDOWN */}
                  {showMenu && (
                      <div className="absolute top-12 right-0 w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-3 animate-fade-in z-50">
