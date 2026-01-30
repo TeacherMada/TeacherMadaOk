@@ -7,7 +7,7 @@ export enum TargetLanguage {
   German = 'Allemand 🇩🇪'
 }
 
-// Types stricts pour les niveaux granulaires
+// Nouveaux types granulaires
 export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 export type HskLevel = 'HSK 1' | 'HSK 2' | 'HSK 3' | 'HSK 4' | 'HSK 5' | 'HSK 6';
 
@@ -17,8 +17,8 @@ export interface LevelDescriptor {
   code: LanguageLevel;
   title: string;
   description: string;
-  skills: string[]; // Points clés
-  example: string; // Phrase type
+  skills: string[];
+  example: string;
 }
 
 export enum ExplanationLanguage {
@@ -35,11 +35,11 @@ export enum LearningMode {
 
 export interface UserPreferences {
   targetLanguage: TargetLanguage;
-  level: LanguageLevel; // Utilisation du type union strict
+  level: LanguageLevel; // Utilisation du type string union au lieu de l'enum
   explanationLanguage: ExplanationLanguage;
   mode: LearningMode;
   fontSize?: 'small' | 'normal' | 'large' | 'xl';
-  needsAssessment?: boolean; // Si l'utilisateur ne connait pas son niveau
+  needsAssessment?: boolean;
 }
 
 export interface DailyChallenge {
@@ -67,7 +67,7 @@ export interface UserProfile {
     xp: number;
     streak: number;
     lessonsCompleted: number; // Total global
-    levelProgress: number; // 0-50 (Leçons dans le niveau actuel)
+    levelProgress: number; // 0-50 (Progression dans le niveau actuel)
   };
   skills?: {
     vocabulary: number;
@@ -81,11 +81,10 @@ export interface UserProfile {
   isPremium: boolean;
   hasSeenTutorial?: boolean;
   
-  // Credit System
   credits: number;
   freeUsage: {
-    lastResetWeek: string; // ISO String of the Monday of the current week
-    count: number; // Max 2 per week
+    lastResetWeek: string;
+    count: number;
   };
   isSuspended?: boolean;
 }
@@ -93,7 +92,7 @@ export interface UserProfile {
 export interface Transaction {
   id: string;
   userId: string;
-  amount: number; // in Ariary
+  amount: number;
   creditsAdded: number;
   date: number;
   status: 'pending' | 'completed' | 'rejected';
@@ -120,7 +119,7 @@ export interface SystemSettings {
     airtel: string;
     orange: string;
   };
-  creditPrice: number; // 50 Ariary
+  creditPrice: number;
 }
 
 export interface ChatMessage {

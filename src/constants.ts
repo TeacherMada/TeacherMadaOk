@@ -81,7 +81,7 @@ export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
 
 export const SYSTEM_PROMPT_TEMPLATE = (profile: UserProfile, prefs: UserPreferences) => {
   const currentLevel = prefs.level;
-  // Fallback si levelProgress n'est pas défini (migration)
+  // Fallback si levelProgress n'est pas défini
   const progressCount = profile.stats.levelProgress || 0;
   const progressPercent = Math.min((progressCount / 50) * 100, 100); 
   const isAssessmentMode = prefs.needsAssessment;

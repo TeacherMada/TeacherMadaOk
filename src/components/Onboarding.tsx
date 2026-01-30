@@ -41,7 +41,6 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   };
 
   const handleUnknownLevel = () => {
-      // Default to lowest level but flag for assessment
       const defaultLevel = prefs.targetLanguage === TargetLanguage.Chinese ? 'HSK 1' : 'A1';
       setPrefs(prev => ({ ...prev, level: defaultLevel, needsAssessment: true }));
       setStep(3);
@@ -54,7 +53,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
 
   const handleBack = () => {
     if (step === 2 && selectedLevelDesc) {
-        setSelectedLevelDesc(null); // Close modal first
+        setSelectedLevelDesc(null);
         return;
     }
     if (step > 1) {
@@ -66,12 +65,10 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 transition-colors duration-300 relative font-sans">
       
-      {/* Theme Toggle Button */}
       <button onClick={toggleTheme} className="absolute top-5 right-5 p-3 rounded-full bg-white dark:bg-slate-900 shadow-md hover:shadow-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all cursor-pointer z-50">
         {isDarkMode ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
       </button>
 
-      {/* Back Button */}
       {step > 1 && (
         <button onClick={handleBack} className="absolute top-5 left-5 p-3 rounded-full bg-white dark:bg-slate-900 shadow-md hover:shadow-lg text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all cursor-pointer z-50">
             <ArrowLeft className="w-6 h-6" />
@@ -80,14 +77,12 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
 
       <div className="max-w-2xl w-full bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl p-8 transform transition-all duration-500 relative border border-slate-100 dark:border-slate-800">
         
-        {/* Progress Bar */}
         <div className="mb-8 flex items-center gap-2">
             <div className={`h-2 flex-1 rounded-full transition-all duration-500 ${step >= 1 ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-800'}`}></div>
             <div className={`h-2 flex-1 rounded-full transition-all duration-500 ${step >= 2 ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-800'}`}></div>
             <div className={`h-2 flex-1 rounded-full transition-all duration-500 ${step >= 3 ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-800'}`}></div>
         </div>
 
-        {/* STEP 1: LANGUAGE */}
         {step === 1 && (
           <div className="animate-fade-in text-center">
             <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
@@ -114,7 +109,6 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
           </div>
         )}
 
-        {/* STEP 2: LEVEL SELECTION */}
         {step === 2 && !selectedLevelDesc && (
           <div className="animate-fade-in">
             <div className="text-center mb-8">
@@ -149,7 +143,6 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
           </div>
         )}
 
-        {/* STEP 2B: LEVEL CONFIRMATION MODAL */}
         {step === 2 && selectedLevelDesc && (
             <div className="animate-slide-up">
                 <div className="text-center mb-6">
@@ -194,7 +187,6 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
             </div>
         )}
 
-        {/* STEP 3: EXPLANATION LANGUAGE */}
         {step === 3 && (
           <div className="animate-fade-in text-center">
             <h2 className="text-2xl font-bold mb-6 text-slate-900 dark:text-white">Langue d'explication ?</h2>
