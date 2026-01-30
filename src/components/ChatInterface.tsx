@@ -743,7 +743,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     return `${parts[0]} ${parts[parts.length - 1]}`;
   };
 
-  // Explanation Language for UI strings
   const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
 
   // Variables for dynamic classes to keep JSX clean
@@ -941,7 +940,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     className="flex items-center gap-2 pl-1 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-full hover:border-indigo-300 dark:hover:border-indigo-700 transition-all group active:scale-95"
                 >
                     <div className="w-7 h-7 rounded-full bg-white dark:bg-slate-700 flex items-center justify-center shadow-sm text-lg leading-none pb-0.5">
-                        {/* Extract Flag */}
                         {preferences.targetLanguage.split(' ').pop()} 
                     </div>
                     <div className="flex flex-col items-start leading-none gap-0.5">
