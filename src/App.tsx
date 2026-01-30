@@ -9,7 +9,6 @@ import AdminDashboard from './components/AdminDashboard';
 import { UserPreferences, ChatMessage, ExplanationLanguage, UserProfile, LearningMode } from './types';
 import { startChatSession, analyzeUserProgress, generateDailyChallenges } from './services/geminiService';
 import { storageService } from './services/storageService';
-import { INITIAL_GREETING_FR, INITIAL_GREETING_MG } from './constants';
 import { CheckCircle, AlertTriangle, Info, X } from 'lucide-react';
 
 // Toast Component
@@ -124,11 +123,14 @@ const App: React.FC = () => {
       
       // If no history, add greeting
       if (history.length === 0) {
-        const greeting = prefs.explanationLanguage === ExplanationLanguage.French ? INITIAL_GREETING_FR : INITIAL_GREETING_MG;
+        const greeting = prefs.explanationLanguage === ExplanationLanguage.French 
+            ? `Bonjour ${userProfile.username} ! TeacherMada est ravi de vous accueillir. Si vous êtes prêt à commencer, cliquez sur le bouton ci-dessous 👇🏻`
+            : `Salama i ${userProfile.username} ! Faly TeacherMada mandray anao, Raha vonona hanomboka amin'ny fampianarana ianao dia tsindrio ity bokotra ambany ity 👇🏻`;
+            
         const initialMsg: ChatMessage = { 
             id: 'init', 
             role: 'model', 
-            text: greeting + ` (${prefs.targetLanguage} - ${prefs.level})`, 
+            text: greeting, 
             timestamp: Date.now() 
         };
         const newHistory = [initialMsg];
