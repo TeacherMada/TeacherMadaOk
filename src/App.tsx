@@ -9,9 +9,9 @@ import AdminDashboard from './components/AdminDashboard';
 import { UserPreferences, ChatMessage, ExplanationLanguage, UserProfile, LearningMode } from './types';
 import { startChatSession, analyzeUserProgress, generateDailyChallenges } from './services/geminiService';
 import { storageService } from './services/storageService';
-import { INITIAL_GREETING_FR, INITIAL_GREETING_MG } from './constants';
 import { CheckCircle, AlertTriangle, Info, X } from 'lucide-react';
 
+// Toast Component
 interface ToastProps {
   message: string;
   type: 'success' | 'error' | 'info';
@@ -44,17 +44,21 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
+  
+  // Global Notification State
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
 
   const notify = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
   };
 
-  // --- Theme Logic Corrected ---
+  // Theme Management
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('theme');
-      return saved === 'dark'; // Defaults to false (Light) if not set or not 'dark'
+      // Check system preference if no saved theme
+      if (!saved) return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      return saved === 'dark';
     }
     return false;
   });
@@ -65,30 +69,33 @@ const App: React.FC = () => {
         root.classList.add('dark');
         localStorage.setItem('theme', 'dark');
     } else {
-        root.classList.remove('dark'); // IMPORTANT: Force remove for light mode
+        root.classList.remove('dark');
         localStorage.setItem('theme', 'light');
     }
   }, [isDarkMode]);
 
   const toggleTheme = () => setIsDarkMode(prev => !prev);
 
-  // Initialize
   useEffect(() => {
-    const initUser = async () => {
+    const init = async () => {
         const currentUser = storageService.getCurrentUser();
+        // Seed admin on start
+        storageService.seedAdmin();
+        
         if (currentUser) {
-            // Check for updates from server on load
-            const synced = await storageService.syncProfileFromCloud(currentUser.id);
-            const finalUser = synced || currentUser;
-            
-            setUser(finalUser);
-            if (finalUser.role === 'admin') setIsAdminMode(true);
-            if (finalUser.preferences && finalUser.role !== 'admin') {
-                initializeSession(finalUser, finalUser.preferences);
-            }
+          // Sync critical data from cloud on load
+          const syncedUser = await storageService.syncProfileFromCloud(currentUser.id);
+          const finalUser = syncedUser || currentUser;
+          
+          setUser(finalUser);
+          
+          if (finalUser.role === 'admin') setIsAdminMode(true);
+          if (finalUser.preferences && finalUser.role !== 'admin') {
+            initializeSession(finalUser, finalUser.preferences);
+          }
         }
     };
-    initUser();
+    init();
   }, []);
 
   useEffect(() => {
@@ -110,17 +117,29 @@ const App: React.FC = () => {
   }, [user?.id, user?.preferences]);
 
   const initializeSession = async (userProfile: UserProfile, prefs: UserPreferences) => {
-    const history = storageService.getChatHistory(userProfile.id, prefs.targetLanguage);
+    // 1. Tenter de charger l'historique depuis le Cloud (pour le cross-device)
+    let history = await storageService.loadChatHistoryFromCloud(userProfile.id, prefs.targetLanguage);
+    
+    // 2. Si vide (nouvel appareil ou pas de réseau), fallback sur le local
+    if (history.length === 0) {
+        history = storageService.getChatHistory(userProfile.id, prefs.targetLanguage);
+    }
+    
     setMessages(history);
     
     try {
       await startChatSession(userProfile, prefs, history);
+      
+      // If no history, add greeting
       if (history.length === 0) {
-        const greeting = prefs.explanationLanguage === ExplanationLanguage.French ? INITIAL_GREETING_FR : INITIAL_GREETING_MG;
+        const greeting = prefs.explanationLanguage === ExplanationLanguage.French 
+            ? `Bonjour ${userProfile.username} ! TeacherMada est ravi de vous accueillir. Si vous êtes prêt à commencer, cliquez sur le bouton ci-dessous 👇🏻`
+            : `Salama i ${userProfile.username} ! Faly TeacherMada mandray anao, Raha vonona hanomboka amin'ny fampianarana ianao dia tsindrio ity bokotra ambany ity 👇🏻`;
+            
         const initialMsg: ChatMessage = { 
             id: 'init', 
             role: 'model', 
-            text: greeting + ` (${prefs.targetLanguage} - ${prefs.level})`, 
+            text: greeting, 
             timestamp: Date.now() 
         };
         const newHistory = [initialMsg];
@@ -190,9 +209,8 @@ const App: React.FC = () => {
             const { newMemory, xpEarned, feedback } = await analyzeUserProgress(messages, user.aiMemory, user.id);
             if (user.preferences?.mode === LearningMode.Course) handleUpdateChallengeProgress('lesson_complete');
             
-            // Increment level progress
+            // Increment levelProgress if in course mode
             const levelIncrement = user.preferences?.mode === LearningMode.Course ? 1 : 0;
-            const currentLevelProgress = user.stats.levelProgress || 0;
             
             const updatedUser: UserProfile = {
                 ...user,
@@ -201,7 +219,7 @@ const App: React.FC = () => {
                     ...user.stats, 
                     xp: user.stats.xp + xpEarned, 
                     lessonsCompleted: user.stats.lessonsCompleted + levelIncrement,
-                    levelProgress: currentLevelProgress + levelIncrement 
+                    levelProgress: (user.stats.levelProgress || 0) + levelIncrement
                 },
                 preferences: null
             };

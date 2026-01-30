@@ -351,7 +351,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // --- RENDER ---
   const canSend = storageService.canPerformRequest(user.id).allowed;
   const isFreeTier = user.role !== 'admin' && user.credits <= 0;
-  const freeUsageLeft = isFreeTier ? Math.max(0, 3 - user.freeUsage.count) : 0; // Updated to 3
+  // Updated Free Limit to 3
+  const freeUsageLeft = isFreeTier ? Math.max(0, 3 - user.freeUsage.count) : 0;
   const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
   
   // Keep renderCallOverlay same as before
@@ -469,7 +470,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     {isFreeTier ? (
                         <>
                             <div className={`w-2 h-2 rounded-full ${freeUsageLeft > 0 ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
-                            <span className="font-bold text-sm">Gratuit: {freeUsageLeft}/3</span>
+                            <span className={`text-xs font-bold ${canSend ? 'text-indigo-700 dark:text-indigo-300' : 'text-red-600 dark:text-red-400'}`}>
+                                <span className="hidden sm:inline">Gratuit : </span>{freeUsageLeft}/3
+                            </span>
                         </>
                     ) : (
                         <>
