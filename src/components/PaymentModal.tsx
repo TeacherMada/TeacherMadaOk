@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { X, Smartphone, ShieldCheck, Calculator, ArrowRight, Send, CheckCircle, Copy, Check, Coins, CreditCard, ChevronRight } from 'lucide-react';
+import { X, Smartphone, ShieldCheck, Calculator, ArrowRight, Send, CheckCircle, Copy, Check, Coins, CreditCard, ChevronRight, User, Hash, FileText } from 'lucide-react';
 import { ADMIN_CONTACTS, CREDIT_PRICE_ARIARY } from '../constants';
 import { storageService } from '../services/storageService';
 import { UserProfile } from '../types';
@@ -43,7 +43,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
               user.username,
               'credit',
               credits,
-              `Paiement ${selectedOperator?.toUpperCase()}. Réf: ${refMessage}`
+              `Paiement ${selectedOperator?.toUpperCase()}. Détails: ${refMessage}`
           );
           
           setIsSent(true);
@@ -75,7 +75,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                 <h2 className="text-2xl font-black text-white tracking-tight">Recharger</h2>
                 <div className="flex items-center justify-center gap-2 mt-1 opacity-90">
                     <span className="text-xs font-bold uppercase tracking-widest text-indigo-200">Solde Actuel</span>
-                    <span className="bg-white/20 px-2 py-0.5 rounded text-sm font-bold text-white backdrop-blur-sm">{user.credits} CR</span>
+                    <span className="bg-white/20 px-2 py-0.5 rounded text-sm font-bold text-white backdrop-blur-sm">{user.credits} CRD</span>
                 </div>
             </div>
         </div>
@@ -101,7 +101,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                             >
                                 <div className="text-lg font-black text-slate-800 dark:text-white group-hover:scale-105 transition-transform">{amt.toLocaleString()} Ar</div>
                                 <div className="text-xs font-bold text-indigo-500 dark:text-indigo-400">
-                                    {Math.floor(amt / CREDIT_PRICE_ARIARY)} Crédits
+                                    {Math.floor(amt / CREDIT_PRICE_ARIARY)} CRD
                                 </div>
                                 {amount === amt && (
                                     <div className="absolute top-2 right-2 text-indigo-500"><CheckCircle className="w-4 h-4 fill-indigo-100 dark:fill-indigo-900" /></div>
@@ -128,7 +128,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                         <div className="flex items-center gap-2">
                             <Coins className="w-5 h-5 text-amber-500 fill-amber-500" />
                             <span className="text-2xl font-black text-slate-800 dark:text-white">{Math.floor(amount / CREDIT_PRICE_ARIARY)}</span>
-                            <span className="text-xs font-bold text-slate-400 self-end mb-1">CR</span>
+                            <span className="text-xs font-bold text-slate-400 self-end mb-1">CRD</span>
                         </div>
                     </div>
 
@@ -178,9 +178,15 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                         />
                     </div>
 
+                    {/* Nom Mobile Money */}
+                    <div className="bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded-xl border border-indigo-100 dark:border-indigo-800 text-center">
+                        <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">Nom Mobile Money</p>
+                        <p className="text-lg font-black text-indigo-700 dark:text-indigo-200">TSANTA FIDERANA</p>
+                    </div>
+
                     <div className="bg-slate-100 dark:bg-slate-800 p-4 rounded-2xl relative overflow-hidden group cursor-pointer" onClick={() => copyToClipboard(motifCode, 'motif')}>
                         <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500"></div>
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Motif obligatoire</p>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Description | Raison | Motif</p>
                         <div className="flex justify-between items-center">
                             <code className="font-mono font-bold text-lg text-indigo-600 dark:text-indigo-400">{motifCode}</code>
                             {copied === 'motif' ? <Check className="w-5 h-5 text-emerald-500"/> : <Copy className="w-5 h-5 text-slate-400 group-hover:text-indigo-500"/>}
@@ -203,23 +209,38 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                     {!isSent ? (
                         <>
                             <div className="space-y-4">
+                                <button onClick={() => setView('operator')} className="text-xs font-bold text-slate-400 hover:text-indigo-500 flex items-center gap-1 mb-2">
+                                    <ArrowRight className="w-3 h-3 rotate-180"/> Retour
+                                </button>
+
                                 <div className="text-center">
                                     <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600 dark:text-indigo-400">
                                         <Smartphone className="w-8 h-8" />
                                     </div>
-                                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">Référence Transaction</h3>
+                                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">Validation Rapide</h3>
                                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-                                        Collez la référence reçue par SMS pour valider vos <strong>{credits} crédits</strong>.
+                                        Pour que l'admin valide vos <strong>{credits} CRD</strong> instantanément, aidez-nous à vous identifier.
                                     </p>
                                 </div>
 
-                                <textarea 
-                                    rows={3}
-                                    placeholder="Ex: Ref: 12345678 du 12/05..."
-                                    value={refMessage}
-                                    onChange={(e) => setRefMessage(e.target.value)}
-                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none resize-none font-medium"
-                                />
+                                <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                                    <div className="flex flex-col gap-2 mb-2">
+                                        <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase">
+                                            <User className="w-3 h-3"/> Nom
+                                            <span className="mx-1">•</span>
+                                            <Hash className="w-3 h-3"/> Tél
+                                            <span className="mx-1">•</span>
+                                            <FileText className="w-3 h-3"/> Réf
+                                        </div>
+                                    </div>
+                                    <textarea 
+                                        rows={3}
+                                        placeholder="Ex: 034 12 345 67 - Rabe - Ref: 123456789"
+                                        value={refMessage}
+                                        onChange={(e) => setRefMessage(e.target.value)}
+                                        className="w-full bg-transparent text-slate-800 dark:text-white outline-none resize-none font-medium placeholder:text-slate-400"
+                                    />
+                                </div>
                             </div>
 
                             <button 

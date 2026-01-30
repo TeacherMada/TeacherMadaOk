@@ -168,7 +168,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                                 </div>
                                 <div className="flex items-baseline gap-1.5 mt-2">
                                     <span className="text-5xl font-black text-white tracking-tighter">{user.credits}</span>
-                                    <span className="text-lg font-bold text-indigo-400">CR</span>
+                                    <span className="text-lg font-bold text-indigo-400">CRD</span>
                                 </div>
                             </div>
                             {user.isPremium && (

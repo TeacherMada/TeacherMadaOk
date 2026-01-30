@@ -6,6 +6,7 @@ import Onboarding from './components/Onboarding';
 import ChatInterface from './components/ChatInterface';
 import SmartDashboard from './components/SmartDashboard';
 import AdminDashboard from './components/AdminDashboard';
+import PaymentModal from './components/PaymentModal';
 import { UserPreferences, ChatMessage, ExplanationLanguage, UserProfile, LearningMode } from './types';
 import { startChatSession, analyzeUserProgress, generateDailyChallenges } from './services/geminiService';
 import { storageService } from './services/storageService';
@@ -41,6 +42,7 @@ const App: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSessionStarted, setIsSessionStarted] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
@@ -248,6 +250,11 @@ const App: React.FC = () => {
     <>
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
         
+        {/* GLOBAL PAYMENT MODAL */}
+        {showPaymentModal && user && (
+            <PaymentModal user={user} onClose={() => setShowPaymentModal(false)} />
+        )}
+        
         {user && isAdminMode ? (
             <AdminDashboard 
                 currentUser={user} 
@@ -263,14 +270,38 @@ const App: React.FC = () => {
         ) : user && (!user.preferences || !isSessionStarted) ? (
             <>
                 {user && showProfile && (
-                    <SmartDashboard user={user} messages={messages} onClose={() => setShowProfile(false)} onUpgrade={() => {}} onUpdateUser={handleUpdateUser} onLogout={handleLogout} isDarkMode={isDarkMode} toggleTheme={toggleTheme} fontSize={currentFontSize} onFontSizeChange={handleFontSizeChange} notify={notify} />
+                    <SmartDashboard 
+                        user={user} 
+                        messages={messages} 
+                        onClose={() => setShowProfile(false)} 
+                        onUpgrade={() => setShowPaymentModal(true)} 
+                        onUpdateUser={handleUpdateUser} 
+                        onLogout={handleLogout} 
+                        isDarkMode={isDarkMode} 
+                        toggleTheme={toggleTheme} 
+                        fontSize={currentFontSize} 
+                        onFontSizeChange={handleFontSizeChange} 
+                        notify={notify} 
+                    />
                 )}
                 <Onboarding onComplete={handleOnboardingComplete} isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
             </>
         ) : user && user.preferences ? (
             <>
                 {user && showProfile && (
-                    <SmartDashboard user={user} messages={messages} onClose={() => setShowProfile(false)} onUpgrade={() => {}} onUpdateUser={handleUpdateUser} onLogout={handleLogout} isDarkMode={isDarkMode} toggleTheme={toggleTheme} fontSize={currentFontSize} onFontSizeChange={handleFontSizeChange} notify={notify} />
+                    <SmartDashboard 
+                        user={user} 
+                        messages={messages} 
+                        onClose={() => setShowProfile(false)} 
+                        onUpgrade={() => setShowPaymentModal(true)} 
+                        onUpdateUser={handleUpdateUser} 
+                        onLogout={handleLogout} 
+                        isDarkMode={isDarkMode} 
+                        toggleTheme={toggleTheme} 
+                        fontSize={currentFontSize} 
+                        onFontSizeChange={handleFontSizeChange} 
+                        notify={notify} 
+                    />
                 )}
                 <ChatInterface user={user} messages={messages} setMessages={setMessages} onChangeMode={handleEndSession} onChangeLanguage={handleChangeLanguage} onLogout={handleLogout} onUpdateUser={handleUpdateUser} onShowProfile={() => setShowProfile(true)} isDarkMode={isDarkMode} toggleTheme={toggleTheme} isAnalyzing={isAnalyzing} onMessageSent={() => handleUpdateChallengeProgress('message_count')} fontSize={currentFontSize} notify={notify} />
             </>
