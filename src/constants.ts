@@ -1,5 +1,5 @@
 
-import { UserProfile, UserPreferences, LevelDescriptor, LanguageLevel } from './types';
+import { UserProfile, UserPreferences, LevelDescriptor } from './types';
 
 // === DEFINITIONS DES NIVEAUX (BASE DE CONNAISSANCE) ===
 export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {

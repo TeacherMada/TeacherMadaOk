@@ -7,7 +7,7 @@ export enum TargetLanguage {
   German = 'Allemand 🇩🇪'
 }
 
-// Nouveaux types granulaires
+// Types stricts pour les niveaux
 export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 export type HskLevel = 'HSK 1' | 'HSK 2' | 'HSK 3' | 'HSK 4' | 'HSK 5' | 'HSK 6';
 
@@ -35,7 +35,7 @@ export enum LearningMode {
 
 export interface UserPreferences {
   targetLanguage: TargetLanguage;
-  level: LanguageLevel; // Utilisation du type string union au lieu de l'enum
+  level: LanguageLevel; 
   explanationLanguage: ExplanationLanguage;
   mode: LearningMode;
   fontSize?: 'small' | 'normal' | 'large' | 'xl';
@@ -80,7 +80,6 @@ export interface UserProfile {
   aiMemory: string; 
   isPremium: boolean;
   hasSeenTutorial?: boolean;
-  
   credits: number;
   freeUsage: {
     lastResetWeek: string;
