@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, ChatMessage } from '../types';
 import { generateRoleplayResponse } from '../services/geminiService';
 import { storageService } from '../services/storageService';
-import { X, Send, Mic, MessageCircle, Clock, GraduationCap, ShoppingBag, Plane, Stethoscope, Utensils, School, StopCircle, Trophy, AlertTriangle, Loader2 } from 'lucide-react';
+import { X, Send, Mic, MessageCircle, Clock, GraduationCap, ShoppingBag, Plane, Stethoscope, Utensils, School, StopCircle, Trophy, AlertTriangle, Loader2, Play, Briefcase, Info, ArrowLeft, RefreshCcw, BookOpen } from 'lucide-react';
 
 interface DialogueSessionProps {
   user: UserProfile;
@@ -13,12 +13,12 @@ interface DialogueSessionProps {
 }
 
 const SCENARIOS = [
-    { id: 'greeting', title: 'Salutations & Rencontre', icon: <MessageCircle className="w-6 h-6"/>, prompt: "Meeting a new friend for the first time." },
-    { id: 'market', title: 'Au Marché', icon: <ShoppingBag className="w-6 h-6"/>, prompt: "Buying vegetables and bargaining at a local market." },
-    { id: 'restaurant', title: 'Restaurant', icon: <Utensils className="w-6 h-6"/>, prompt: "Ordering food and asking for the bill." },
-    { id: 'travel', title: 'Voyage & Orientation', icon: <Plane className="w-6 h-6"/>, prompt: "Asking for directions at an airport or train station." },
-    { id: 'doctor', title: 'Chez le Docteur', icon: <Stethoscope className="w-6 h-6"/>, prompt: "Explaining symptoms to a doctor." },
-    { id: 'school', title: 'À l\'École', icon: <School className="w-6 h-6"/>, prompt: "Talking to a teacher about homework." },
+    { id: 'greeting', title: 'Première Rencontre', subtitle: 'Bases & Politesse', icon: <MessageCircle className="w-8 h-8"/>, color: 'bg-emerald-500', prompt: "Rencontre avec un nouvel ami étranger. Salutations et présentations." },
+    { id: 'market', title: 'Au Marché', subtitle: 'Négociation & Nombres', icon: <ShoppingBag className="w-8 h-8"/>, color: 'bg-orange-500', prompt: "Acheter des fruits au marché local et négocier le prix." },
+    { id: 'restaurant', title: 'Restaurant', subtitle: 'Commander & Goûts', icon: <Utensils className="w-8 h-8"/>, color: 'bg-rose-500', prompt: "Commander un repas complet et demander l'addition." },
+    { id: 'travel', title: 'Gare & Aéroport', subtitle: 'Orientation & Horaires', icon: <Plane className="w-8 h-8"/>, color: 'bg-sky-500', prompt: "Demander son chemin et acheter un billet de train." },
+    { id: 'job', title: 'Entretien d\'Embauche', subtitle: 'Professionnel & Formel', icon: <Briefcase className="w-8 h-8"/>, color: 'bg-slate-600', prompt: "Un entretien pour un stage ou un emploi. Parler de ses qualités." },
+    { id: 'doctor', title: 'Consultation', subtitle: 'Santé & Corps', icon: <Stethoscope className="w-8 h-8"/>, color: 'bg-red-500', prompt: "Expliquer des symptômes à un médecin." },
 ];
 
 const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpdateUser, notify }) => {
@@ -27,15 +27,20 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [secondsActive, setSecondsActive] = useState(0);
-  const [correction, setCorrection] = useState<string | null>(null);
-  const [finalScore, setFinalScore] = useState<{score: number, feedback: string} | null>(null);
   
+  // Correction State (Now richer)
+  const [lastCorrection, setLastCorrection] = useState<{original: string, corrected: string, explanation: string} | null>(null);
+  
+  const [finalScore, setFinalScore] = useState<{score: number, feedback: string} | null>(null);
+  const [showIntro, setShowIntro] = useState(false); // Briefing screen
+  const [isInitializing, setIsInitializing] = useState(false); // AI starting the chat
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Timer Logic: 1 min = 1 Credit
   useEffect(() => {
     let interval: any;
-    if (scenario && !finalScore) {
+    if (scenario && !finalScore && !showIntro && !isInitializing) {
         interval = setInterval(() => {
             setSecondsActive(prev => {
                 const newVal = prev + 1;
@@ -57,26 +62,44 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
         }, 1000);
     }
     return () => clearInterval(interval);
-  }, [scenario, finalScore, user.id]);
+  }, [scenario, finalScore, user.id, showIntro, isInitializing]);
 
   // Auto-scroll
   useEffect(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, lastCorrection, isLoading]);
 
-  const handleStart = async (selected: typeof SCENARIOS[0]) => {
+  const selectScenario = (selected: typeof SCENARIOS[0]) => {
+      setScenario(selected);
+      setShowIntro(true); // Show briefing first
+  };
+
+  const startSession = async () => {
+      if (!scenario) return;
+      
       if (storageService.canPerformRequest(user.id).allowed) {
-          setScenario(selected);
+          setShowIntro(false);
+          setIsInitializing(true);
+          
           // Deduct initial credit for starting
           const u = storageService.deductCreditOrUsage(user.id);
           if (u) onUpdateUser(u);
-          
-          setMessages([{
-              id: 'sys_init',
-              role: 'model',
-              text: `(Scénario: ${selected.title}) Bonjour ! Commençons.`,
-              timestamp: Date.now()
-          }]);
+
+          try {
+              // AI initiates the conversation based on the scenario
+              const result = await generateRoleplayResponse([], scenario.prompt, user, false, true);
+              setMessages([{
+                  id: 'sys_init',
+                  role: 'model',
+                  text: result.aiReply,
+                  timestamp: Date.now()
+              }]);
+          } catch (e) {
+              notify("Erreur d'initialisation. Réessayez.", 'error');
+              setScenario(null); // Reset
+          } finally {
+              setIsInitializing(false);
+          }
       } else {
           notify("Crédits insuffisants pour démarrer.", 'error');
       }
@@ -85,18 +108,26 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
   const handleSend = async () => {
       if (!input.trim() || !scenario) return;
       
-      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: input, timestamp: Date.now() };
-      const newHistory = [...messages, userMsg];
-      setMessages(newHistory);
+      const userText = input;
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: userText, timestamp: Date.now() };
+      
+      setMessages(prev => [...prev, userMsg]);
       setInput('');
       setIsLoading(true);
-      setCorrection(null);
+      setLastCorrection(null); // Reset correction for new turn
 
       try {
-          const result = await generateRoleplayResponse(newHistory, scenario.prompt, user);
+          // Send history + new message to AI
+          const currentHistory = [...messages, userMsg];
+          const result = await generateRoleplayResponse(currentHistory, scenario.prompt, user);
           
+          // Check for correction
           if (result.correction) {
-              setCorrection(result.correction);
+              setLastCorrection({
+                  original: userText,
+                  corrected: result.correction,
+                  explanation: result.explanation || "Correction suggérée."
+              });
           }
 
           const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: result.aiReply, timestamp: Date.now() };
@@ -132,107 +163,214 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  // --- RENDERING ---
+  // --- RENDER SCREENS ---
 
+  // 1. SCENARIO SELECTION
   if (!scenario) {
       return (
-        <div className="fixed inset-0 z-[120] bg-slate-50 dark:bg-slate-950 flex flex-col p-4 animate-fade-in">
-            <div className="flex justify-between items-center mb-6">
-                <button onClick={onClose} className="p-2 bg-slate-200 dark:bg-slate-800 rounded-full"><X/></button>
-                <h2 className="text-xl font-bold text-slate-800 dark:text-white">Jeux de Rôle</h2>
-                <div className="w-10"></div>
+        <div className="fixed inset-0 z-[120] bg-slate-50 dark:bg-slate-950 flex flex-col animate-fade-in">
+            <div className="p-6 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center shadow-sm z-10">
+                <div>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Espace Dialogue</h2>
+                    <p className="text-slate-500 text-sm">Choisis ta mission du jour.</p>
+                </div>
+                <button onClick={onClose} className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-full hover:bg-slate-200 transition-colors"><X className="w-5 h-5"/></button>
             </div>
             
-            <div className="text-center mb-8">
-                <p className="text-slate-600 dark:text-slate-400 mb-2">Choisis une situation pour t'entraîner.</p>
-                <div className="inline-block bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-3 py-1 rounded-full text-xs font-bold">
-                    <Clock className="w-3 h-3 inline mr-1"/> 1 min = 1 Crédit
+            <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-4xl mx-auto">
+                    {SCENARIOS.map(s => (
+                        <button 
+                            key={s.id} 
+                            onClick={() => selectScenario(s)}
+                            className="group relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 text-left hover:shadow-2xl hover:border-indigo-500/30 transition-all duration-300 transform hover:-translate-y-1"
+                        >
+                            <div className={`absolute top-0 right-0 w-24 h-24 ${s.color} opacity-10 rounded-bl-[100px] transition-transform group-hover:scale-150`}></div>
+                            
+                            <div className={`w-14 h-14 ${s.color} text-white rounded-2xl flex items-center justify-center mb-4 shadow-lg group-hover:rotate-6 transition-transform`}>
+                                {s.icon}
+                            </div>
+                            
+                            <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-1">{s.title}</h3>
+                            <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-4">{s.subtitle}</p>
+                            
+                            <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-xs uppercase tracking-wider">
+                                Commencer <ArrowLeft className="w-4 h-4 rotate-180 transition-transform group-hover:translate-x-1" />
+                            </div>
+                        </button>
+                    ))}
                 </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 overflow-y-auto pb-10">
-                {SCENARIOS.map(s => (
-                    <button 
-                        key={s.id} 
-                        onClick={() => handleStart(s)}
-                        className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-500 transition-all flex flex-col items-center gap-3 text-center"
-                    >
-                        <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-full">
-                            {s.icon}
-                        </div>
-                        <span className="font-bold text-slate-700 dark:text-slate-200">{s.title}</span>
-                    </button>
-                ))}
             </div>
         </div>
       );
   }
 
+  // 2. BRIEFING SCREEN
+  if (showIntro) {
+      return (
+          <div className="fixed inset-0 z-[125] bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
+              <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[2rem] p-8 text-center shadow-2xl relative overflow-hidden border border-white/10">
+                  <div className={`absolute top-0 left-0 w-full h-2 ${scenario.color}`}></div>
+                  
+                  <div className={`w-20 h-20 mx-auto ${scenario.color} rounded-full flex items-center justify-center shadow-lg mb-6 animate-float`}>
+                      <div className="text-white">{scenario.icon}</div>
+                  </div>
+                  
+                  <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-2">{scenario.title}</h2>
+                  <p className="text-slate-500 dark:text-slate-400 mb-8 px-4 leading-relaxed">
+                      "Tu vas être immergé dans une situation réelle. Fais de ton mieux pour parler uniquement en <strong>{user.preferences?.targetLanguage}</strong>."
+                  </p>
+                  
+                  <div className="space-y-3 mb-8 text-left">
+                      <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                          <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><GraduationCap className="w-5 h-5"/></div>
+                          <div>
+                              <p className="text-xs font-bold text-slate-400 uppercase">Objectif</p>
+                              <p className="text-sm font-bold text-slate-800 dark:text-white">Maîtriser le vocabulaire clé</p>
+                          </div>
+                      </div>
+                      <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                          <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><AlertTriangle className="w-5 h-5"/></div>
+                          <div>
+                              <p className="text-xs font-bold text-slate-400 uppercase">Correction</p>
+                              <p className="text-sm font-bold text-slate-800 dark:text-white">Feedback immédiat si erreur</p>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                      <button onClick={() => setScenario(null)} className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors">
+                          Retour
+                      </button>
+                      <button onClick={startSession} className="flex-[2] py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-xl shadow-lg hover:shadow-indigo-500/30 hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
+                          <Play className="w-5 h-5 fill-current"/> C'est parti
+                      </button>
+                  </div>
+              </div>
+          </div>
+      );
+  }
+
+  // 3. CHAT INTERFACE
   return (
-    <div className="fixed inset-0 z-[120] bg-slate-50 dark:bg-slate-950 flex flex-col">
+    <div className="fixed inset-0 z-[120] bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
         {/* Header */}
-        <div className="bg-white dark:bg-slate-900 p-4 shadow-sm flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
+        <div className="bg-white dark:bg-slate-900 p-4 shadow-sm flex items-center justify-between border-b border-slate-100 dark:border-slate-800 z-20">
             <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600">
+                <div className={`p-2.5 rounded-xl text-white shadow-md ${scenario.color}`}>
                     {scenario.icon}
                 </div>
                 <div>
                     <h3 className="font-bold text-slate-800 dark:text-white text-sm">{scenario.title}</h3>
-                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                        <span className="flex items-center gap-1 text-red-500 font-mono"><Clock className="w-3 h-3"/> {formatTime(secondsActive)}</span>
+                    <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                        <span className="flex items-center gap-1 text-indigo-500"><Clock className="w-3 h-3"/> {formatTime(secondsActive)}</span>
+                        <span>•</span>
+                        <span>Niveau {user.preferences?.level}</span>
                     </div>
                 </div>
             </div>
             {!finalScore && (
-                <button onClick={handleFinish} className="px-4 py-2 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors flex items-center gap-1">
-                    <StopCircle className="w-4 h-4"/> Terminer
+                <button onClick={handleFinish} className="px-4 py-2 bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 rounded-xl text-xs font-bold hover:bg-red-100 transition-colors flex items-center gap-2">
+                    <StopCircle className="w-4 h-4"/> <span className="hidden sm:inline">Terminer</span>
                 </button>
             )}
         </div>
 
-        {/* Chat Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 dark:bg-slate-950">
-            {messages.map(msg => (
-                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${
-                        msg.role === 'user' 
-                        ? 'bg-indigo-600 text-white rounded-tr-none' 
-                        : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-tl-none'
-                    }`}>
-                        {msg.text}
-                    </div>
-                </div>
-            ))}
+        {/* Messages Area */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 bg-slate-50 dark:bg-slate-950 scrollbar-hide">
             
-            {correction && !finalScore && (
-                <div className="mx-auto max-w-sm bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 p-3 rounded-xl animate-fade-in my-2">
-                    <div className="flex items-center gap-2 text-xs font-bold text-yellow-700 dark:text-yellow-400 mb-1">
-                        <AlertTriangle className="w-3 h-3"/> Correction
+            {isInitializing && (
+                <div className="flex justify-center py-10">
+                    <div className="flex flex-col items-center gap-3">
+                        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin"/>
+                        <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest animate-pulse">Création du scénario...</p>
                     </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-300 italic">{correction}</p>
                 </div>
             )}
 
+            {messages.map((msg, idx) => (
+                <div key={msg.id} className="flex flex-col gap-2">
+                    <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[85%] sm:max-w-[75%] p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                            msg.role === 'user' 
+                            ? 'bg-indigo-600 text-white rounded-tr-sm' 
+                            : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-100 dark:border-slate-700 rounded-tl-sm'
+                        }`}>
+                            {msg.text}
+                        </div>
+                    </div>
+                    
+                    {/* Correction Card (Shown immediately after user message if exists) */}
+                    {msg.role === 'user' && idx === messages.length - 2 && lastCorrection && (
+                        <div className="mx-auto max-w-[85%] sm:max-w-md bg-amber-50 dark:bg-amber-900/10 border-l-4 border-amber-400 p-3 rounded-r-xl shadow-sm animate-slide-up">
+                            <div className="flex items-center gap-2 mb-1">
+                                <div className="p-1 bg-amber-200 dark:bg-amber-800 rounded text-amber-700 dark:text-amber-200"><AlertTriangle className="w-3 h-3"/></div>
+                                <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase">Correction</span>
+                            </div>
+                            <div className="pl-7">
+                                <p className="text-sm text-slate-800 dark:text-slate-200 line-through opacity-60 mb-0.5">{lastCorrection.original}</p>
+                                <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400 mb-1">{lastCorrection.corrected}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 italic">{lastCorrection.explanation}</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            ))}
+
             {isLoading && (
                 <div className="flex justify-start">
-                    <div className="bg-white dark:bg-slate-800 p-3 rounded-2xl rounded-tl-none border">
-                        <Loader2 className="w-4 h-4 animate-spin text-indigo-500"/>
+                    <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-sm border border-slate-100 dark:border-slate-700 shadow-sm flex items-center gap-2">
+                        <div className="flex gap-1">
+                            <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></div>
+                            <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce delay-100"></div>
+                            <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce delay-200"></div>
+                        </div>
                     </div>
                 </div>
             )}
             
-            {/* Final Score Card */}
+            {/* Final Score Modal Overlay */}
             {finalScore && (
-                 <div className="mx-auto max-w-sm bg-white dark:bg-slate-900 border-2 border-indigo-100 dark:border-indigo-900 p-6 rounded-3xl shadow-xl text-center animate-slide-up mt-4">
-                     <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                         <Trophy className="w-8 h-8 text-yellow-500" />
+                 <div className="fixed inset-0 z-[130] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in">
+                     <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2rem] p-8 text-center shadow-2xl relative overflow-hidden border border-white/10">
+                         {finalScore.score >= 6 ? (
+                             <>
+                                <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
+                                <div className="w-24 h-24 bg-yellow-100 dark:bg-yellow-900/30 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner ring-8 ring-yellow-50 dark:ring-yellow-900/10">
+                                    <Trophy className="w-12 h-12 text-yellow-500 drop-shadow-md" />
+                                </div>
+                                <h2 className="text-4xl font-black text-slate-800 dark:text-white mb-2">{finalScore.score}/20</h2>
+                                <p className="text-emerald-500 font-bold uppercase tracking-widest text-xs mb-6">Session Validée</p>
+                                
+                                <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl mb-6 text-left border border-slate-100 dark:border-slate-700">
+                                    <p className="text-xs font-bold text-slate-400 uppercase mb-2">Feedback du Prof</p>
+                                    <p className="text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed">"{finalScore.feedback}"</p>
+                                </div>
+
+                                <button onClick={onClose} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-transform active:scale-95">
+                                    Continuer
+                                </button>
+                             </>
+                         ) : (
+                             <>
+                                <div className="w-24 h-24 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner ring-8 ring-red-50 dark:ring-red-900/10">
+                                    <BookOpen className="w-12 h-12 text-red-500" />
+                                </div>
+                                <h2 className="text-4xl font-black text-slate-800 dark:text-white mb-2">{finalScore.score}/20</h2>
+                                <p className="text-red-500 font-bold uppercase tracking-widest text-xs mb-6">Niveau Insuffisant</p>
+                                
+                                <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl mb-6 text-left border border-slate-100 dark:border-slate-700">
+                                    <p className="text-xs font-bold text-slate-400 uppercase mb-2">Conseil</p>
+                                    <p className="text-sm text-slate-600 dark:text-slate-300 mb-2">"{finalScore.feedback}"</p>
+                                    <p className="text-xs font-bold text-indigo-500 mt-2">Recommandation : Revoir les leçons de base.</p>
+                                </div>
+
+                                <button onClick={onClose} className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+                                    <RefreshCcw className="w-4 h-4"/> Retour aux leçons
+                                </button>
+                             </>
+                         )}
                      </div>
-                     <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-1">Note : {finalScore.score}/20</h2>
-                     <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">Bilan de la session</p>
-                     <p className="text-slate-700 dark:text-slate-300 italic mb-6">"{finalScore.feedback}"</p>
-                     <button onClick={onClose} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700">
-                         Quitter
-                     </button>
                  </div>
             )}
 
@@ -240,24 +378,25 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
         </div>
 
         {/* Input Area */}
-        {!finalScore && (
-            <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
-                <div className="flex gap-2">
+        {!finalScore && !isInitializing && (
+            <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 z-20">
+                <div className="flex gap-3 max-w-4xl mx-auto">
                     <input 
                         type="text" 
                         value={input}
                         onChange={e => setInput(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && handleSend()}
-                        placeholder="Réponds à ton partenaire..."
-                        className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
+                        placeholder={`Répondez en ${user.preferences?.targetLanguage}...`}
+                        className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-2xl px-5 py-4 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all shadow-inner"
                         disabled={isLoading}
+                        autoFocus
                     />
                     <button 
                         onClick={handleSend}
                         disabled={!input.trim() || isLoading}
-                        className="p-3 bg-indigo-600 text-white rounded-xl disabled:opacity-50"
+                        className="p-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-indigo-500/30 transition-all transform active:scale-95"
                     >
-                        <Send className="w-5 h-5" />
+                        <Send className="w-6 h-6" />
                     </button>
                 </div>
             </div>

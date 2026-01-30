@@ -443,6 +443,7 @@ export const generatePracticalExercises = async (
 export interface RoleplayResponse {
     aiReply: string;
     correction?: string;
+    explanation?: string;
     score?: number;
     feedback?: string;
 }
@@ -451,7 +452,8 @@ export const generateRoleplayResponse = async (
     history: ChatMessage[],
     scenario: string,
     userProfile: UserProfile,
-    isClosing: boolean = false
+    isClosing: boolean = false,
+    startNew: boolean = false
 ): Promise<RoleplayResponse> => {
     const status = storageService.canPerformRequest(userProfile.id);
     if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
@@ -460,60 +462,94 @@ export const generateRoleplayResponse = async (
         if (!aiClient) initializeGenAI();
         if (!aiClient) throw new Error("AI Client not initialized");
 
-        const context = history.map(m => `${m.role === 'user' ? 'Student' : 'Partner'}: ${m.text}`).join('\n');
-        
+        const context = history.map(m => `${m.role === 'user' ? 'Student' : 'You'}: ${m.text}`).join('\n');
+        const lang = userProfile.preferences?.targetLanguage;
+        const level = userProfile.preferences?.level;
+        const explainLang = userProfile.preferences?.explanationLanguage;
+
+        // Base Scenario Descriptions
         let personaDescription = "A helpful native speaker.";
-        if (scenario.includes("market")) personaDescription = "A friendly but shrewd market vendor selling fresh produce. You want to sell more, but you are open to bargaining.";
-        if (scenario.includes("Meeting")) personaDescription = "A friendly local meeting the student at a cafe. You are curious about where they are from.";
-        if (scenario.includes("Restaurant")) personaDescription = "A busy waiter at a popular restaurant. You are polite but efficient.";
-        if (scenario.includes("directions") || scenario.includes("Travel")) personaDescription = "A helpful pedestrian on the street giving directions to a lost tourist.";
-        if (scenario.includes("doctor") || scenario.includes("symptoms")) personaDescription = "A caring and professional doctor asking about symptoms.";
-        if (scenario.includes("teacher") || scenario.includes("homework")) personaDescription = "A supportive teacher discussing homework with a student.";
+        if (scenario.includes("market")) personaDescription = "A shrewd but friendly market vendor. You want to sell, but engage in bargaining.";
+        if (scenario.includes("Meeting") || scenario.includes("Rencontre")) personaDescription = "A friendly local meeting a new foreigner. You are curious.";
+        if (scenario.includes("Restaurant")) personaDescription = "A waiter. Polite, efficient, asking about preferences.";
+        if (scenario.includes("Travel") || scenario.includes("Voyage")) personaDescription = "A busy station agent or helpful local. Clear instructions.";
+        if (scenario.includes("Doctor") || scenario.includes("Docteur")) personaDescription = "A caring doctor. Asking symptoms, giving advice.";
+        if (scenario.includes("School") || scenario.includes("École")) personaDescription = "A teacher discussing progress.";
+        if (scenario.includes("Job") || scenario.includes("Entretien")) personaDescription = "An interviewer. Professional, asking about skills.";
 
-        let prompt = `
-            SETUP:
-            - You are playing a ROLE in a dialogue. You are NOT an AI assistant, you are the character.
-            - CHARACTER: ${personaDescription}
-            - LANGUAGE: ${userProfile.preferences?.targetLanguage} (Strictly).
-            - STUDENT LEVEL: ${userProfile.preferences?.level}.
+        let prompt = ``;
 
-            SCENARIO CONTEXT: ${scenario}
-
-            YOUR OBJECTIVES:
-            1. Drive the conversation forward. Don't just answer "yes" or "no".
-            2. Influence the student to talk about the situation. Ask relevant follow-up questions.
-            3. React realistically to what the student says (e.g., if they offer a low price in the market, react surprised).
-            4. Keep your language complexity appropriate for their level (${userProfile.preferences?.level}), but natural.
-
-            CORRECTION RULES:
-            - If the student makes a mistake, provide a SHORT correction in the 'correction' field.
-            - Only correct significant errors that affect meaning or flow. Ignore minor typos.
-            - If correct, set 'correction' to null.
-
-            INPUT CONVERSATION:
-            ${context}
-
-            RESPONSE FORMAT (JSON):
-            {
-                "aiReply": "string (Your character's response in target language)",
-                "correction": "string | null (e.g. 'Better way to say it: ...')"
-            }
-        `;
-
-        if (isClosing) {
+        if (startNew) {
+            prompt = `
+                TASK: Start a roleplay conversation.
+                ROLE: ${personaDescription}
+                SCENARIO: ${scenario}
+                TARGET LANGUAGE: ${lang}.
+                STUDENT LEVEL: ${level}.
+                
+                INSTRUCTION: 
+                1. Start the conversation with a greeting and a question relevant to the scenario.
+                2. Use language appropriate for level ${level}.
+                3. Be engaging.
+                
+                RESPONSE FORMAT (JSON):
+                {
+                    "aiReply": "string (Your opening line in ${lang})"
+                }
+            `;
+        } else if (isClosing) {
             prompt = `
                 ROLE: Language Examiner.
                 TASK: End the roleplay scenario: ${scenario}.
-                Analyze the conversation below. Give a score /20 based on grammar, vocabulary, and flow suited for level ${userProfile.preferences?.level}.
+                Analyze the student's performance below.
                 
                 CONVERSATION:
                 ${context}
                 
+                CRITERIA:
+                - Grammar & Vocabulary suitable for ${level}.
+                - Fluency & Relevance.
+                - Effort to speak ${lang}.
+                
+                SCORING RULES:
+                - If the student spoke mostly their native language instead of ${lang}, score MUST be < 6.
+                - If the student made many basic errors for level ${level}, score < 10.
+                - If communication was clear despite errors, score > 10.
+                
                 RESPONSE FORMAT (JSON):
                 {
-                    "aiReply": "End of session message.",
-                    "score": number, 
-                    "feedback": "string (Short constructive feedback in ${userProfile.preferences?.explanationLanguage} explaining the score)"
+                    "aiReply": "Brief goodbye message in ${lang}.",
+                    "score": number (0-20), 
+                    "feedback": "string (Constructive feedback in ${explainLang}, mentioning specific mistakes or good points)"
+                }
+            `;
+        } else {
+            prompt = `
+                TASK: Continue the roleplay.
+                ROLE: ${personaDescription}
+                SCENARIO: ${scenario}
+                TARGET LANGUAGE: ${lang} (Strictly).
+                EXPLANATION LANGUAGE: ${explainLang}.
+                STUDENT LEVEL: ${level}.
+
+                YOUR BEHAVIOR:
+                1. Drive the conversation. Ask follow-up questions.
+                2. React realistically.
+                3. IMPORTANT: Check if the student made a mistake in their last message.
+                
+                CORRECTION LOGIC:
+                - If the student used the wrong language (not ${lang}), correct them firmly but politely.
+                - If the student made a grammar/vocab error, provide the corrected version in 'correction' field and a SHORT explanation in 'explanation' field.
+                - If correct, set 'correction' to null.
+
+                INPUT CONVERSATION:
+                ${context}
+
+                RESPONSE FORMAT (JSON):
+                {
+                    "aiReply": "string (Your response in ${lang})",
+                    "correction": "string | null (The corrected sentence if needed)",
+                    "explanation": "string | null (Brief grammar/vocab rule in ${explainLang} if corrected)"
                 }
             `;
         }
@@ -523,7 +559,7 @@ export const generateRoleplayResponse = async (
             contents: prompt,
             config: { 
                 responseMimeType: "application/json",
-                temperature: 0.8 
+                temperature: 0.7 
             }
         });
 
