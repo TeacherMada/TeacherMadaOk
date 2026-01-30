@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Chat, Content, Type, Modality } from "@google/genai";
 import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, ExplanationLanguage, VoiceCallSummary } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
@@ -8,23 +7,29 @@ let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
+// Primary Model: "Pro" tier quality (Subject to stricter rate limits)
 const PRIMARY_MODEL = 'gemini-3-flash-preview'; 
 
+// Fallback Chain: Used when Primary Model quotas are exhausted across ALL keys.
+// 'gemini-2.0-flash' is a high-speed, generous free-tier model.
 const FALLBACK_CHAIN = [
     'gemini-2.0-flash',              
     'gemini-2.0-flash-lite-preview', 
     'gemini-1.5-flash'               
 ];
 
+// Helper to get all available keys from "Backend" (Storage)
 const getAvailableKeys = (): string[] => {
     const settings = storageService.getSystemSettings();
     let keys: string[] = settings.apiKeys && settings.apiKeys.length > 0 ? settings.apiKeys : [];
     
+    // Correction CRITIQUE: Remplacement de process.env par import.meta.env pour Vite
     const envKey = (import.meta as any).env.VITE_GOOGLE_API_KEY;
     if (envKey && typeof envKey === 'string' && !keys.includes(envKey)) {
         keys.push(envKey);
     }
     
+    // Deduplicate and filter empty
     return Array.from(new Set<string>(keys)).filter((k: string) => k && k.trim().length > 0);
 };
 
@@ -39,27 +44,35 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
     if (forceNextKey) {
         currentKeyIndex = (currentKeyIndex + 1) % keys.length;
     } else {
+        // Random start to distribute load on reload
         currentKeyIndex = Math.floor(Math.random() * keys.length);
     }
 
     const apiKey = keys[currentKeyIndex];
     aiClient = new GoogleGenAI({ apiKey });
     
-    return getActiveModelName(); 
+    return getActiveModelName(); // Returns currently active model based on settings/fallback
 };
 
+// Determines the starting model. Defaults to PRIMARY_MODEL unless overridden by Admin settings.
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
     return settings.activeModel || PRIMARY_MODEL;
 };
 
+// === CORE FALLBACK LOGIC ===
+// 1. Try Current Model with Current Key.
+// 2. If Quota Error (429): Rotate through ALL available keys for Current Model.
+// 3. If ALL keys fail for Current Model: Switch to Next Model in Fallback Chain.
+// 4. Repeat until success or total exhaustion.
 const executeWithRetry = async <T>(
     operation: (modelName: string) => Promise<T>, 
     userId: string,
     attempt: number = 0,
-    fallbackIndex: number = -1 
+    fallbackIndex: number = -1 // -1 means trying Primary Model
 ): Promise<T> => {
     try {
+        // Determine which model to use
         let modelName = getActiveModelName();
         if (fallbackIndex >= 0 && fallbackIndex < FALLBACK_CHAIN.length) {
             modelName = FALLBACK_CHAIN[fallbackIndex];
@@ -73,22 +86,37 @@ const executeWithRetry = async <T>(
         const keys = getAvailableKeys();
 
         if (isQuotaError || isModelNotFoundError) {
+            const errorType = isQuotaError ? 'Quota' : 'ModelNot Found';
+            console.warn(`${errorType} error on ${fallbackIndex === -1 ? 'Primary' : 'Fallback ' + fallbackIndex}. KeyIdx: ${currentKeyIndex}. Retrying...`);
+
+            // Strategy A: Rotate Key (Prioritize this for Quota errors)
+            // We retry as many times as we have keys.
             if (isQuotaError && attempt < keys.length) {
-                initializeGenAI(true); 
+                initializeGenAI(true); // Rotate to next key
                 return executeWithRetry(operation, userId, attempt + 1, fallbackIndex);
             } 
             
+            // Strategy B: Switch Model (If Key rotation exhausted OR Model Not Found)
+            // If we are at the end of the chain, we fail.
             if (fallbackIndex < FALLBACK_CHAIN.length - 1) {
                 const nextFallbackIndex = fallbackIndex + 1;
+                console.warn(`>> Switching to fallback model: ${FALLBACK_CHAIN[nextFallbackIndex]}`);
+                
+                // Reset key strategy slightly (optional, but good to start fresh)
                 initializeGenAI(true); 
+                
+                // Reset attempt counter for the new model
                 return executeWithRetry(operation, userId, 0, nextFallbackIndex);
             }
         }
         
+        // If we ran out of models and keys, throw the error
+        console.error("All models and keys exhausted.");
         throw error;
     }
 };
 
+// Check credits wrapper
 const checkCreditsBeforeAction = (userId: string) => {
     const status = storageService.canPerformRequest(userId);
     if (!status.allowed) {
@@ -102,6 +130,7 @@ export const startChatSession = async (
   prefs: UserPreferences,
   history: ChatMessage[] = []
 ) => {
+  // Initialize standard client first
   initializeGenAI(); 
   if (!aiClient) throw new Error("AI Client not initialized");
   return null; 
@@ -120,7 +149,6 @@ export const sendMessageToGemini = async (message: string, userId: string): Prom
       
       if (!user || !prefs) throw new Error("User data missing");
 
-      // Use specific system prompt with Level details
       const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, prefs);
       
       const historyParts = history.slice(-10).map(msg => ({
@@ -149,9 +177,14 @@ export const generateVoiceChatResponse = async (
     userId: string, 
     history: ChatMessage[]
 ): Promise<string> => {
+    // Note: Voice credits are time-based, checked in the component.
+    // However, we still check generic access here.
     const status = storageService.canPerformRequest(userId);
     if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
 
+    // For voice, latency is critical. We might prefer starting with a faster model directly if configured,
+    // but sticking to the standard chain ensures quality first, speed fallback second.
+    
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
         if (!aiClient) throw new Error("AI not init");
@@ -159,6 +192,7 @@ export const generateVoiceChatResponse = async (
         const user = await storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
+        // Specialized Prompt for Voice Calls - Optimized for speed and natural flow
         const systemInstruction = `
             ACT: Friendly language tutor on a phone call.
             USER: ${user.username}. LEVEL: ${user.preferences.level}. TARGET: ${user.preferences.targetLanguage}.
@@ -179,8 +213,8 @@ export const generateVoiceChatResponse = async (
             model: modelName,
             config: {
                 systemInstruction: systemInstruction,
-                temperature: 0.6,
-                maxOutputTokens: 150,
+                temperature: 0.6, // Lower temp for faster, more focused results
+                maxOutputTokens: 150, // Limit output size for speed
             },
             history: historyParts as Content[],
         });
@@ -201,6 +235,7 @@ export const analyzeVoiceCallPerformance = async (
         const user = await storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
+        // Get only the user audio parts from recent history
         const conversation = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
 
         const prompt = `
@@ -279,6 +314,7 @@ export const generateSpeech = async (text: string, userId: string, voiceName: st
         if (!text || !text.trim()) return null;
         const safeText = text.substring(0, 4000);
 
+        // Prioritize TTS model
         const ttsModel = "gemini-2.5-flash-preview-tts";
 
         const response = await aiClient.models.generateContent({
@@ -314,6 +350,7 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
 
         const imageModel = 'gemini-2.5-flash-image';
         
+        // FIX: Cast config to any to avoid TypeScript error about imageConfig on missing type definition
         const response = await aiClient.models.generateContent({
             model: imageModel,
             contents: {
@@ -441,6 +478,8 @@ export const generatePracticalExercises = async (
       return json.map((item: any, idx: number) => ({ ...item, id: `ex_${Date.now()}_${idx}` }));
   }, profile.id);
 };
+
+// --- Roleplay Logic ---
 
 export interface RoleplayResponse {
     aiReply: string;
