@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, Coins, Lock, BrainCircuit, Menu, FileText, Type, RotateCcw, MessageCircle, Image as ImageIcon, Library, PhoneOff, VolumeX, Trophy, Info, ChevronUp } from 'lucide-react';
+import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, Coins, Lock, BrainCircuit, Menu, FileText, Type, RotateCcw, MessageCircle, Image as ImageIcon, Library, PhoneOff, VolumeX, Trophy, Info, ChevronUp, Keyboard } from 'lucide-react';
 import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage, VoiceCallSummary } from '../types';
 import { sendMessageToGemini, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -64,6 +64,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [callSummary, setCallSummary] = useState<VoiceCallSummary | null>(null);
   const [isAnalyzingCall, setIsAnalyzingCall] = useState(false);
   const [voiceTextInput, setVoiceTextInput] = useState('');
+  const [showVoiceInput, setShowVoiceInput] = useState(false); // Toggle for text input in call
   
   const ringbackOscillatorRef = useRef<OscillatorNode | null>(null);
 
@@ -108,12 +109,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // --- CALCULATED VALUES ---
 
   const levelProgressData = useMemo(() => {
-      // Logic: Use progress specific to the selected level from user stats
       const currentLevelCode = user.preferences?.level || 'A1';
-      // Use the new structure or fallback to 0
       const progressCount = user.stats.progressByLevel?.[currentLevelCode] || user.stats.levelProgress || 0;
-      
-      // Calculate visual percentage (assuming 50 steps per level)
       const percentage = Math.min((progressCount / 50) * 100, 100); 
       
       let targetCode = 'MAX';
@@ -131,7 +128,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       return { startCode: currentLevelCode, targetCode, percentage };
   }, [user.stats.progressByLevel, user.stats.levelProgress, user.preferences?.level]);
 
-  // Search Logic
   const matchingMessages = useMemo(() => {
     if (!searchQuery.trim()) return [];
     return messages
@@ -214,7 +210,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     storageService.saveChatHistory(user.id, updatedWithUser, preferences.targetLanguage); 
     
     setInput('');
-    setVoiceTextInput(''); // Clear voice text input too
+    setVoiceTextInput(''); 
+    setShowVoiceInput(false); // Close text input overlay if active
     setGeneratedImage(null);
     setIsLoading(true);
     onMessageSent();
@@ -291,28 +288,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       let interval: any;
       if (isCallActive && !isCallConnecting && !callSummary) {
           interval = setInterval(() => {
-              setCallSeconds(prev => {
-                  const newVal = prev + 1;
-                  if (newVal > 0 && newVal % 60 === 0) {
-                      const updatedUser = storageService.deductCreditOrUsage(user.id);
-                      if (updatedUser) {
-                          onUpdateUser(updatedUser);
-                          notify("1 min écoulée : -1 Crédit", 'info');
-                      } else {
-                          clearInterval(interval);
-                          notify("Crédit épuisé. Fin de l'appel.", 'error');
-                          handleEndCall();
-                      }
-                  }
-                  if (newVal % 60 === 50 && user.credits <= 1 && user.role !== 'admin') {
-                      notify("Attention : Il vous reste 10 secondes...", 'info');
-                  }
-                  return newVal;
-              });
+              setCallSeconds(prev => prev + 1);
           }, 1000);
       }
       return () => clearInterval(interval);
-  }, [isCallActive, isCallConnecting, callSummary, user.id, user.credits]);
+  }, [isCallActive, isCallConnecting, callSummary]);
 
   const initiateCallFlow = () => {
       if (!storageService.canPerformRequest(user.id).allowed) {
@@ -366,11 +346,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setCallSummary(null);
       setIsMuted(false);
       setCallSeconds(0);
+      setShowVoiceInput(false);
   };
 
   // --- AUTO MICROPHONE LOGIC ---
   useEffect(() => {
-      if (!isCallActive || isCallConnecting || callSummary) {
+      if (!isCallActive || isCallConnecting || callSummary || showVoiceInput) {
           if (isListening) stopListening();
           return;
       }
@@ -381,7 +362,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               startListening();
           }
       }
-  }, [isCallActive, isCallConnecting, isPlayingAudio, isLoading, callSummary]);
+  }, [isCallActive, isCallConnecting, isPlayingAudio, isLoading, callSummary, showVoiceInput]);
 
   // --- OTHER HANDLERS ---
   const handleToggleExplanationLang = () => {
@@ -497,10 +478,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   useEffect(() => {
-      if (!isListening && isCallActive && input.trim().length > 0 && !isLoading && !isAnalyzing) {
+      if (!isListening && isCallActive && input.trim().length > 0 && !isLoading && !isAnalyzing && !showVoiceInput) {
           handleSend();
       }
-  }, [isListening, isCallActive]);
+  }, [isListening, isCallActive, showVoiceInput]);
 
   // --- EXPORT TOOLS ---
   const handleExportPDF = (text: string) => {
@@ -607,51 +588,65 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     <div className={`w-2 h-2 rounded-full ${isCallConnecting ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></div>
                     {isCallConnecting ? "Connexion..." : (isLoading ? "Réfléchit..." : "En ligne")}
                 </div>
-                {!isCallConnecting && <p className="text-4xl font-mono text-white/50">{Math.floor(callSeconds / 60)}:{(callSeconds % 60).toString().padStart(2, '0')}</p>}
+                {!isCallConnecting && <p className="text-xl font-mono text-white/50">{Math.floor(callSeconds / 60)}:{(callSeconds % 60).toString().padStart(2, '0')} • <span className="text-xs text-indigo-300">1 Crédit = 1 Réponse</span></p>}
             </div>
             
             <div className="relative flex items-center justify-center w-full max-w-sm aspect-square z-10">
                 <div className={`w-40 h-40 rounded-full bg-gradient-to-br from-indigo-600 to-violet-700 p-1 shadow-[0_0_60px_rgba(99,102,241,0.4)] z-20 transition-transform duration-500 ${isPlayingAudio ? 'scale-110' : 'scale-100'}`}>
-                    <div className="w-full h-full bg-slate-900 rounded-full flex items-center justify-center border-4 border-white/10 overflow-hidden">
+                    <div className="w-full h-full bg-slate-900 rounded-full flex items-center justify-center border-4 border-white/10 overflow-hidden bg-white/5">
                         {isCallConnecting ? (
                             <Phone className="w-16 h-16 text-white animate-bounce" /> 
                         ) : (
-                            <img src="/logo.png" className="w-full h-full object-cover p-2" alt="Teacher" />
+                            <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain p-4" alt="Teacher" />
                         )}
                     </div>
                 </div>
-                
-                {/* Text Fallback Input - Improved Responsive */}
-                <div className="absolute -bottom-24 w-full px-6 animate-fade-in-up flex justify-center">
-                    <div className="flex gap-2 bg-slate-800/90 backdrop-blur-md p-2 rounded-2xl border border-slate-700/50 shadow-xl w-full max-w-sm">
+            </div>
+            
+            {/* Text Input Overlay (Dropdown style) */}
+            {showVoiceInput && (
+                <div className="absolute bottom-0 left-0 w-full p-4 bg-slate-900/95 backdrop-blur-xl border-t border-slate-700 rounded-t-3xl z-50 animate-slide-up pb-10">
+                    <div className="flex justify-between items-center mb-3 px-2">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Message Texte</span>
+                        <button onClick={() => setShowVoiceInput(false)} className="p-1 bg-slate-800 rounded-full text-slate-400"><ChevronDown className="w-4 h-4"/></button>
+                    </div>
+                    <div className="flex gap-2">
                         <input 
                             type="text" 
                             value={voiceTextInput}
                             onChange={(e) => setVoiceTextInput(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSend(voiceTextInput)}
-                            placeholder={isListening ? "Je vous écoute..." : "Écrire si micro HS..."}
-                            className="flex-1 bg-transparent text-white px-3 text-sm outline-none placeholder:text-slate-400 min-w-0"
+                            placeholder="Écrivez votre réponse..."
+                            className="flex-1 bg-slate-800 text-white rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-slate-700"
+                            autoFocus
                         />
-                        <button onClick={() => handleSend(voiceTextInput)} disabled={!voiceTextInput.trim() || isLoading} className="p-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-white disabled:opacity-50 shrink-0 transition-colors">
-                            <Send className="w-4 h-4" />
+                        <button 
+                            onClick={() => handleSend(voiceTextInput)} 
+                            disabled={!voiceTextInput.trim() || isLoading} 
+                            className="p-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl disabled:opacity-50 transition-colors shadow-lg"
+                        >
+                            <Send className="w-5 h-5" />
                         </button>
                     </div>
                 </div>
-            </div>
+            )}
             
             <div className="w-full max-w-xs grid grid-cols-3 gap-6 mb-12 relative z-20 mt-auto">
-                <button onClick={() => setIsMuted(!isMuted)} className="flex flex-col items-center gap-2 group">
-                    <div className={`p-4 rounded-full transition-all ${isMuted ? 'bg-white text-slate-900' : 'bg-slate-800/50 text-white border border-slate-700'}`}>
-                        {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
+                <button onClick={() => setShowVoiceInput(!showVoiceInput)} className="flex flex-col items-center gap-2 group">
+                    <div className={`p-4 rounded-full transition-all ${showVoiceInput ? 'bg-white text-slate-900' : 'bg-slate-800/50 text-white border border-slate-700'}`}>
+                        <Keyboard className="w-6 h-6" />
                     </div>
-                    <span className="text-xs text-slate-400">Mute</span>
+                    <span className="text-xs text-slate-400">Écrire</span>
                 </button>
+
                 <button onClick={handleEndCall} className="flex flex-col items-center gap-2 transform hover:scale-105">
                     <div className="p-6 bg-red-500 text-white rounded-full shadow-lg border-4 border-slate-900/50"><PhoneOff className="w-8 h-8" /></div>
-                    <span className="text-xs text-slate-400">Raccrocher</span></button>
-                <button onClick={toggleListening} className="flex flex-col items-center gap-2">
-                    <div className={`p-4 rounded-full transition-all ${isListening ? 'bg-white text-slate-900 animate-pulse' : 'bg-slate-800/50 text-white border border-slate-700'}`}>
-                        {isListening ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+                    <span className="text-xs text-slate-400">Raccrocher</span>
+                </button>
+
+                <button onClick={() => !showVoiceInput && toggleListening()} className={`flex flex-col items-center gap-2 ${showVoiceInput ? 'opacity-50' : ''}`}>
+                    <div className={`p-4 rounded-full transition-all ${isListening ? 'bg-emerald-500 text-white animate-pulse' : 'bg-slate-800/50 text-white border border-slate-700'}`}>
+                        {isListening ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
                     </div>
                     <span className="text-xs text-slate-400">Micro {isListening ? 'ON' : 'OFF'}</span>
                 </button>
@@ -693,7 +688,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                       </div>
                       <div className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
                           <Coins className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-                          <span>1 min = 1 Crédit</span>
+                          <span>1 Crédit = 1 Réponse IA</span>
                       </div>
                   </div>
 

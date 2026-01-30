@@ -187,6 +187,10 @@ export const generateVoiceChatResponse = async (
         });
 
         const result = await chat.sendMessage({ message });
+        
+        // Deduct Credit specifically for voice response here
+        storageService.deductCreditOrUsage(userId);
+        
         return result.text || "Je vous écoute.";
     }, userId);
 };
@@ -470,9 +474,9 @@ export const generateRoleplayResponse = async (
         // Base Scenario Descriptions
         let personaDescription = "A helpful native speaker.";
         if (scenario.includes("market")) personaDescription = "A shrewd but friendly market vendor. You want to sell, but engage in bargaining.";
-        if (scenario.includes("Meeting") || scenario.includes("Rencontre")) personaDescription = "A friendly local meeting a new foreigner. You are curious.";
+        if (scenario.includes("Meeting")) personaDescription = "A friendly local meeting a new foreigner. You are curious.";
         if (scenario.includes("Restaurant")) personaDescription = "A waiter. Polite, efficient, asking about preferences.";
-        if (scenario.includes("Travel") || scenario.includes("Voyage")) personaDescription = "A busy station agent or helpful local. Clear instructions.";
+        if (scenario.includes("Travel")) personaDescription = "A busy station agent or helpful local. Clear instructions.";
         if (scenario.includes("Doctor") || scenario.includes("Docteur")) personaDescription = "A caring doctor. Asking symptoms, giving advice.";
         if (scenario.includes("School") || scenario.includes("École")) personaDescription = "A teacher discussing progress.";
         if (scenario.includes("Job") || scenario.includes("Entretien")) personaDescription = "An interviewer. Professional, asking about skills.";
