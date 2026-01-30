@@ -81,7 +81,9 @@ export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
 
 export const SYSTEM_PROMPT_TEMPLATE = (profile: UserProfile, prefs: UserPreferences) => {
   const currentLevel = prefs.level;
-  const progressPercent = Math.min((profile.stats.levelProgress || 0) * 2, 100); // 50 leçons = 100%
+  // Calculate relative progress in level (approx 50 lessons per level)
+  const progressCount = profile.stats.levelProgress || 0;
+  const progressPercent = Math.min((progressCount / 50) * 100, 100); 
   const isAssessmentMode = prefs.needsAssessment;
 
   return `
@@ -92,7 +94,7 @@ Ta mission : Faire progresser l'élève du niveau ${currentLevel} vers le niveau
 PROFIL ÉLÈVE:
 - Nom: ${profile.username}
 - Niveau Cible Actuel: ${currentLevel}
-- Progression dans ce niveau: ${profile.stats.levelProgress}/50 leçons (${progressPercent}%)
+- Progression dans ce niveau: ${progressCount}/50 leçons (${Math.round(progressPercent)}%)
 - Langue Cible: ${prefs.targetLanguage}
 - Langue d'Explication: ${prefs.explanationLanguage}
 - Mode: ${prefs.mode}
@@ -117,7 +119,7 @@ Analyse les réponses.
 SI MODE = COURS STRUCTURÉ:
 Suit la progression logique pour atteindre 100% du niveau ${currentLevel}.
 Structure :
-1. **Titre**: ## 🟢 LEÇON ${profile.stats.levelProgress + 1} : [Sujet adapté à ${currentLevel}]
+1. **Titre**: ## 🟢 LEÇON ${progressCount + 1} : [Sujet adapté à ${currentLevel}]
 2. **Objectif**: Pourquoi on apprend ça ?
 3. **Contenu**: Vocabulaire et Grammaire STRICTUREMENT ${currentLevel}.
 4. **Exercice**: Test immédiat.

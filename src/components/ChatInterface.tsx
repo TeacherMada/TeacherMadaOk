@@ -104,12 +104,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // === REAL LEVEL PROGRESS CALCULATION ===
   const levelProgressData = useMemo(() => {
       const currentLevelCode = user.preferences?.level || 'A1';
-      // Fallback if migration hasn't run
-      const progressCount = user.stats.levelProgress || (user.stats.lessonsCompleted % 50) || 0;
+      // Fallback if migration hasn't run or field is missing
+      const progressCount = user.stats.levelProgress || 0;
       
       const percentage = Math.min((progressCount / 50) * 100, 100);
       
-      // Determine next level target
+      // Determine next level target for UI display
       let targetCode = 'A2';
       const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
       const hskLevels = ['HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];

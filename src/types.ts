@@ -7,6 +7,7 @@ export enum TargetLanguage {
   German = 'Allemand 🇩🇪'
 }
 
+// Removed ProficiencyLevel enum in favor of specific types
 export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 export type HskLevel = 'HSK 1' | 'HSK 2' | 'HSK 3' | 'HSK 4' | 'HSK 5' | 'HSK 6';
 
@@ -38,7 +39,7 @@ export interface UserPreferences {
   explanationLanguage: ExplanationLanguage;
   mode: LearningMode;
   fontSize?: 'small' | 'normal' | 'large' | 'xl';
-  needsAssessment?: boolean; // Si l'utilisateur ne connait pas son niveau
+  needsAssessment?: boolean; // Flag if user selected "I don't know"
 }
 
 export interface DailyChallenge {
@@ -65,8 +66,8 @@ export interface UserProfile {
   stats: {
     xp: number;
     streak: number;
-    lessonsCompleted: number; // Total global
-    levelProgress: number; // 0-50 (Leçons dans le niveau actuel)
+    lessonsCompleted: number; // Global total
+    levelProgress: number; // 0-50 progress in current level
   };
   skills?: {
     vocabulary: number;
