@@ -155,7 +155,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                             number={ADMIN_CONTACTS.telma} 
                             selected={selectedOperator === 'mvola'}
                             onSelect={() => setSelectedOperator('mvola')}
-                            onCopy={(n) => copyToClipboard(n, 'mvola')}
+                            onCopy={(n: string) => copyToClipboard(n, 'mvola')}
                             isCopied={copied === 'mvola'}
                         />
                         <OperatorCard 
@@ -164,7 +164,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                             number={ADMIN_CONTACTS.airtel} 
                             selected={selectedOperator === 'airtel'}
                             onSelect={() => setSelectedOperator('airtel')}
-                            onCopy={(n) => copyToClipboard(n, 'airtel')}
+                            onCopy={(n: string) => copyToClipboard(n, 'airtel')}
                             isCopied={copied === 'airtel'}
                         />
                         <OperatorCard 
@@ -173,7 +173,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                             number={ADMIN_CONTACTS.orange} 
                             selected={selectedOperator === 'orange'}
                             onSelect={() => setSelectedOperator('orange')}
-                            onCopy={(n) => copyToClipboard(n, 'orange')}
+                            onCopy={(n: string) => copyToClipboard(n, 'orange')}
                             isCopied={copied === 'orange'}
                         />
                     </div>
