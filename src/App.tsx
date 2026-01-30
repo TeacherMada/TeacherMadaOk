@@ -70,12 +70,20 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const init = async () => {
-        const currentUser = await storageService.getCurrentUser();
+        const currentUser = storageService.getCurrentUser();
+        // Seed admin on start
+        storageService.seedAdmin();
+        
         if (currentUser) {
-          setUser(currentUser);
-          if (currentUser.role === 'admin') setIsAdminMode(true);
-          if (currentUser.preferences && currentUser.role !== 'admin') {
-            initializeSession(currentUser, currentUser.preferences);
+          // Sync critical data from cloud on load
+          const syncedUser = await storageService.syncProfileFromCloud(currentUser.id);
+          const finalUser = syncedUser || currentUser;
+          
+          setUser(finalUser);
+          
+          if (finalUser.role === 'admin') setIsAdminMode(true);
+          if (finalUser.preferences && finalUser.role !== 'admin') {
+            initializeSession(finalUser, finalUser.preferences);
           }
         }
     };
@@ -101,14 +109,20 @@ const App: React.FC = () => {
   }, [user?.id, user?.preferences]);
 
   const initializeSession = async (userProfile: UserProfile, prefs: UserPreferences) => {
-    // Multi-course: Load history specific to the selected language
-    const history = await storageService.getChatHistory(userProfile.id, prefs.targetLanguage);
+    // 1. Tenter de charger l'historique depuis le Cloud (pour le cross-device)
+    let history = await storageService.loadChatHistoryFromCloud(userProfile.id, prefs.targetLanguage);
+    
+    // 2. Si vide (nouvel appareil ou pas de réseau), fallback sur le local
+    if (history.length === 0) {
+        history = storageService.getChatHistory(userProfile.id, prefs.targetLanguage);
+    }
+    
     setMessages(history);
     
     try {
       await startChatSession(userProfile, prefs, history);
       
-      // If no history for this language, treat as new course and add greeting
+      // If no history, add greeting
       if (history.length === 0) {
         const greeting = prefs.explanationLanguage === ExplanationLanguage.French ? INITIAL_GREETING_FR : INITIAL_GREETING_MG;
         const initialMsg: ChatMessage = { 
@@ -148,7 +162,6 @@ const App: React.FC = () => {
   
   const handleChangeLanguage = () => {
       if (!user) return;
-      // Resetting preferences to null triggers Onboarding, allowing new language selection.
       const updatedUser = { ...user, preferences: null };
       setUser(updatedUser);
       setMessages([]); 

@@ -35,7 +35,7 @@ export const storageService = {
     
     // 1. Vérification Configuration
     if (!isSupabaseConfigured()) {
-        return { success: false, error: "Erreur config: Serveur non connecté (Clés manquantes)." };
+        return { success: false, error: "Erreur config: Serveur non connecté." };
     }
 
     try {
@@ -48,7 +48,6 @@ export const storageService = {
 
         if (error) {
             console.error("Supabase Login Error:", error);
-            // Erreur spécifique si la table n'existe pas
             if (error.code === '42P01') return { success: false, error: "Erreur système: Base de données non initialisée." };
             return { success: false, error: "Problème de connexion au serveur." };
         }
@@ -85,8 +84,6 @@ export const storageService = {
             freeUsage: data.free_usage || { lastResetWeek: getMadagascarCurrentWeek(), count: 0 }
         };
 
-        // On garde une copie locale UNIQUEMENT pour la performance de la session en cours
-        // Mais l'auth réelle s'est faite via le serveur.
         localStorage.setItem(CURRENT_USER_KEY, user.id);
         localStorage.setItem(`user_data_${user.id}`, JSON.stringify(user));
 
@@ -105,7 +102,6 @@ export const storageService = {
     }
 
     try {
-        // 1. Vérifier si l'utilisateur existe déjà (CLOUD)
         const { data: existing, error: checkError } = await supabase
             .from('profiles')
             .select('id')
@@ -114,7 +110,6 @@ export const storageService = {
 
         if (checkError) {
              console.error("Check Error:", checkError);
-             if (checkError.code === '42P01') return { success: false, error: "Erreur système: Table 'profiles' manquante." };
              return { success: false, error: "Impossible de vérifier le nom d'utilisateur." };
         }
 
@@ -143,7 +138,6 @@ export const storageService = {
             }
         };
 
-        // 2. Insérer dans Supabase (CLOUD)
         const { error: insertError } = await supabase.from('profiles').insert({
             id: newUser.id,
             username: newUser.username,
@@ -163,7 +157,6 @@ export const storageService = {
             return { success: false, error: "Échec création compte serveur." };
         }
 
-        // 3. Cache Local (Session)
         localStorage.setItem(CURRENT_USER_KEY, newUser.id);
         localStorage.setItem(`user_data_${newUser.id}`, JSON.stringify(newUser));
 
@@ -176,8 +169,6 @@ export const storageService = {
   },
 
   getUserById: (userId: string): UserProfile | null => {
-      // Pour la vitesse d'affichage, on lit le cache local. 
-      // Mais les actions critiques (crédits) déclencheront une synchro.
       const data = localStorage.getItem(`user_data_${userId}`);
       return data ? JSON.parse(data) : null;
   },
@@ -192,29 +183,23 @@ export const storageService = {
     return storageService.getUserById(id);
   },
 
-  // --- Sync Logic (CRITICAL FOR ONLINE MODE) ---
+  // --- Sync Logic ---
 
   syncProfileFromCloud: async (userId: string) => {
       if (!isSupabaseConfigured()) return null;
       
       const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
       
-      if (error) {
-          console.warn("Sync failed:", error.message);
-          return null;
-      }
+      if (error) return null;
 
       if (data) {
           const local = storageService.getUserById(userId) || {} as UserProfile;
-          
-          // On écrase les données locales critiques avec celles du serveur
           const merged: UserProfile = { 
               ...local, 
-              credits: data.credits, // Serveur = Vérité
+              credits: data.credits,
               role: data.role,
               isSuspended: data.is_suspended,
               freeUsage: data.free_usage,
-              // On met à jour le reste aussi
               username: data.username,
               stats: data.stats
           };
@@ -248,7 +233,6 @@ export const storageService = {
       if (!user) return null;
       if (user.role === 'admin') return user;
 
-      // Logic Update
       if (user.freeUsage.count < 2) {
           user.freeUsage.count += 1;
       } else if (user.credits > 0) {
@@ -257,49 +241,89 @@ export const storageService = {
           return null; 
       }
 
-      // Optimistic Update (Local)
       storageService.saveUserProfile(user);
       
-      // Async Cloud Sync (Fire & Forget)
       if (isSupabaseConfigured()) {
           supabase.from('profiles').update({
               credits: user.credits,
               free_usage: user.freeUsage,
               stats: user.stats 
-          }).eq('id', user.id).then(({ error }) => {
-              if (error) {
-                  console.error("CRITICAL: Credit sync failed", error);
-                  // En production, on devrait peut-être rollback ici
-              }
-          });
+          }).eq('id', user.id).then();
       }
 
       return user;
   },
 
-  // --- Chat History ---
+  // --- Chat History (CLOUD SYNCED) ---
 
-  saveChatHistory: (userId: string, messages: ChatMessage[], language?: string) => {
+  saveChatHistory: async (userId: string, messages: ChatMessage[], language?: string) => {
+    // 1. Local Save (Instant)
     const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
     localStorage.setItem(`chat_history_${userId}_${langKey}`, JSON.stringify(messages));
+
+    // 2. Cloud Save (Dernier message seulement pour économiser la bande passante)
+    if (isSupabaseConfigured() && messages.length > 0) {
+        const lastMsg = messages[messages.length - 1];
+        
+        // On vérifie si ce message a déjà été envoyé (via un flag local ou logique simple)
+        // Ici, on insère simplement. Supabase est rapide.
+        const { error } = await supabase.from('chat_history').insert({
+            user_id: userId,
+            role: lastMsg.role,
+            text: lastMsg.text,
+            timestamp: lastMsg.timestamp,
+            language: langKey
+        });
+        
+        if (error) console.error("Failed to sync chat message", error);
+    }
   },
 
+  // Charge l'historique complet depuis le Cloud
+  loadChatHistoryFromCloud: async (userId: string, language?: string): Promise<ChatMessage[]> => {
+      if (!isSupabaseConfigured()) return [];
+      
+      const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
+      
+      const { data, error } = await supabase
+        .from('chat_history')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('language', langKey)
+        .order('timestamp', { ascending: true }); // Important: Chronologique
+
+      if (error) {
+          console.error("Error fetching chat history", error);
+          return [];
+      }
+
+      if (data && data.length > 0) {
+          const formatted: ChatMessage[] = data.map(row => ({
+              id: row.id, // Use UUID from DB
+              role: row.role as 'user' | 'model',
+              text: row.text,
+              timestamp: row.timestamp
+          }));
+          
+          // Mise à jour du cache local
+          localStorage.setItem(`chat_history_${userId}_${langKey}`, JSON.stringify(formatted));
+          return formatted;
+      }
+      
+      return [];
+  },
+
+  // Récupération synchrone (Cache local) pour l'affichage immédiat
   getChatHistory: (userId: string, language?: string): ChatMessage[] => {
     const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
     const data = localStorage.getItem(`chat_history_${userId}_${langKey}`);
-    if (!data && !language) {
-       return JSON.parse(localStorage.getItem(`chat_history_${userId}`) || '[]');
-    }
     return data ? JSON.parse(data) : [];
   },
 
   // --- Admin Functions ---
 
   sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'message' | 'password_reset', amount?: number, message?: string, contactInfo?: string) => {
-      if (!isSupabaseConfigured()) {
-          console.error("Cannot send request: Offline");
-          return;
-      }
+      if (!isSupabaseConfigured()) return;
 
       const newRequest = {
           id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -353,10 +377,8 @@ export const storageService = {
       const { data: request } = await supabase.from('admin_requests').select('*').eq('id', requestId).single();
       
       if (request && request.status === 'pending') {
-          // 1. Update Request
           await supabase.from('admin_requests').update({ status }).eq('id', requestId);
 
-          // 2. If Credit Approved, Add Credits to Profile
           if (status === 'approved' && request.type === 'credit' && request.amount) {
               const { data: user } = await supabase.from('profiles').select('credits').eq('id', request.user_id).single();
               if (user) {
@@ -376,10 +398,8 @@ export const storageService = {
   },
 
   saveUserProfile: (user: UserProfile) => {
-      // Local Cache
       localStorage.setItem(`user_data_${user.id}`, JSON.stringify(user));
       
-      // Cloud Sync
       if (isSupabaseConfigured()) {
           supabase.from('profiles').upsert({
               id: user.id,
@@ -418,11 +438,12 @@ export const storageService = {
   },
 
   seedAdmin: async () => {
-    // En mode Cloud Strict, le seed admin se fait via Supabase directement si besoin,
-    // ou alors ici on vérifie si l'admin existe dans le cloud.
+    // Cette fonction tente de créer l'admin s'il n'existe pas dans la DB
     if (!isSupabaseConfigured()) return;
 
     const adminId = 'admin_0349310268';
+    
+    // On check si l'admin existe
     const { data } = await supabase.from('profiles').select('id').eq('id', adminId).maybeSingle();
     
     if (!data) {
@@ -436,9 +457,11 @@ export const storageService = {
             created_at: Date.now(),
             stats: { xp: 9999, streak: 999, lessonsCompleted: 999 },
             credits: 999999,
+            ai_memory: 'SUPER ADMIN',
             free_usage: { lastResetWeek: getMadagascarCurrentWeek(), count: 0 }
         };
         await supabase.from('profiles').upsert(adminUser);
+        console.log("Admin Seeded via App Logic");
     }
   },
   
