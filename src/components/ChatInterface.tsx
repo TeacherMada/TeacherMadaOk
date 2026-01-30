@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, Coins, Lock, BrainCircuit, Menu, FileText, Type, RotateCcw, MessageCircle, Image as ImageIcon, Library, PhoneOff, VolumeX, Trophy, Info } from 'lucide-react';
 import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage, VoiceCallSummary } from '../types';
@@ -349,6 +350,26 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setCallSeconds(0);
   };
 
+  // --- AUTO MICROPHONE LOGIC ---
+  useEffect(() => {
+      if (!isCallActive || isCallConnecting || callSummary) {
+          // If call not active or connecting, stop everything
+          if (isListening) stopListening();
+          return;
+      }
+
+      // If Audio IS Playing (Prof speaks) OR Loading (Thinking) -> Stop Listening
+      if (isPlayingAudio || isLoading) {
+          if (isListening) stopListening();
+      } 
+      // If Audio Stopped AND Not Loading -> User Turn -> Start Listening
+      else {
+          if (!isListening && !isMuted) {
+              startListening();
+          }
+      }
+  }, [isCallActive, isCallConnecting, isPlayingAudio, isLoading, callSummary]); // Added mute logic in startListening check
+
   // --- OTHER HANDLERS ---
   const handleToggleExplanationLang = () => {
       const newLang = preferences.explanationLanguage === ExplanationLanguage.French 
@@ -427,7 +448,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const startListening = () => {
     if (isMuted && isCallActive) {
-        notify("Micro désactivé.", 'info');
+        // notify("Micro désactivé.", 'info'); // Silent check
         return;
     }
 
@@ -449,7 +470,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     recognition.lang = lang;
     
     recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
+    recognition.onend = () => {
+        setIsListening(false);
+        // If still call active and not playing audio, restart? 
+        // No, let useEffect handle restart based on state, or manual toggle.
+        // Actually, for continuous conversation, we might want to restart if input is empty
+        // But for now, let's rely on standard flow.
+    };
     recognition.onerror = (e: any) => { console.error(e); setIsListening(false); };
     recognition.onresult = (e: any) => {
       const text = e.results[0][0].transcript;
@@ -589,7 +616,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
 
             <div className="text-center space-y-4 mt-12 z-20">
-                <h2 className="text-3xl font-bold text-white">TeacherMada</h2>
+                <h2 className="text-3xl font-bold text-white drop-shadow-md">TeacherMada</h2>
                 <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 backdrop-blur-sm text-indigo-200 text-sm font-medium">
                     <div className={`w-2 h-2 rounded-full ${isCallConnecting ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></div>
                     {isCallConnecting ? "Connexion..." : (isLoading ? "Réfléchit..." : "En ligne")}
@@ -607,18 +634,19 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         )}
                     </div>
                 </div>
-                {/* Text Fallback Input */}
-                <div className="absolute -bottom-16 w-full px-4 animate-fade-in-up">
-                    <div className="flex gap-2 bg-slate-800/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-700/50">
+                
+                {/* Text Fallback Input - Improved Responsive */}
+                <div className="absolute -bottom-24 w-full px-6 animate-fade-in-up flex justify-center">
+                    <div className="flex gap-2 bg-slate-800/90 backdrop-blur-md p-2 rounded-2xl border border-slate-700/50 shadow-xl w-full max-w-sm">
                         <input 
                             type="text" 
                             value={voiceTextInput}
                             onChange={(e) => setVoiceTextInput(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSend(voiceTextInput)}
-                            placeholder="Écrire si micro HS..."
-                            className="flex-1 bg-transparent text-white px-3 text-sm outline-none placeholder:text-slate-500"
+                            placeholder={isListening ? "Je vous écoute..." : "Écrire si micro HS..."}
+                            className="flex-1 bg-transparent text-white px-3 text-sm outline-none placeholder:text-slate-400 min-w-0"
                         />
-                        <button onClick={() => handleSend(voiceTextInput)} disabled={!voiceTextInput.trim() || isLoading} className="p-2 bg-indigo-600 rounded-xl text-white disabled:opacity-50">
+                        <button onClick={() => handleSend(voiceTextInput)} disabled={!voiceTextInput.trim() || isLoading} className="p-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-white disabled:opacity-50 shrink-0 transition-colors">
                             <Send className="w-4 h-4" />
                         </button>
                     </div>
@@ -637,10 +665,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     <span className="text-xs text-slate-400">Raccrocher</span>
                 </button>
                 <button onClick={toggleListening} className="flex flex-col items-center gap-2">
-                    <div className={`p-4 rounded-full transition-all ${isListening ? 'bg-white text-slate-900' : 'bg-slate-800/50 text-white border border-slate-700'}`}>
+                    <div className={`p-4 rounded-full transition-all ${isListening ? 'bg-white text-slate-900 animate-pulse' : 'bg-slate-800/50 text-white border border-slate-700'}`}>
                         {isListening ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
                     </div>
-                    <span className="text-xs text-slate-400">Micro</span>
+                    <span className="text-xs text-slate-400">Micro {isListening ? 'ON' : 'OFF'}</span>
                 </button>
             </div>
         </>
@@ -781,10 +809,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             {/* Right: Credits & Menu */}
             <div className="flex items-center gap-2 z-20">
-                <button onClick={() => setShowPaymentModal(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all ${canSend ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 text-amber-700' : 'bg-red-50 border-red-200 text-red-600'}`}>
+                <button 
+                    onClick={() => setShowPaymentModal(true)} 
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all ${user.credits > 0 || user.role === 'admin' ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 text-amber-700' : 'bg-red-50 border-red-200 text-red-600 animate-pulse'}`}
+                >
                     <Coins className="w-3.5 h-3.5" />
                     <span className="font-bold text-sm">{user.role === 'admin' ? '∞' : user.credits}</span>
                 </button>
+                
                 <div className="relative">
                     <button onClick={() => setShowMenu(!showMenu)} className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-400'}`}>
                         <Menu className="w-5 h-5" />

@@ -52,17 +52,26 @@ const App: React.FC = () => {
     setToast({ message, type });
   };
 
+  // Theme Management
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('theme') === 'dark';
+      const saved = localStorage.getItem('theme');
+      // Check system preference if no saved theme
+      if (!saved) return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      return saved === 'dark';
     }
     return false;
   });
 
   useEffect(() => {
     const root = document.documentElement;
-    if (isDarkMode) { root.classList.add('dark'); localStorage.setItem('theme', 'dark'); } 
-    else { root.classList.remove('dark'); localStorage.setItem('theme', 'light'); }
+    if (isDarkMode) {
+        root.classList.add('dark');
+        localStorage.setItem('theme', 'dark');
+    } else {
+        root.classList.remove('dark');
+        localStorage.setItem('theme', 'light');
+    }
   }, [isDarkMode]);
 
   const toggleTheme = () => setIsDarkMode(prev => !prev);
