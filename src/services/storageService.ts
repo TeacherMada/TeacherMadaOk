@@ -84,6 +84,11 @@ export const storageService = {
             freeUsage: data.free_usage || { lastResetWeek: getMadagascarCurrentWeek(), count: 0 }
         };
 
+        // Ensure levelProgress exists (migration)
+        if (typeof user.stats.levelProgress === 'undefined') {
+            user.stats.levelProgress = 0;
+        }
+
         localStorage.setItem(CURRENT_USER_KEY, user.id);
         localStorage.setItem(`user_data_${user.id}`, JSON.stringify(user));
 
@@ -265,8 +270,6 @@ export const storageService = {
     if (isSupabaseConfigured() && messages.length > 0) {
         const lastMsg = messages[messages.length - 1];
         
-        // On vérifie si ce message a déjà été envoyé (via un flag local ou logique simple)
-        // Ici, on insère simplement. Supabase est rapide.
         const { error } = await supabase.from('chat_history').insert({
             user_id: userId,
             role: lastMsg.role,

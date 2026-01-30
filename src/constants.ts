@@ -1,9 +1,9 @@
 
 import { UserProfile, UserPreferences, LevelDescriptor, LanguageLevel } from './types';
 
-// === DEFINITIONS DES NIVEAUX (BASE DE CONNAISSANCE) ===
+// === KNOWLEDGE BASE: LEVEL DEFINITIONS ===
 export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
-  // CECRL
+  // CECRL (European Languages)
   'A1': {
     code: 'A1', title: 'Débutant / Introductif',
     description: "Vous découvrez la langue. Vous comprenez des expressions très simples.",
@@ -40,7 +40,7 @@ export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
     skills: ["Restituer des faits et arguments de sources diverses", "S'exprimer avec une grande précision"],
     example: "C'est une distinction subtile, mais néanmoins primordiale dans ce contexte littéraire."
   },
-  // HSK (Chinois)
+  // HSK (Chinese)
   'HSK 1': {
     code: 'HSK 1', title: 'Grand Débutant',
     description: "Vous connaissez 150 mots de base. Introduction au Pinyin.",
@@ -81,7 +81,7 @@ export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
 
 export const SYSTEM_PROMPT_TEMPLATE = (profile: UserProfile, prefs: UserPreferences) => {
   const currentLevel = prefs.level;
-  // Fallback si levelProgress n'est pas défini
+  // Calculate relative progress in level (approx 50 lessons per level)
   const progressCount = profile.stats.levelProgress || 0;
   const progressPercent = Math.min((progressCount / 50) * 100, 100); 
   const isAssessmentMode = prefs.needsAssessment;
