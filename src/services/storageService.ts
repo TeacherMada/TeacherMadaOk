@@ -479,12 +479,31 @@ export const storageService = {
     }
   },
   
-  updateSystemSettings: (settings: SystemSettings) => {
+  updateSystemSettings: async (settings: SystemSettings) => {
+      // 1. Local Update
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      
+      // 2. Cloud Update (Si admin)
+      if (isSupabaseConfigured()) {
+          // Utilise une table 'system_settings' (à créer si non existante)
+          // On assume une ligne unique avec id='global'
+          await supabase.from('system_settings').upsert({ 
+              id: 'global', 
+              config: settings 
+          });
+      }
   },
   
   getSystemSettings: (): SystemSettings => {
       const data = localStorage.getItem(SETTINGS_KEY);
       return data ? JSON.parse(data) : DEFAULT_SETTINGS;
   },
+
+  fetchSystemSettings: async () => {
+      if (!isSupabaseConfigured()) return;
+      const { data } = await supabase.from('system_settings').select('config').eq('id', 'global').single();
+      if (data && data.config) {
+          localStorage.setItem(SETTINGS_KEY, JSON.stringify(data.config));
+      }
+  }
 };

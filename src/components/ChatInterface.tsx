@@ -63,6 +63,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [callSummary, setCallSummary] = useState<VoiceCallSummary | null>(null);
   const [isAnalyzingCall, setIsAnalyzingCall] = useState(false);
   
+  // Voice Call Input State
+  const [showVoiceInput, setShowVoiceInput] = useState(false);
+  const [voiceTextInput, setVoiceTextInput] = useState('');
+  
   const ringbackOscillatorRef = useRef<OscillatorNode | null>(null);
 
   // Image Gen State
@@ -204,10 +208,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const startListening = () => {
-    if (isMuted && isCallActive) {
-        notify("Micro désactivé.", 'info');
-        return;
-    }
+    // Disable mic if using text input
+    if (showVoiceInput) return;
 
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -231,7 +233,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     recognition.onerror = (e: any) => { console.error(e); setIsListening(false); };
     recognition.onresult = (e: any) => {
       const text = e.results[0][0].transcript;
-      setInput(prev => prev + (prev ? ' ' : '') + text);
+      if (isCallActive) {
+          // If in call, send immediately
+          handleSend(text);
+      } else {
+          setInput(prev => prev + (prev ? ' ' : '') + text);
+      }
     };
     
     recognitionRef.current = recognition;
@@ -242,13 +249,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (isListening) stopListening();
     else startListening();
   };
-
-  // Auto-send in Call Mode when listening stops and input exists
-  useEffect(() => {
-      if (!isListening && isCallActive && input.trim().length > 0 && !isLoading && !isAnalyzing) {
-          handleSend();
-      }
-  }, [isListening, isCallActive]);
 
   const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); };
 
@@ -438,6 +438,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setCallSummary(null);
       setIsMuted(false);
       setCallSeconds(0);
+      setShowVoiceInput(false);
   };
 
   const toggleMute = () => setIsMuted(!isMuted);
@@ -464,6 +465,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     storageService.saveChatHistory(user.id, updatedWithUser, preferences.targetLanguage); // Update to save per language
     
     setInput('');
+    setVoiceTextInput('');
     setGeneratedImage(null);
 
     setIsLoading(true);
@@ -844,14 +846,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     
                     {/* Controls */}
                     <div className="w-full max-w-xs grid grid-cols-3 gap-6 mb-12 relative z-20">
+                        {/* Write Button Replacement for Mute */}
                         <button 
-                            onClick={toggleMute} 
+                            onClick={() => setShowVoiceInput(prev => !prev)} 
                             className={`flex flex-col items-center gap-2 group`}
                         >
-                            <div className={`p-4 rounded-full transition-all ${isMuted ? 'bg-white text-slate-900' : 'bg-slate-800/50 text-white border border-slate-700 hover:bg-slate-700'}`}>
-                                {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
+                            <div className={`p-4 rounded-full transition-all ${showVoiceInput ? 'bg-white text-slate-900' : 'bg-slate-800/50 text-white border border-slate-700 hover:bg-slate-700'}`}>
+                                <Keyboard className="w-6 h-6" />
                             </div>
-                            <span className="text-xs text-slate-400 font-medium">Mute</span>
+                            <span className="text-xs text-slate-400 font-medium">Écrire</span>
                         </button>
 
                         <button 
@@ -873,12 +876,42 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                             <button 
                                 onClick={toggleListening} 
-                                className={`p-4 rounded-full transition-all ${isListening ? 'bg-white text-slate-900 ring-4 ring-emerald-500/50' : 'bg-slate-800/50 text-white border border-slate-700 hover:bg-slate-700'}`}>
+                                className={`p-4 rounded-full transition-all ${isListening ? 'bg-white text-slate-900 ring-4 ring-emerald-500/50' : 'bg-slate-800/50 text-white border border-slate-700 hover:bg-slate-700'}`}
+                                disabled={showVoiceInput}
+                            >
                                 {isListening ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
                             </button>
                             <span className="text-xs text-slate-400 font-medium">Micro</span>
                         </div>
                     </div>
+
+                    {/* Text Input Overlay */}
+                    {showVoiceInput && (
+                        <div className="absolute bottom-0 left-0 w-full bg-slate-900/95 backdrop-blur-xl border-t border-slate-700 rounded-t-3xl p-4 animate-slide-up z-50 pb-8">
+                            <div className="flex justify-between items-center mb-3 px-1">
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Message Texte</span>
+                                <button onClick={() => setShowVoiceInput(false)} className="p-1 bg-slate-800 rounded-full text-slate-400"><ChevronDown className="w-4 h-4"/></button>
+                            </div>
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    value={voiceTextInput}
+                                    onChange={(e) => setVoiceTextInput(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleSend(voiceTextInput)}
+                                    placeholder="Écrivez votre réponse..."
+                                    className="flex-1 bg-slate-800 text-white rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-slate-700 placeholder:text-slate-500"
+                                    autoFocus
+                                />
+                                <button 
+                                    onClick={() => handleSend(voiceTextInput)} 
+                                    disabled={!voiceTextInput.trim() || isLoading} 
+                                    className="p-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl disabled:opacity-50 transition-colors shadow-lg"
+                                >
+                                    <Send className="w-5 h-5" />
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </>
             )}
         </div>
@@ -1115,10 +1148,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 </div>
                             </div>
                         ) : (
-                            <div className="flex-shrink-0 w-10 h-10 mt-1 mx-2 relative">
-                                <div className="absolute inset-0 bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-600 rounded-full"></div>
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <User className="w-5 h-5 text-slate-600 dark:text-slate-300" />
+                            <div className="flex-shrink-0 w-10 h-10 mt-1 mx-2 relative rounded-full overflow-hidden border-2 border-white dark:border-slate-700 shadow-sm">
+                                <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs">
+                                    {user.username.substring(0, 2).toUpperCase()}
                                 </div>
                             </div>
                         )}
@@ -1176,7 +1208,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       </div>
 
       {/* Input Area */}
-      <div id="input-area" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 p-3 md:p-4 sticky bottom-0">
+      <div id="input-area" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-100 dark:border-slate-700 p-3 md:p-4 sticky bottom-0">
         
         {/* Generated Image Display */}
         {(isGeneratingImage || generatedImage) && (
