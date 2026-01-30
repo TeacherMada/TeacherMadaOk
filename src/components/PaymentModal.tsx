@@ -144,9 +144,12 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
             {/* ETAPE 2 : OPERATEUR */}
             {view === 'operator' && (
                 <div className="space-y-6 animate-slide-in-right">
-                    <button onClick={() => setView('amount')} className="text-xs font-bold text-slate-400 hover:text-indigo-500 flex items-center gap-1 mb-2">
-                        <ArrowRight className="w-3 h-3 rotate-180"/> Modifier montant
-                    </button>
+                    <div className="flex justify-between items-center mb-2">
+                        <button onClick={() => setView('amount')} className="text-xs font-bold text-slate-400 hover:text-indigo-500 flex items-center gap-1">
+                            <ArrowRight className="w-3 h-3 rotate-180"/> Modifier montant
+                        </button>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sélectionner</span>
+                    </div>
 
                     <div className="space-y-3">
                         <OperatorCard 
@@ -219,7 +222,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                     </div>
                                     <h3 className="text-xl font-bold text-slate-800 dark:text-white">Validation Rapide</h3>
                                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-                                        Pour que l'admin valide vos <strong>{credits} CRD</strong> instantanément, aidez-nous à vous identifier.
+                                        Pour que l'admin valide vos <strong>{credits} CRD</strong> instantanément, identifier un indice dans votre transaction, comme nom numéro ou nom du destinataire ou Référence ou Description.
                                     </p>
                                 </div>
 
@@ -235,7 +238,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                     </div>
                                     <textarea 
                                         rows={3}
-                                        placeholder="Ex: 034 12 345 67 - Rabe - Ref: 123456789"
+                                        placeholder="ex: Entrer un indice de votre transaction"
                                         value={refMessage}
                                         onChange={(e) => setRefMessage(e.target.value)}
                                         className="w-full bg-transparent text-slate-800 dark:text-white outline-none resize-none font-medium placeholder:text-slate-400"
