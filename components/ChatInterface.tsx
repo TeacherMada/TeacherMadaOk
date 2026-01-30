@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, FileDown, Coins, Plus, Lock, BrainCircuit, Menu, FileText, Type, LogOut, RotateCcw, Sparkles, MessageCircle, Mic2, GraduationCap, Image as ImageIcon, Library, ChevronUp, Play, PhoneOff, VolumeX, Maximize2, Trophy } from 'lucide-react';
 import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage, VoiceCallSummary } from '../types';
@@ -100,29 +101,27 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const recognitionRef = useRef<any>(null);
   const preferences = user.preferences!;
 
-  // === REAL LEVEL PROGRESS CALCULATION (0-50 Lessons) ===
+  // Logic to calculate Visual Level Progress (A1 -> A2, etc.)
   const levelProgressData = useMemo(() => {
-      const currentLevelCode = user.preferences?.level || 'A1';
-      // Fallback if migration hasn't run or field is missing
-      const progressCount = user.stats.levelProgress || 0;
+      const lessons = user.stats.lessonsCompleted;
+      const levelLabel = user.preferences?.level || 'Débutant';
       
-      const percentage = Math.min((progressCount / 50) * 100, 100);
-      
-      // Determine next level target for UI display
+      let startCode = 'A1';
       let targetCode = 'A2';
-      const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-      const hskLevels = ['HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
       
-      const list = currentLevelCode.includes('HSK') ? hskLevels : levels;
-      const idx = list.indexOf(currentLevelCode);
-      if (idx !== -1 && idx < list.length - 1) {
-          targetCode = list[idx + 1];
-      } else {
-          targetCode = 'MAX';
+      // Determine base codes from preferences
+      if (levelLabel.includes('Intermédiaire')) {
+          startCode = 'B1'; targetCode = 'B2';
+      } else if (levelLabel.includes('Avancé')) {
+          startCode = 'C1'; targetCode = 'C2';
       }
+
+      // Calculate localized progress (loops every 20 lessons for visual gratification)
+      const subLevelThreshold = 20; 
+      const percentage = Math.min(((lessons % subLevelThreshold) / subLevelThreshold) * 100, 100);
       
-      return { startCode: currentLevelCode, targetCode, percentage };
-  }, [user.stats.levelProgress, user.preferences?.level]);
+      return { startCode, targetCode, percentage };
+  }, [user.stats.lessonsCompleted, user.preferences?.level]);
 
   // Dynamic Loading Text Logic for Voice Call
   useEffect(() => {
@@ -177,14 +176,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   // Dynamic Lesson Number Calculation
   const currentLessonNumber = useMemo(() => {
-    // Try to parse from recent messages, otherwise default to stats
     for (let i = messages.length - 1; i >= 0; i--) {
         const match = messages[i].text.match(/##\s*(?:🟢|🔴|🔵)?\s*(?:LEÇON|LECON|LESSON|LESONA)\s*(\d+)/i);
         if (match) return match[1];
     }
-    // Fallback to user stats
-    return (user.stats.levelProgress || 0) + 1;
-  }, [messages, user.stats.levelProgress]);
+    return '-';
+  }, [messages]);
 
   // Font Size Mapping
   const getTextSizeClass = () => {
@@ -464,7 +461,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
     const updatedWithUser = [...messages, userMsg];
     setMessages(updatedWithUser);
-    storageService.saveChatHistory(user.id, updatedWithUser, preferences.targetLanguage); 
+    storageService.saveChatHistory(user.id, updatedWithUser, preferences.targetLanguage); // Update to save per language
     
     setInput('');
     setGeneratedImage(null);
@@ -486,7 +483,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() };
       const finalHistory = [...updatedWithUser, aiMsg];
       setMessages(finalHistory);
-      storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage);
+      storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage); // Update to save per language
       refreshUserData();
       
       // Voice Call Auto-Reply
@@ -973,42 +970,30 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </div>
 
         {/* Right: Credits, Menu, Avatar */}
-<div className="flex-1 flex items-center justify-end gap-2">
-     <button 
-        onClick={() => setShowPaymentModal(true)} 
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group ${
-            !canSend 
-            ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-900 animate-pulse' 
-            : 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/40'
-        }`}
-     >
-          {isFreeTier ? (
-              <>
-                <div className={`w-2 h-2 rounded-full ${canSend ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse`}></div>
-                <span className={`text-xs font-bold ${canSend ? 'text-indigo-700 dark:text-indigo-300' : 'text-red-600 dark:text-red-400'}`}>
-                    {freeUsageLeft}/2
-                </span>
-              </>
-          ) : (
-              <>
-                <Coins className={`w-3.5 h-3.5 ${canSend ? 'text-amber-500' : 'text-red-500'} group-hover:rotate-12 transition-transform`} />
-                <span className={`text-xs font-bold ${canSend ? 'text-indigo-900 dark:text-indigo-100' : 'text-red-600 dark:text-red-300'} hidden sm:inline`}>
-                    {user.role === 'admin' ? '∞' : user.credits}
-                </span>
-                <span className="text-xs font-bold sm:hidden">
-                    {user.role === 'admin' ? '∞' : user.credits}
-                </span>
-              </>
-          )}
-     </button>
+        <div className="flex-1 flex items-center justify-end gap-2">
+             <button onClick={() => setShowPaymentModal(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group ${!canSend ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-900 animate-pulse' : 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/40'}`}>
+                  {isFreeTier ? (
+                      <>
+                        <div className={`w-2 h-2 rounded-full ${canSend ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse`}></div>
+                        <span className={`text-xs font-bold ${canSend ? 'text-indigo-700 dark:text-indigo-300' : 'text-red-600 dark:text-red-400'}`}>{freeUsageLeft}/2</span>
+                      </>
+                  ) : (
+                      <>
+                        <Coins className={`w-3.5 h-3.5 ${canSend ? 'text-amber-500' : 'text-red-500'} group-hover:rotate-12 transition-transform`} />
+                        <span className={`text-xs font-bold ${canSend ? 'text-indigo-900 dark:text-indigo-100' : 'text-red-600 dark:text-red-300'} hidden sm:inline`}>{user.role === 'admin' ? '∞' : user.credits}</span>
+                        <span className="text-xs font-bold sm:hidden">{user.role === 'admin' ? '∞' : user.credits}</span>
+                      </>
+                  )}
+             </button>
 
-     <div className="relative">
-         <button 
-            onClick={() => setShowMenu(!showMenu)} 
-            className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-         >
-            <Menu className="w-5 h-5" />
-         </button>         
+             <div className="relative">
+                 <button 
+                    onClick={() => setShowMenu(!showMenu)} 
+                    className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                 >
+                    <Menu className="w-5 h-5" />
+                 </button>
+                 
                  {/* MENU DROPDOWN */}
                  {showMenu && (
                      <div className="absolute top-12 right-0 w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-3 animate-fade-in z-50">
@@ -1111,7 +1096,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
                     <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                         <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 mx-2 shadow-sm ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1'}`}>
-                            {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <img src="/logo.png" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }} className="w-full h-full object-contain" alt="Teacher" />}
+                            {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <img src="/logo.png" className="w-full h-full object-contain" alt="Teacher" />}
                         </div>
                         <div 
                             id={`msg-content-${msg.id}`} 
@@ -1138,7 +1123,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50" data-html2canvas-ignore>
                                         <button onClick={() => handleSpeak(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Écouter"><Volume2 className="w-4 h-4 text-slate-400 hover:text-indigo-500"/></button>
-                                        <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Copier">{copiedId === msg.id ? <Check className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4 text-slate-400"/></button>
+                                        <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Copier">{copiedId === msg.id ? <Check className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4 text-slate-400"/>}</button>
                                         <button onClick={() => handleExportPDF(msg.text)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Télécharger PDF"><FileText className="w-4 h-4 text-slate-400 hover:text-red-500"/></button>
                                         <button onClick={() => handleExportImage(msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Exporter Image"><ImageIcon className="w-4 h-4 text-slate-400 hover:text-purple-500"/></button>
                                     </div>
@@ -1151,7 +1136,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         })}
         {(isLoading || isAnalyzing) && (
              <div className="flex justify-start animate-fade-in">
-                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1"><img src="/logo.png" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }} className="w-full h-full object-contain" alt="Teacher" /></div>
+                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1"><img src="/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
                  <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border shadow-sm flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin text-indigo-500"/> <span className="text-sm text-slate-500">TeacherMada écrit...</span>
                  </div>

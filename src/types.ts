@@ -7,11 +7,8 @@ export enum TargetLanguage {
   German = 'Allemand 🇩🇪'
 }
 
-// Types stricts pour les niveaux
-export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
-export type HskLevel = 'HSK 1' | 'HSK 2' | 'HSK 3' | 'HSK 4' | 'HSK 5' | 'HSK 6';
-
-export type LanguageLevel = CefrLevel | HskLevel;
+// Niveaux CECRL et HSK
+export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2' | 'HSK 1' | 'HSK 2' | 'HSK 3' | 'HSK 4' | 'HSK 5' | 'HSK 6';
 
 export interface LevelDescriptor {
   code: LanguageLevel;
