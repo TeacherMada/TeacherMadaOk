@@ -136,7 +136,7 @@ export const storageService = {
             aiMemory: "Nouvel utilisateur.",
             isPremium: false,
             hasSeenTutorial: false,
-            credits: 0, 
+            credits: 3, // CHANGE: 3 Credits Gratuits à l'inscription
             freeUsage: {
                 lastResetWeek: getMadagascarCurrentWeek(),
                 count: 0

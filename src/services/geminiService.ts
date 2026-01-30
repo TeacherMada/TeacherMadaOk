@@ -159,15 +159,16 @@ export const generateVoiceChatResponse = async (
         const user = await storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
+        // PROMPT OPTIMISÉ POUR VITESSE & HUMANITÉ
         const systemInstruction = `
-            ACT: Friendly language tutor on a phone call.
-            USER: ${user.username}. LEVEL: ${user.preferences.level}. TARGET: ${user.preferences.targetLanguage}.
-            
-            RULES:
-            1. KEEP IT SHORT. Max 2 sentences. No lists. No markdown.
-            2. Be encouraging but correct big mistakes softly ("You mean...?").
-            3. Ask ONE simple follow-up question to keep conversation going.
-            4. Speak naturally.
+            ROLE: You are TeacherMada, a professional, human language tutor.
+            STRICT RULES:
+            1. NEVER say you are an AI, robot, or assistant. You are a real teacher on a phone call.
+            2. KEEP RESPONSES ULTRA SHORT. 1-2 sentences maximum. Speed is critical.
+            3. Act natural. Use fillers like "Hmm", "Exactement", "D'accord".
+            4. If the student makes a mistake, correct it gently and quickly, then ask a follow-up question.
+            5. ADAPT to level: ${user.preferences.level}. Target Language: ${user.preferences.targetLanguage}.
+            6. If user sends text input instead of voice, treat it as if they spoke it.
         `;
 
         const historyParts = history.slice(-6).map(msg => ({
@@ -176,11 +177,11 @@ export const generateVoiceChatResponse = async (
         }));
 
         const chat = aiClient.chats.create({
-            model: modelName,
+            model: 'gemini-2.0-flash', // Use Flash for maximum speed on Voice
             config: {
                 systemInstruction: systemInstruction,
-                temperature: 0.6,
-                maxOutputTokens: 150,
+                temperature: 0.7,
+                maxOutputTokens: 100, // Hard limit to ensure speed
             },
             history: historyParts as Content[],
         });
@@ -204,18 +205,15 @@ export const analyzeVoiceCallPerformance = async (
         const conversation = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
 
         const prompt = `
-            Analyze this short language practice conversation.
-            Target Language: ${user.preferences.targetLanguage}.
-            Explanation Language: ${user.preferences.explanationLanguage}.
-            
-            Conversation:
-            ${conversation}
+            Act as a Lead Teacher analyzing a student's oral session.
+            Student Level: ${user.preferences.level}.
+            Context: ${conversation}
 
             Output valid JSON only:
             {
                 "score": number (1-10),
-                "feedback": "string (Brief summary of strengths/weaknesses in ${user.preferences.explanationLanguage}, max 3 sentences)",
-                "tip": "string (One actionable tip in ${user.preferences.explanationLanguage})"
+                "feedback": "string (A polite, constructive feedback in ${user.preferences.explanationLanguage}. Max 2 sentences.)",
+                "tip": "string (One specific tip to improve.)"
             }
         `;
 
@@ -228,8 +226,8 @@ export const analyzeVoiceCallPerformance = async (
         const json = JSON.parse(response.text || "{}");
         return {
             score: json.score || 7,
-            feedback: json.feedback || "Bonne pratique !",
-            tip: json.tip || "Continuez à pratiquer régulièrement."
+            feedback: json.feedback || "Bonne pratique ! Continuez comme ça.",
+            tip: json.tip || "Essayez de parler un peu plus fort."
         };
     }, userId);
 };

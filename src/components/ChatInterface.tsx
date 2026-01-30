@@ -62,6 +62,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [loadingText, setLoadingText] = useState("Réflexion...");
   const [callSummary, setCallSummary] = useState<VoiceCallSummary | null>(null);
   const [isAnalyzingCall, setIsAnalyzingCall] = useState(false);
+  const [voiceTextInput, setVoiceTextInput] = useState(''); // New input for voice fallback
   
   const ringbackOscillatorRef = useRef<OscillatorNode | null>(null);
 
@@ -200,6 +201,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     storageService.saveChatHistory(user.id, updatedWithUser, preferences.targetLanguage); 
     
     setInput('');
+    setVoiceTextInput(''); // Clear voice text input too
     setGeneratedImage(null);
     setIsLoading(true);
     onMessageSent();
@@ -267,6 +269,33 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   // --- VOICE CALL LOGIC ---
+  useEffect(() => {
+      let interval: any;
+      if (isCallActive && !isCallConnecting && !callSummary) {
+          interval = setInterval(() => {
+              setCallSeconds(prev => {
+                  const newVal = prev + 1;
+                  if (newVal > 0 && newVal % 60 === 0) {
+                      const updatedUser = storageService.deductCreditOrUsage(user.id);
+                      if (updatedUser) {
+                          onUpdateUser(updatedUser);
+                          notify("1 min écoulée : -1 Crédit", 'info');
+                      } else {
+                          clearInterval(interval);
+                          notify("Crédit épuisé. Fin de l'appel.", 'error');
+                          handleEndCall();
+                      }
+                  }
+                  if (newVal % 60 === 50 && user.credits <= 1 && user.role !== 'admin') {
+                      notify("Attention : Il vous reste 10 secondes...", 'info');
+                  }
+                  return newVal;
+              });
+          }, 1000);
+      }
+      return () => clearInterval(interval);
+  }, [isCallActive, isCallConnecting, callSummary, user.id, user.credits]);
+
   const handleStartCall = () => {
       if (!storageService.canPerformRequest(user.id).allowed) {
           setShowPaymentModal(true);
@@ -285,7 +314,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
           const greeting = isMg 
             ? `Manao ahoana ${user.username} ! Vonona hianatra ve ianao?`
-            : `Bonjour ${user.username} ! Prêt pour la pratique orale?`;
+            : `Bonjour ${user.username} ! Je suis TeacherMada. Prêt pour la pratique orale?`;
           handleSpeak(greeting);
       }, 3000);
   };
@@ -335,7 +364,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             <span className="text-4xl font-black text-indigo-600 dark:text-indigo-400 absolute">{callSummary?.score}</span>
                         </div>
                         <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">{isMg ? "Bilan" : "Bilan"}</h3>
-                        <p className="mb-4 text-sm text-slate-600 dark:text-slate-300">{callSummary?.feedback}</p>
+                        <p className="mb-4 text-sm text-slate-600 dark:text-slate-300 font-medium">"{callSummary?.feedback}"</p>
+                        <div className="bg-emerald-50 dark:bg-emerald-900/20 p-3 rounded-lg mb-4 text-xs text-emerald-700 dark:text-emerald-300">
+                            💡 {callSummary?.tip}
+                        </div>
                         <button onClick={closeCallOverlay} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold">Fermer</button>
                     </div>
                 )}
@@ -345,24 +377,58 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       return (
         <>
+            {/* Top Bar with Quit */}
+            <div className="absolute top-6 right-6 z-50">
+                <button 
+                    onClick={handleEndCall}
+                    className="p-3 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-full text-white transition-colors"
+                >
+                    <X className="w-6 h-6" />
+                </button>
+            </div>
+
             <div className="text-center space-y-4 mt-12 z-20">
                 <h2 className="text-3xl font-bold text-white">TeacherMada</h2>
                 <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 backdrop-blur-sm text-indigo-200 text-sm font-medium">
                     <div className={`w-2 h-2 rounded-full ${isCallConnecting ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></div>
-                    {isCallConnecting ? "Connexion..." : (isLoading ? "Parle..." : "En ligne")}
+                    {isCallConnecting ? "Connexion..." : (isLoading ? "Réfléchit..." : "En ligne")}
                 </div>
                 {!isCallConnecting && <p className="text-4xl font-mono text-white/50">{Math.floor(callSeconds / 60)}:{(callSeconds % 60).toString().padStart(2, '0')}</p>}
             </div>
             
             <div className="relative flex items-center justify-center w-full max-w-sm aspect-square z-10">
                 <div className={`w-40 h-40 rounded-full bg-gradient-to-br from-indigo-600 to-violet-700 p-1 shadow-[0_0_60px_rgba(99,102,241,0.4)] z-20 transition-transform duration-500 ${isPlayingAudio ? 'scale-110' : 'scale-100'}`}>
-                    <div className="w-full h-full bg-slate-900 rounded-full flex items-center justify-center border-4 border-white/10">
-                        {isCallConnecting ? <Phone className="w-16 h-16 text-white animate-bounce" /> : <div className="text-6xl">🎓</div>}
+                    <div className="w-full h-full bg-slate-900 rounded-full flex items-center justify-center border-4 border-white/10 overflow-hidden">
+                        {isCallConnecting ? (
+                            <Phone className="w-16 h-16 text-white animate-bounce" /> 
+                        ) : (
+                            <img src="/logo.png" className="w-full h-full object-cover p-2" alt="Teacher" />
+                        )}
+                    </div>
+                </div>
+                {/* Text Fallback Input */}
+                <div className="absolute -bottom-16 w-full px-4 animate-fade-in-up">
+                    <div className="flex gap-2 bg-slate-800/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-700/50">
+                        <input 
+                            type="text" 
+                            value={voiceTextInput}
+                            onChange={(e) => setVoiceTextInput(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSend(voiceTextInput)}
+                            placeholder="Écrire si micro HS..."
+                            className="flex-1 bg-transparent text-white px-3 text-sm outline-none placeholder:text-slate-500"
+                        />
+                        <button 
+                            onClick={() => handleSend(voiceTextInput)}
+                            disabled={!voiceTextInput.trim() || isLoading}
+                            className="p-2 bg-indigo-600 rounded-xl text-white disabled:opacity-50"
+                        >
+                            <Send className="w-4 h-4" />
+                        </button>
                     </div>
                 </div>
             </div>
             
-            <div className="w-full max-w-xs grid grid-cols-3 gap-6 mb-12 relative z-20">
+            <div className="w-full max-w-xs grid grid-cols-3 gap-6 mb-12 relative z-20 mt-auto">
                 <button onClick={() => setIsMuted(!isMuted)} className="flex flex-col items-center gap-2 group">
                     <div className={`p-4 rounded-full transition-all ${isMuted ? 'bg-white text-slate-900' : 'bg-slate-800/50 text-white border border-slate-700'}`}>
                         {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
