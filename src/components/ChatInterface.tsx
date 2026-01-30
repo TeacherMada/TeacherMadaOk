@@ -766,43 +766,113 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       {/* Voice Call Overlay */}
       {isCallActive && (
         <div className="fixed inset-0 z-[160] bg-slate-900/95 backdrop-blur-2xl flex flex-col items-center justify-between py-12 px-6 transition-all animate-fade-in overflow-hidden">
-            {/* ... (Call overlay content logic reduced for safety) */}
+            
+            {/* End Call Analysis View */}
             {isAnalyzingCall || callSummary ? (
-                <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-2xl mt-20 relative border border-slate-100 dark:border-white/10">
-                    {/* Simplified Analysis View */}
-                    <div className="text-center">
-                        <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">{isAnalyzingCall ? "Analyse..." : "Bilan"}</h3>
-                        {callSummary && (
-                            <div className="bg-slate-50 dark:bg-black/20 p-4 rounded-xl mb-4 text-left">
-                                <p className="mb-2"><strong>Score:</strong> {callSummary.score}/10</p>
-                                <p className="text-sm">{callSummary.feedback}</p>
+                <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-2xl animate-fade-in-up mt-20 relative border border-slate-100 dark:border-white/10">
+                    {isAnalyzingCall ? (
+                        <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                            <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+                            <p className="text-slate-600 dark:text-slate-300 font-bold animate-pulse">
+                                {isMg ? "Mamakafaka ny resaka..." : "Analyse de la conversation..."}
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="text-center">
+                            <div className="w-20 h-20 mx-auto bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mb-4 relative">
+                                <Trophy className="w-10 h-10 text-indigo-600 dark:text-indigo-400 absolute opacity-20" />
+                                <span className="text-4xl font-black text-indigo-600 dark:text-indigo-400 relative z-10">{callSummary?.score}</span>
                             </div>
-                        )}
-                        <button onClick={closeCallOverlay} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold">Fermer</button>
-                    </div>
+                            <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">{isMg ? "Bilan'ny antso" : "Bilan de l'appel"}</h3>
+                            <div className="bg-slate-50 dark:bg-black/20 p-4 rounded-xl mb-4 text-sm text-slate-600 dark:text-slate-300 text-left border border-slate-100 dark:border-white/5">
+                                <p className="mb-3"><strong>Feedback:</strong> {callSummary?.feedback}</p>
+                                <div className="p-3 bg-emerald-50 dark:bg-emerald-900/10 rounded-lg border border-emerald-100 dark:border-emerald-900/20">
+                                    <p className="text-emerald-700 dark:text-emerald-400 font-medium text-xs">💡 <strong>Tip:</strong> {callSummary?.tip}</p>
+                                </div>
+                            </div>
+                            <button onClick={closeCallOverlay} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-500/30">
+                                {isMg ? "Hikatona" : "Fermer"}
+                            </button>
+                        </div>
+                    )}
                 </div>
             ) : (
-                <div className="flex flex-col items-center justify-center w-full h-full">
-                    <div className="text-center space-y-4 mb-12">
-                        <h2 className="text-3xl font-bold text-white">Appel en cours</h2>
-                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800/80 text-indigo-200 text-sm">
-                            {isCallConnecting ? "Connexion..." : isLoading ? loadingText : "Connecté"}
+                <>
+                    <div className="text-center space-y-4 mt-12 z-20">
+                        <div className="flex flex-col items-center">
+                            <h2 className="text-3xl font-bold text-white tracking-tight drop-shadow-md">TeacherMada</h2>
+                            <p className="text-slate-300 text-lg">{preferences.targetLanguage}</p>
                         </div>
-                        <p className="text-4xl font-mono text-white/50">{Math.floor(callSeconds / 60)}:{(callSeconds % 60).toString().padStart(2, '0')}</p>
+                        
+                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 backdrop-blur-sm text-indigo-200 text-sm font-medium">
+                            <div className={`w-2 h-2 rounded-full ${isCallConnecting ? 'bg-amber-500 animate-pulse' : isLoading ? 'bg-indigo-400 animate-pulse' : 'bg-emerald-500'}`}></div>
+                            {isCallConnecting ? (isMg ? "Mampiditra..." : "Appel en cours...") : (isLoading ? loadingText : (isMg ? "Mihaino..." : "Connecté"))}
+                        </div>
+                        
+                        {!isCallConnecting && (
+                            <p className="text-4xl font-mono text-white/50 tracking-widest">{Math.floor(callSeconds / 60)}:{(callSeconds % 60).toString().padStart(2, '0')}</p>
+                        )}
                     </div>
                     
-                    <div className="grid grid-cols-3 gap-6 w-full max-w-xs">
-                        <button onClick={toggleMute} className="flex flex-col items-center gap-2">
-                            <div className={`p-4 rounded-full ${isMuted ? 'bg-white text-slate-900' : 'bg-slate-800 text-white'}`}><VolumeX className="w-6 h-6"/></div>
-                        </button>
-                        <button onClick={handleEndCall} className="flex flex-col items-center gap-2">
-                            <div className="p-6 bg-red-500 text-white rounded-full"><PhoneOff className="w-8 h-8"/></div>
-                        </button>
-                        <button onClick={toggleListening} className="flex flex-col items-center gap-2">
-                            <div className={`p-4 rounded-full ${isListening ? 'bg-white text-slate-900' : 'bg-slate-800 text-white'}`}><Mic className="w-6 h-6"/></div>
-                        </button>
+                    <div className="relative flex items-center justify-center w-full max-w-sm aspect-square z-10">
+                        {/* Ripple Animations */}
+                        {!isCallConnecting && (isPlayingAudio || isLoading) && (
+                            <>
+                                <div className="absolute w-40 h-40 rounded-full border border-indigo-500/30 animate-ripple-1"></div>
+                                <div className="absolute w-40 h-40 rounded-full border border-indigo-500/20 animate-ripple-2"></div>
+                                <div className="absolute w-40 h-40 rounded-full border border-indigo-500/10 animate-ripple-3"></div>
+                            </>
+                        )}
+                        
+                        <div className={`w-40 h-40 rounded-full bg-gradient-to-br from-indigo-600 to-violet-700 p-1 shadow-[0_0_60px_rgba(99,102,241,0.4)] z-20 transition-transform duration-500 relative ${isPlayingAudio ? 'scale-110' : 'scale-100'}`}>
+                            <div className="w-full h-full bg-slate-900 rounded-full flex items-center justify-center border-4 border-white/10 relative overflow-hidden">
+                                {isCallConnecting ? (
+                                    <Phone className="w-16 h-16 text-white animate-bounce" />
+                                ) : (
+                                    <div className="text-6xl select-none">🎓</div>
+                                )}
+                            </div>
+                        </div>
                     </div>
-                </div>
+                    
+                    {/* Controls */}
+                    <div className="w-full max-w-xs grid grid-cols-3 gap-6 mb-12 relative z-20">
+                        <button 
+                            onClick={toggleMute} 
+                            className={`flex flex-col items-center gap-2 group`}
+                        >
+                            <div className={`p-4 rounded-full transition-all ${isMuted ? 'bg-white text-slate-900' : 'bg-slate-800/50 text-white border border-slate-700 hover:bg-slate-700'}`}>
+                                {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
+                            </div>
+                            <span className="text-xs text-slate-400 font-medium">Mute</span>
+                        </button>
+
+                        <button 
+                            onClick={handleEndCall} 
+                            className="flex flex-col items-center gap-2 transform hover:scale-105 transition-transform"
+                        >
+                            <div className="p-6 bg-red-500 hover:bg-red-600 text-white rounded-full shadow-[0_0_30px_rgba(239,68,68,0.4)] border-4 border-slate-900/50">
+                                <PhoneOff className="w-8 h-8 fill-current" />
+                            </div>
+                            <span className="text-xs text-slate-400 font-medium">Raccrocher</span>
+                        </button>
+
+                        <div className="relative flex flex-col items-center gap-2">
+                             {/* Permanent Tooltip Indicator */}
+                            <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-white text-slate-900 text-[10px] font-bold px-2 py-1 rounded shadow-lg animate-bounce pointer-events-none z-30 whitespace-nowrap">
+                                {isMg ? "Tsindrio eto" : "Appuyez ici"}
+                                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 rotate-45 w-1.5 h-1.5 bg-white"></div>
+                            </div>
+
+                            <button 
+                                onClick={toggleListening} 
+                                className={`p-4 rounded-full transition-all ${isListening ? 'bg-white text-slate-900 ring-4 ring-emerald-500/50' : 'bg-slate-800/50 text-white border border-slate-700 hover:bg-slate-700'}`}>
+                                {isListening ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+                            </button>
+                            <span className="text-xs text-slate-400 font-medium">Micro</span>
+                        </div>
+                    </div>
+                </>
             )}
         </div>
       )}
@@ -811,13 +881,19 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       {isTrainingMode && (
           <div className="fixed inset-0 z-50 bg-white dark:bg-slate-950 flex flex-col">
               {isLoadingExercises ? (
-                  <div className="flex-1 flex flex-col items-center justify-center">
-                      <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
-                      <p className="text-slate-500">Génération...</p>
+                  <div className="flex-1 flex flex-col items-center justify-center space-y-4">
+                      <div className="relative">
+                          <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+                          <BrainCircuit className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 text-indigo-600" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800 dark:text-white">Génération des exercices...</h3>
+                      <p className="text-slate-500">TeacherMada analyse vos progrès.</p>
                   </div>
               ) : exerciseError ? (
                   <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
                       <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
+                      <h3 className="text-xl font-bold mb-2">Erreur de génération</h3>
+                      <button onClick={handleStartTraining} className="px-6 py-2 bg-indigo-600 text-white rounded-lg">Réessayer</button>
                       <button onClick={handleQuitTraining} className="mt-4 text-slate-500">Annuler</button>
                   </div>
               ) : (
@@ -828,13 +904,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       {showSummaryResultModal && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-lg p-6 shadow-xl max-h-[80vh] flex flex-col">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-lg p-6 shadow-xl border border-slate-100 max-h-[80vh] flex flex-col">
                 <div className="flex justify-between items-center mb-4 pb-2 border-b">
-                    <h3 className="font-bold">Résumé</h3>
-                    <button onClick={() => setShowSummaryResultModal(false)}><X/></button>
+                    <h3 className="font-bold flex items-center gap-2 text-slate-800 dark:text-white"><BookOpen className="text-indigo-500"/> Résumé</h3>
+                    <button onClick={() => setShowSummaryResultModal(false)}><X className="text-slate-500"/></button>
                 </div>
-                <div className="flex-1 overflow-y-auto">
-                    {isGeneratingSummary ? <Loader2 className="animate-spin mx-auto"/> : <MarkdownRenderer content={summaryContent}/>}
+                <div className="flex-1 overflow-y-auto scrollbar-hide">
+                    {isGeneratingSummary ? <div className="text-center py-10"><Loader2 className="animate-spin mx-auto text-indigo-500 mb-2"/>Génération...</div> : <MarkdownRenderer content={summaryContent}/>}
                 </div>
             </div>
         </div>
@@ -842,88 +918,322 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       {/* HEADER */}
       <header className="fixed top-0 left-0 right-0 z-40 bg-white/90 dark:bg-slate-900/95 backdrop-blur-md shadow-sm h-14 md:h-16 px-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
-        <div className="flex-1 flex items-center gap-2">
-          <button onClick={() => { stopAudio(); onChangeMode(); }} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800">
-             <ArrowLeft className="w-5 h-5 text-slate-500" />
+        
+        {/* Left: Back + Smart Target Language */}
+        <div className="flex-1 flex items-center gap-2 relative">
+          <button onClick={() => { stopAudio(); onChangeMode(); }} disabled={isAnalyzing} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all group disabled:opacity-50 shrink-0">
+             {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin text-indigo-600" /> : <ArrowLeft className="w-5 h-5 text-slate-500 dark:text-slate-400 group-hover:text-indigo-600" />}
           </button>
-          <div className="text-sm font-bold">{getLanguageDisplay()}</div>
+          
+          <button 
+             onClick={() => setShowSmartOptions(!showSmartOptions)}
+             className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-800 dark:text-indigo-300 rounded-full border border-indigo-100 dark:border-indigo-900/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors max-w-full overflow-hidden"
+          >
+             <Globe className="w-4 h-4 shrink-0" />
+             <span className="text-xs font-bold whitespace-nowrap truncate">{getLanguageDisplay()}</span>
+             <ChevronDown className={`w-3 h-3 transition-transform shrink-0 ${showSmartOptions ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showSmartOptions && (
+              <div className="absolute top-12 left-0 md:left-10 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-2 animate-fade-in z-50">
+                  <div className="p-2 border-b border-slate-100 dark:border-slate-800 mb-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      Options Smart
+                  </div>
+                  <div className="space-y-1">
+                      <button onClick={handleStartTraining} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors">
+                          <BrainCircuit className="w-4 h-4 text-orange-500"/>
+                          <span className="text-slate-700 dark:text-slate-300">Exercice Pratique</span>
+                      </button>
+                      <button onClick={handleStartCall} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors">
+                          <Phone className="w-4 h-4 text-purple-500"/>
+                          <span className="text-slate-700 dark:text-slate-300">Appel Vocal</span>
+                      </button>
+                      <button onClick={() => { setShowSmartOptions(false); setInput("Peux-tu traduire ceci : "); textareaRef.current?.focus(); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors">
+                          <Languages className="w-4 h-4 text-blue-500"/>
+                          <span className="text-slate-700 dark:text-slate-300">Traduction</span>
+                      </button>
+                      <button onClick={() => { setShowSmartOptions(false); setIsDialogueActive(true); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors">
+                          <MessageCircle className="w-4 h-4 text-emerald-500"/>
+                          <span className="text-slate-700 dark:text-slate-300">Dialogues</span>
+                      </button>
+                       <div className="my-1 border-t border-slate-100 dark:border-slate-800"></div>
+                       <button onClick={() => { setShowSmartOptions(false); onChangeMode(); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors group">
+                          <Library className="w-4 h-4 text-indigo-500"/>
+                          <span className="text-slate-700 dark:text-slate-300">Autres Cours</span>
+                      </button>
+                  </div>
+              </div>
+          )}
         </div>
-        <div className="flex-1 flex justify-end items-center gap-2">
-             <button onClick={() => setShowPaymentModal(true)} className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1.5 rounded-full">
-                  <Coins className="w-4 h-4 text-indigo-600" />
-                  <span className="text-xs font-bold">{user.credits}</span>
+
+        {/* Center: Current Lesson */}
+        <div className="flex flex-col items-center w-auto shrink-0 px-2">
+             <h2 className="text-base md:text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 whitespace-nowrap">
+                Leçon {currentLessonNumber}
+             </h2>
+        </div>
+
+        {/* Right: Credits, Menu, Avatar */}
+        <div className="flex-1 flex items-center justify-end gap-2">
+             <button onClick={() => setShowPaymentModal(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group ${!canSend ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-900 animate-pulse' : 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/40'}`}>
+                  {isFreeTier ? (
+                      <>
+                        <div className={`w-2 h-2 rounded-full ${canSend ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse`}></div>
+                        <span className={`text-xs font-bold ${canSend ? 'text-indigo-700 dark:text-indigo-300' : 'text-red-600 dark:text-red-400'}`}>{freeUsageLeft}/2</span>
+                      </>
+                  ) : (
+                      <>
+                        <Coins className={`w-3.5 h-3.5 ${canSend ? 'text-amber-500' : 'text-red-500'} group-hover:rotate-12 transition-transform`} />
+                        <span className={`text-xs font-bold ${canSend ? 'text-indigo-900 dark:text-indigo-100' : 'text-red-600 dark:text-red-300'} hidden sm:inline`}>{user.role === 'admin' ? '∞' : user.credits}</span>
+                        <span className="text-xs font-bold sm:hidden">{user.role === 'admin' ? '∞' : user.credits}</span>
+                      </>
+                  )}
              </button>
-             <button onClick={() => setShowMenu(!showMenu)} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800">
-                <Menu className="w-5 h-5" />
-             </button>
+
+             <div className="relative">
+                 <button 
+                    onClick={() => setShowMenu(!showMenu)} 
+                    className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                 >
+                    <Menu className="w-5 h-5" />
+                 </button>
+                 
+                 {/* MENU DROPDOWN */}
+                 {showMenu && (
+                     <div className="absolute top-12 right-0 w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-3 animate-fade-in z-50">
+                         {/* Enhanced Search */}
+                         <div className="p-2 border-b border-slate-100 dark:border-slate-800 mb-2">
+                             <div className="relative flex items-center">
+                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"/>
+                                 <input 
+                                    type="text" 
+                                    placeholder="Rechercher..." 
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full bg-slate-50 dark:bg-black/20 text-sm py-2 pl-9 pr-16 rounded-lg border-none outline-none focus:ring-1 focus:ring-indigo-500"
+                                 />
+                                 {searchQuery && matchingMessages.length > 0 && (
+                                     <div className="absolute right-1 flex items-center gap-1">
+                                         <span className="text-[10px] text-slate-400 font-bold mr-1">{currentMatchIndex + 1}/{matchingMessages.length}</span>
+                                         <button onClick={handlePrevMatch} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><ChevronUp className="w-3 h-3 text-slate-500"/></button>
+                                         <button onClick={handleNextMatch} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><ChevronDown className="w-3 h-3 text-slate-500"/></button>
+                                     </div>
+                                 )}
+                             </div>
+                         </div>
+                        
+                         {/* Lesson Controls Grid */}
+                         <div className="grid grid-cols-2 gap-2 mb-2">
+                             <button onClick={() => { setShowSummaryResultModal(false); setShowMenu(true); }} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                                 <div className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <BookOpen className="w-5 h-5 text-indigo-500"/>
+                                 </div>
+                                 <div className="w-full">
+                                    <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Résumé</span>
+                                    <div className="flex items-center justify-center gap-1 mt-1">
+                                        <input type="number" placeholder="#" value={summaryInputVal} onChange={e => setSummaryInputVal(e.target.value)} onClick={e => e.stopPropagation()} className="w-8 text-center bg-transparent border-b border-slate-300 dark:border-slate-600 text-xs focus:border-indigo-500 outline-none"/>
+                                        <div onClick={(e) => { e.stopPropagation(); handleValidateSummary(); }} className="text-[10px] font-black text-indigo-600 cursor-pointer">GO</div>
+                                    </div>
+                                 </div>
+                             </button>
+
+                             <button className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                                 <div className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <RotateCcw className="w-5 h-5 text-emerald-500"/>
+                                 </div>
+                                 <div className="w-full">
+                                    <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Aller à</span>
+                                    <div className="flex items-center justify-center gap-1 mt-1">
+                                        <input type="number" placeholder="#" value={jumpInputVal} onChange={e => setJumpInputVal(e.target.value)} onClick={e => e.stopPropagation()} className="w-8 text-center bg-transparent border-b border-slate-300 dark:border-slate-600 text-xs focus:border-emerald-500 outline-none"/>
+                                        <div onClick={(e) => { e.stopPropagation(); handleValidateJump(); }} className="text-[10px] font-black text-emerald-600 cursor-pointer">GO</div>
+                                    </div>
+                                 </div>
+                             </button>
+                         </div>
+
+                         <div className="grid grid-cols-2 gap-2 mb-2 border-t border-slate-100 dark:border-slate-800 pt-2">
+                             <button onClick={toggleTheme} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                 {isDarkMode ? <Sun className="w-4 h-4 text-amber-500"/> : <Moon className="w-4 h-4 text-indigo-500"/>}
+                                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Thème</span>
+                             </button>
+                             <button onClick={handleToggleExplanationLang} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                 <Languages className="w-4 h-4 text-purple-500"/>
+                                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{preferences.explanationLanguage.split(' ')[0]}</span>
+                             </button>
+                         </div>
+
+                         <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                            <div className="flex items-center gap-2 text-xs font-bold mb-2 text-slate-500 dark:text-slate-400 uppercase">
+                                <Type className="w-3 h-3"/> Taille Texte
+                            </div>
+                            <div className="flex bg-white dark:bg-slate-700 rounded-lg p-1 gap-1">
+                                {(['small', 'normal', 'large', 'xl'] as const).map(s => (
+                                    <button key={s} onClick={() => handleFontSizeChange(s)} className={`flex-1 text-[10px] py-1.5 rounded-md font-bold transition-all ${fontSize === s ? 'bg-indigo-600 shadow text-white' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-600'}`}>
+                                        {s === 'small' ? 'A' : s === 'normal' ? 'A+' : 'A++'}
+                                    </button>
+                                ))}
+                            </div>
+                         </div>
+                     </div>
+                 )}
+             </div>
              
-             {showMenu && (
-                 <div className="absolute top-12 right-4 w-64 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-slate-100 dark:border-slate-800 p-2 z-50">
-                     <button onClick={toggleTheme} className="w-full text-left p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded flex items-center gap-2"><Sun className="w-4 h-4"/> Thème</button>
-                     <button onClick={handleToggleExplanationLang} className="w-full text-left p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded flex items-center gap-2"><Languages className="w-4 h-4"/> Langue Prof</button>
-                     <button onClick={handleStartTraining} className="w-full text-left p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded flex items-center gap-2"><BrainCircuit className="w-4 h-4"/> Exercices</button>
-                 </div>
-             )}
+             {/* Enhanced Avatar with Mobile Fix */}
+             <button onClick={onShowProfile} className="relative w-9 h-9 ml-1 group shrink-0">
+                <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-full opacity-70 blur-sm group-hover:opacity-100 transition-opacity duration-500"></div>
+                <div className="relative w-full h-full rounded-full bg-slate-900 text-white font-bold flex items-center justify-center border-2 border-white dark:border-slate-800 z-10 overflow-hidden">
+                    <span className="z-10">{user.username.substring(0, 2).toUpperCase()}</span>
+                    <div className="absolute inset-0 bg-gradient-to-tr from-indigo-600 to-violet-600 opacity-80"></div>
+                </div>
+                <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full z-20"></div>
+             </button>
         </div>
       </header>
       
       {/* Chat Area */}
-      <div id="chat-feed" className={`flex-1 overflow-y-auto p-3 md:p-4 space-y-4 pt-20 pb-4 scrollbar-hide`}>
-        {messages.map((msg, index) => (
-            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] p-3 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-tl-none'}`}>
-                    {msg.role === 'user' ? (
-                        <p>{msg.text}</p>
-                    ) : (
-                        <>
-                            <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} />
-                            <div className="flex gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
-                                <button onClick={() => handleSpeak(msg.text)} className="p-1 hover:bg-slate-100 rounded"><Volume2 className="w-4 h-4"/></button>
-                                <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1 hover:bg-slate-100 rounded"><Copy className="w-4 h-4"/></button>
-                            </div>
-                        </>
-                    )}
+      <div id="chat-feed" className={`flex-1 overflow-y-auto p-3 md:p-4 space-y-4 md:space-y-6 pt-20 pb-4 scrollbar-hide`}>
+        {messages.filter(msg => !searchQuery || msg.text.toLowerCase().includes(searchQuery.toLowerCase())).map((msg, index) => {
+            const isMatch = searchQuery && msg.text.toLowerCase().includes(searchQuery.toLowerCase());
+            const isCurrentMatch = matchingMessages[currentMatchIndex]?.id === msg.id;
+
+            return (
+                <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+                    <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 mx-2 shadow-sm ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1'}`}>
+                            {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <img src="/logo.png" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }} className="w-full h-full object-contain" alt="Teacher" />}
+                        </div>
+                        <div 
+                            id={`msg-content-${msg.id}`} 
+                            className={`px-4 py-3 rounded-2xl shadow-sm ${textSizeClass} transition-all duration-300
+                            ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-slate-200 text-slate-800 rounded-tl-none border border-slate-100 dark:border-slate-700'} 
+                            ${isCurrentMatch ? 'ring-4 ring-yellow-400/50 shadow-yellow-200 dark:shadow-none' : isMatch ? 'ring-2 ring-yellow-200/50' : ''}`}
+                        >
+                             {msg.role === 'user' ? <p className="whitespace-pre-wrap">{msg.text}</p> : (
+                                <>
+                                    <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} highlight={searchQuery} />
+                                    
+                                    {/* Start Button on First Message - Visible ONLY if no other messages sent */}
+                                    {index === 0 && msg.role === 'model' && messages.length === 1 && (
+                                        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex justify-center">
+                                            <button 
+                                                onClick={() => handleSend("Commence le cours / Leçon 1")} 
+                                                className="group relative px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center gap-2"
+                                            >
+                                                <span>COMMENCER</span>
+                                                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50" data-html2canvas-ignore>
+                                        <button onClick={() => handleSpeak(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Écouter"><Volume2 className="w-4 h-4 text-slate-400 hover:text-indigo-500"/></button>
+                                        <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Copier">{copiedId === msg.id ? <Check className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4 text-slate-400"/></button>
+                                        <button onClick={() => handleExportPDF(msg.text)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Télécharger PDF"><FileText className="w-4 h-4 text-slate-400 hover:text-red-500"/></button>
+                                        <button onClick={() => handleExportImage(msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Exporter Image"><ImageIcon className="w-4 h-4 text-slate-400 hover:text-purple-500"/></button>
+                                    </div>
+                                </>
+                             )}
+                        </div>
+                    </div>
                 </div>
-            </div>
-        ))}
-        {isLoading && <div className="text-center text-sm text-slate-400">TeacherMada écrit...</div>}
+            );
+        })}
+        {(isLoading || isAnalyzing) && (
+             <div className="flex justify-start animate-fade-in">
+                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1"><img src="/logo.png" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.svg'; }} className="w-full h-full object-contain" alt="Teacher" /></div>
+                 <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border shadow-sm flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-500"/> <span className="text-sm text-slate-500">TeacherMada écrit...</span>
+                 </div>
+             </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input Area */}
-      <div id="input-area" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 p-3 sticky bottom-0">
+      <div id="input-area" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 p-3 md:p-4 sticky bottom-0">
         
-        {/* Progress Bar */}
-        <div className="flex items-center gap-2 mb-2 px-1">
-            <span className="text-[10px] font-bold text-indigo-500">{levelProgressData.startCode}</span>
-            <div className="flex-1 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-indigo-500 transition-all duration-1000" style={{ width: levelProgressData.percentage + '%' }}></div>
+        {/* Generated Image Display */}
+        {(isGeneratingImage || generatedImage) && (
+            <div className="max-w-md mx-auto mb-4 relative animate-fade-in-up">
+                {isGeneratingImage ? (
+                    <div className="h-48 w-full bg-slate-100 dark:bg-slate-800 rounded-2xl flex flex-col items-center justify-center border border-slate-200 dark:border-slate-700">
+                        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-2" />
+                        <span className="text-xs font-bold text-slate-500">Création artistique en cours...</span>
+                    </div>
+                ) : (
+                    <div className="relative group">
+                         <img src={generatedImage!} alt="Concept" className="w-full h-48 object-cover rounded-2xl shadow-lg border border-white/20" />
+                         <button 
+                            onClick={() => setGeneratedImage(null)}
+                            className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-full backdrop-blur-sm transition-colors"
+                         >
+                            <X className="w-4 h-4" />
+                         </button>
+                    </div>
+                )}
             </div>
-            <span className="text-[10px] font-bold text-slate-400">{levelProgressData.targetCode}</span>
+        )}
+
+        {/* Quick Actions Toolbar with Progress Bar */}
+        <div className="max-w-4xl mx-auto mb-2 flex items-center gap-2 px-2 overflow-x-auto scrollbar-hide">
+            <Tooltip text="Appel Vocal">
+                <button onClick={handleStartCall} className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded-full shadow-sm border border-purple-100 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors">
+                    <Phone className="w-4 h-4" />
+                </button>
+            </Tooltip>
+            
+            {/* Smart Level Progress Bar */}
+            <div className="flex-1 mx-3 flex flex-col justify-center">
+                <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 px-1">
+                    <span className="text-indigo-500 dark:text-indigo-400">{levelProgressData.startCode}</span>
+                    <span className="text-slate-300 dark:text-slate-600">{Math.round(levelProgressData.percentage)}%</span>
+                    <span>{levelProgressData.targetCode}</span>
+                </div>
+                <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative shadow-inner">
+                    <div 
+                        className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 animate-gradient-x absolute top-0 left-0 transition-all duration-1000 ease-out"
+                        style={{ width: `${levelProgressData.percentage}%` }}
+                    ></div>
+                </div>
+            </div>
+            
+             <Tooltip text="Leçon Suivante">
+                <button onClick={() => handleSend("Passe à la suite / Leçon suivante")} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-900/50">
+                    Suivant <ArrowRight className="w-3 h-3" />
+                </button>
+            </Tooltip>
         </div>
 
-        <div className="flex items-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-2">
+        <div className="max-w-4xl mx-auto relative flex items-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-[26px] border border-slate-200 dark:border-slate-700 p-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/50">
             <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Message..."
-                disabled={isLoading}
+                placeholder={!canSend ? "Recharge nécessaire..." : "Message.. | Parler..."}
+                disabled={isLoading || isAnalyzing}
                 rows={1}
-                className="w-full bg-transparent text-slate-800 dark:text-white pl-2 py-2 outline-none resize-none max-h-32"
+                className="w-full bg-transparent text-slate-800 dark:text-white rounded-xl pl-4 py-3 text-base focus:outline-none resize-none max-h-32 scrollbar-hide self-center disabled:opacity-50"
             />
-            <div className="flex items-center gap-1 pb-1">
-                 <button onClick={toggleListening} className={`p-2 rounded-full ${isListening ? 'bg-red-500 text-white' : 'text-slate-400'}`}>
+            <div className="flex items-center gap-1 pb-1 pr-1">
+                 <button onClick={handleTranslateInput} disabled={!input.trim() || isTranslating} className="p-2 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50">
+                    {isTranslating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Languages className={`w-5 h-5 ${isTranslating ? 'animate-spin text-indigo-600' : ''}`} />}
+                 </button>
+                 <button onClick={toggleListening} className={`p-2 rounded-full ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-200'}`}>
                     {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                  </button>
                  <button 
                     onClick={() => handleSend()} 
-                    disabled={!input.trim() || isLoading} 
-                    className="p-2 bg-indigo-600 text-white rounded-full disabled:opacity-50"
+                    disabled={!input.trim() || isLoading || isAnalyzing} 
+                    className={`p-2.5 rounded-full text-white transition-all shadow-md transform hover:scale-105 active:scale-95 flex items-center justify-center
+                        ${canSend ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-slate-400 cursor-not-allowed'}
+                    `}
                  >
-                    <Send className="w-4 h-4" />
+                    {canSend ? <Send className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
                 </button>
             </div>
+        </div>
+        <div className="text-center mt-1">
+             <span className="text-[10px] text-slate-400">1 Leçon = 1 Crédit (50 Ar) • Gratuit: 2/semaines.</span>
         </div>
       </div>
     </div>
