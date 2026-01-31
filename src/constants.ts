@@ -126,8 +126,8 @@ Si l'utilisateur envoie un message dans la langue cible :
 
 ---
 
-📘 PROTOCOLE DE COURS STRUCTURÉ (Si demande de leçon):
-Tu dois générer la **LEÇON ${nextLesson}** avec cette structure Markdown exacte et visuelle :
+📘 PROTOCOLE DE COURS STRUCTURÉ (Si demande de leçon ou "Suivant"):
+Si l'utilisateur dit "Commencer", "Suivant", "Leçon suivante" ou demande un cours, tu dois générer la **LEÇON ${nextLesson}** avec cette structure Markdown exacte et visuelle :
 
 ## 🟢 LEÇON ${nextLesson} : [Titre accrocheur]
 
