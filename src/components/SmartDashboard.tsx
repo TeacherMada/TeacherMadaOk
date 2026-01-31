@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState } from 'react';
 import { UserProfile, ChatMessage, VocabularyItem } from '../types';
 import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown, Trash2, Shield, AlertTriangle, Plus, Sparkles, Loader2, Volume2, Globe, GraduationCap, Map as MapIcon, Lock, Zap, Award, ArrowLeft } from 'lucide-react';
@@ -34,7 +33,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
   notify
 }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'hub' | 'parcours' | 'lessons' | 'vocab'>('hub');
+  const [activeTab, setActiveTab] = useState<'hub' | 'parcours' | 'lessons' | 'vocab'>('parcours');
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   
   const [editForm, setEditForm] = useState({
@@ -83,9 +82,13 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
 
   // Selected Course Data for Roadmap
   const currentCourse = useMemo(() => {
-      if (!selectedCourseId) return null;
+      if (!selectedCourseId) {
+          // Default to current target language if available in active courses
+          const currentKey = `${user.preferences?.targetLanguage}-${user.preferences?.level}`;
+          return activeCourses.find(c => c.id === currentKey) || activeCourses[0] || null;
+      }
       return activeCourses.find(c => c.id === selectedCourseId) || null;
-  }, [selectedCourseId, activeCourses]);
+  }, [selectedCourseId, activeCourses, user.preferences]);
 
   const skills = useMemo(() => {
     const baseVocab = user.skills?.vocabulary || 10;
@@ -255,9 +258,9 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
         {/* Tabs - Pills Design */}
         <div className="px-6 py-4 bg-white dark:bg-[#131825]">
             <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-x-auto scrollbar-hide">
-                <TabButton active={activeTab === 'hub'} onClick={() => setActiveTab('hub')} icon={<Target className="w-4 h-4"/>} label="Hub" />
                 <TabButton active={activeTab === 'parcours'} onClick={() => setActiveTab('parcours')} icon={<MapIcon className="w-4 h-4"/>} label="Parcours" />
                 <TabButton active={activeTab === 'vocab'} onClick={() => setActiveTab('vocab')} icon={<BookOpen className="w-4 h-4"/>} label="Mots" />
+                <TabButton active={activeTab === 'hub'} onClick={() => setActiveTab('hub')} icon={<Target className="w-4 h-4"/>} label="Hub" />
                 <TabButton active={activeTab === 'lessons'} onClick={() => setActiveTab('lessons')} icon={<Calendar className="w-4 h-4"/>} label="Historique" />
             </div>
         </div>
@@ -464,88 +467,15 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
             {activeTab === 'parcours' && (
                 <div className="animate-fade-in h-full flex flex-col">
                     
-                    {!selectedCourseId ? (
-                        /* VIEW 1: COURSE LIST */
-                        <div className="space-y-6">
-                            <h3 className="font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
-                                <GraduationCap className="w-5 h-5 text-indigo-500" /> Mes Parcours Actifs
-                            </h3>
-
-                            {activeCourses.length === 0 ? (
-                                <div className="bg-slate-100 dark:bg-slate-800/50 p-8 rounded-2xl text-center text-slate-500 border-2 border-dashed border-slate-200 dark:border-slate-700">
-                                    <MapIcon className="w-12 h-12 mx-auto mb-3 opacity-30"/>
-                                    <p className="text-sm font-bold">Aucun voyage commencé.</p>
-                                    <p className="text-xs mt-1 opacity-70">Lancez une leçon pour activer votre carte.</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    {activeCourses.map((course) => (
-                                        <div 
-                                            key={course.id} 
-                                            onClick={() => setSelectedCourseId(course.id)}
-                                            className="cursor-pointer bg-gradient-to-br from-white to-slate-50 dark:from-[#1A2030] dark:to-[#151a27] p-5 rounded-2xl border border-slate-100 dark:border-white/5 shadow-sm relative overflow-hidden group hover:shadow-lg transition-all hover:-translate-y-1"
-                                        >
-                                            <div className="flex justify-between items-start mb-3 relative z-10">
-                                                <div>
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <Globe className="w-4 h-4 text-slate-400" />
-                                                        <h4 className="font-black text-slate-800 dark:text-white text-lg">{course.language}</h4>
-                                                    </div>
-                                                    <span className="text-xs font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-800">
-                                                        Niveau {course.level}
-                                                    </span>
-                                                </div>
-                                                <div className="text-right">
-                                                    <span className="block text-2xl font-black text-slate-900 dark:text-white">{course.lessonCount}</span>
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Leçons</span>
-                                                </div>
-                                            </div>
-                                            
-                                            <div className="relative z-10">
-                                                <div className="flex justify-between text-xs font-bold text-slate-400 mb-1">
-                                                    <span>Progression</span>
-                                                    <span>{Math.round(course.progress)}%</span>
-                                                </div>
-                                                <div className="h-2.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
-                                                    <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 shadow-[0_0_10px_rgba(99,102,241,0.5)] transition-all duration-1000 ease-out group-hover:bg-gradient-to-r group-hover:from-indigo-400 group-hover:to-purple-400" style={{ width: `${course.progress}%` }}></div>
-                                                </div>
-                                            </div>
-
-                                            {/* Decorative Background */}
-                                            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                                                <TrendingUp className="w-20 h-20 text-indigo-500" />
-                                            </div>
-                                            <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <ChevronRight className="w-5 h-5 text-indigo-500" />
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-
-                            {/* Global Skills Radar (Only visible on main list) */}
-                            <div className="bg-white dark:bg-[#1A2030] p-6 rounded-[2rem] border border-slate-100 dark:border-white/5 shadow-sm mt-6">
-                                <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
-                                    <Brain className="w-5 h-5 text-indigo-500" /> Compétences Globales
-                                </h3>
-                                <div className="space-y-5">
-                                    <SkillBar label="Vocabulaire" value={skills.vocabulary} color="bg-emerald-500" icon="📖" />
-                                    <SkillBar label="Grammaire" value={skills.grammar} color="bg-blue-500" icon="📐" />
-                                    <SkillBar label="Prononciation" value={skills.pronunciation} color="bg-purple-500" icon="🎤" />
-                                    <SkillBar label="Compréhension" value={skills.listening} color="bg-orange-500" icon="👂" />
-                                </div>
-                            </div>
+                    {/* Course Selection / Global Radar if no specific course selected */}
+                    {!currentCourse && activeCourses.length === 0 ? (
+                        <div className="bg-slate-100 dark:bg-slate-800/50 p-8 rounded-2xl text-center text-slate-500 border-2 border-dashed border-slate-200 dark:border-slate-700">
+                            <MapIcon className="w-12 h-12 mx-auto mb-3 opacity-30"/>
+                            <p className="text-sm font-bold">Aucun voyage commencé.</p>
+                            <p className="text-xs mt-1 opacity-70">Lancez une leçon pour activer votre carte.</p>
                         </div>
                     ) : (
-                        /* VIEW 2: DETAILED ROADMAP */
                         <div className="flex flex-col h-full">
-                            <button 
-                                onClick={() => setSelectedCourseId(null)}
-                                className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-indigo-600 mb-4 transition-colors"
-                            >
-                                <ArrowLeft className="w-4 h-4"/> Retour aux cours
-                            </button>
-
                             {currentCourse && (
                                 <>
                                     <div className="text-center mb-6">
@@ -556,6 +486,16 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                                         <p className="text-xs text-slate-400 mt-2 font-medium">
                                             {TOTAL_LESSONS_PER_LEVEL - currentCourse.lessonCount} leçons avant le niveau suivant.
                                         </p>
+                                    </div>
+
+                                    {/* Skills Radar - Compact */}
+                                    <div className="bg-white dark:bg-[#1A2030] p-4 rounded-xl border border-slate-100 dark:border-white/5 shadow-sm mb-6">
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <SkillBar label="Vocab" value={skills.vocabulary} color="bg-emerald-500" icon="📖" />
+                                            <SkillBar label="Grammaire" value={skills.grammar} color="bg-blue-500" icon="📐" />
+                                            <SkillBar label="Pronon." value={skills.pronunciation} color="bg-purple-500" icon="🎤" />
+                                            <SkillBar label="Écoute" value={skills.listening} color="bg-orange-500" icon="👂" />
+                                        </div>
                                     </div>
 
                                     <div className="flex-1 overflow-y-auto px-4 pb-20 scrollbar-hide relative">
@@ -694,7 +634,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
 const TabButton = ({ active, onClick, icon, label }: any) => (
     <button 
         onClick={onClick}
-        className={`flex-1 min-w-[80px] flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${active ? 'bg-white dark:bg-[#0F1422] text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+        className={`flex-1 min-w-[80px] flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition-all ${active ? 'bg-white dark:bg-[#0F1422] text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
     >
         {icon} {label}
     </button>
@@ -712,13 +652,13 @@ const SettingItem = ({ icon, label, action }: any) => (
 
 const SkillBar = ({ label, value, color, icon }: { label: string, value: number, color: string, icon: string }) => (
     <div>
-        <div className="flex justify-between mb-2">
-            <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <span className="text-base">{icon}</span> {label}
+        <div className="flex justify-between mb-1">
+            <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                <span className="text-sm">{icon}</span> {label}
             </span>
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{Math.round(value)}/100</span>
+            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">{Math.round(value)}%</span>
         </div>
-        <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+        <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
             <div className={`h-full ${color} rounded-full transition-all duration-1000 ease-out relative`} style={{ width: `${value}%` }}>
                 <div className="absolute top-0 right-0 h-full w-full bg-gradient-to-b from-white/20 to-transparent"></div>
             </div>
