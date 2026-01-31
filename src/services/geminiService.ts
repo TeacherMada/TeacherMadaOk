@@ -231,7 +231,10 @@ export const generateConceptImage = async (prompt: string, userId: string) => {
         const response = await aiClient!.models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: { parts: [{ text: prompt }] },
-            config: { imageConfig: { aspectRatio: "16:9" } }
+            // @ts-ignore - imageConfig is valid for this model but missing in current type definition
+            config: { 
+                imageConfig: { aspectRatio: "16:9" } 
+            }
         });
         storageService.deductCreditOrUsage(userId);
         if (response.candidates?.[0]?.content?.parts) {
