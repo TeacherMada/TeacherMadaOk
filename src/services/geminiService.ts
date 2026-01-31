@@ -80,7 +80,14 @@ const executeWithRetry = async <T>(
         const isQuotaError = errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('resource_exhausted');
         const isModelError = errorMsg.includes('404') || errorMsg.includes('not found');
         const isServerBusy = errorMsg.includes('503') || errorMsg.includes('overloaded');
+        const isTurnError = errorMsg.includes('turn') || errorMsg.includes('conversation'); // Catch conversation history errors
         
+        // If it's a turn error, it's a logic bug, not a capacity issue. Don't retry, just fail or log.
+        if (isTurnError) {
+             console.error("❌ History Logic Error:", error);
+             throw error;
+        }
+
         const keys = getAvailableKeys();
 
         if (isQuotaError || isModelError || isServerBusy) {
@@ -142,20 +149,27 @@ export const sendMessageToGeminiStream = async (
         if (!user || !user.preferences) throw new Error("User data missing");
         
         // Load history specific to this language
-        let history = await storageService.getChatHistory(userId, user.preferences.targetLanguage);
+        const rawHistory = await storageService.getChatHistory(userId, user.preferences.targetLanguage);
 
-        // CRITICAL FIX: The history typically includes the 'user' message we just added in the UI.
-        // We MUST remove it from the 'history' passed to 'chats.create', because 'sendMessageStream' 
-        // sends the user message again. Double user turn = API Error.
-        if (history.length > 0 && history[history.length - 1].role === 'user') {
-            history = history.slice(0, -1);
+        // === CRITICAL FIX FOR HISTORY ===
+        // We must remove the LAST message if it matches the 'message' we are about to send, 
+        // OR if the history ends with a 'user' role.
+        // Google Gemini API expects [User, Model, User, Model]. 
+        // We are sending a NEW 'User' message via sendMessageStream.
+        // Therefore, the history passed to 'chats.create' MUST end with 'Model' (or be empty).
+        
+        const validHistory = rawHistory.filter(msg => msg.role === 'user' || msg.role === 'model'); // Filter out system messages if any
+        
+        // Remove trailing user messages to ensure we don't send User -> User
+        while (validHistory.length > 0 && validHistory[validHistory.length - 1].role === 'user') {
+            validHistory.pop();
         }
 
         // Generate context-aware system prompt
         const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
         
-        // Limit history to last 10 turns to keep context window focused and cheap
-        const historyParts = history.slice(-10).map(msg => ({
+        // Limit history to last 12 turns to keep context window focused and cheap
+        const historyParts = validHistory.slice(-12).map(msg => ({
             role: msg.role,
             parts: [{ text: msg.text }]
         }));
@@ -254,11 +268,12 @@ export const generateVoiceChatResponse = async (message: string, userId: string,
         const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
-        // CRITICAL FIX: Exclude the last user message from history initialization
-        // because we are sending it as the new prompt.
-        let validHistory = history;
-        if (validHistory.length > 0 && validHistory[validHistory.length - 1].role === 'user') {
-            validHistory = validHistory.slice(0, -1);
+        // === CRITICAL FIX FOR HISTORY (VOICE) ===
+        // Same logic as sendMessageStream. 
+        // Remove trailing user messages to ensure we don't send User -> User in history + prompt.
+        const validHistory = history.filter(msg => msg.role === 'user' || msg.role === 'model');
+        while (validHistory.length > 0 && validHistory[validHistory.length - 1].role === 'user') {
+            validHistory.pop();
         }
 
         const systemInstruction = `

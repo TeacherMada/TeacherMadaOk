@@ -4,18 +4,90 @@ import { UserProfile, UserPreferences, LevelDescriptor, LanguageLevel } from './
 export const TOTAL_LESSONS_PER_LEVEL = 50;
 
 export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
-  'A1': { code: 'A1', title: 'Débutant', description: "Bases absolues", skills: [], example: "" },
-  'A2': { code: 'A2', title: 'Élémentaire', description: "Survie", skills: [], example: "" },
-  'B1': { code: 'B1', title: 'Intermédiaire', description: "Indépendant", skills: [], example: "" },
-  'B2': { code: 'B2', title: 'Avancé', description: "Fluide", skills: [], example: "" },
-  'C1': { code: 'C1', title: 'Expert', description: "Autonome", skills: [], example: "" },
-  'C2': { code: 'C2', title: 'Maîtrise', description: "Bilingue", skills: [], example: "" },
-  'HSK 1': { code: 'HSK 1', title: 'HSK 1', description: "150 mots", skills: [], example: "" },
-  'HSK 2': { code: 'HSK 2', title: 'HSK 2', description: "300 mots", skills: [], example: "" },
-  'HSK 3': { code: 'HSK 3', title: 'HSK 3', description: "600 mots", skills: [], example: "" },
-  'HSK 4': { code: 'HSK 4', title: 'HSK 4', description: "1200 mots", skills: [], example: "" },
-  'HSK 5': { code: 'HSK 5', title: 'HSK 5', description: "2500 mots", skills: [], example: "" },
-  'HSK 6': { code: 'HSK 6', title: 'HSK 6', description: "5000+ mots", skills: [], example: "" },
+  'A1': { 
+      code: 'A1', 
+      title: 'Débutant / Bases', 
+      description: "Vous comprenez et utilisez des expressions familières et quotidiennes.", 
+      skills: ["Se présenter", "Poser des questions simples", "Comprendre des mots familiers"], 
+      example: "Hello, my name is Rindra. I live in Antananarivo." 
+  },
+  'A2': { 
+      code: 'A2', 
+      title: 'Élémentaire / Survie', 
+      description: "Vous pouvez communiquer lors de tâches simples et habituelles.", 
+      skills: ["Décrire votre environnement", "Parler de votre famille", "Faire des achats simples"], 
+      example: "I would like to buy two tickets for the concert, please." 
+  },
+  'B1': { 
+      code: 'B1', 
+      title: 'Intermédiaire / Indépendant', 
+      description: "Vous êtes autonome dans la plupart des situations de voyage.", 
+      skills: ["Raconter un événement", "Exprimer une opinion", "Comprendre les points essentiels"], 
+      example: "I think this movie is interesting because it shows the reality of life." 
+  },
+  'B2': { 
+      code: 'B2', 
+      title: 'Avancé / Fluide', 
+      description: "Vous communiquez avec spontanéité et aisance.", 
+      skills: ["Argumenter avec logique", "Comprendre des sujets complexes", "Parler sans trop chercher ses mots"], 
+      example: "Whatever the outcome, we must ensure the sustainability of this project." 
+  },
+  'C1': { 
+      code: 'C1', 
+      title: 'Expert / Autonome', 
+      description: "Vous vous exprimez couramment et de façon structurée.", 
+      skills: ["Utiliser la langue de façon souple", "Comprendre des textes longs", "Maîtriser les nuances"], 
+      example: "Ideally, we should scrutinize the underlying implications of this policy." 
+  },
+  'C2': { 
+      code: 'C2', 
+      title: 'Maîtrise / Bilingue', 
+      description: "Vous comprenez sans effort pratiquement tout ce que vous lisez ou entendez.", 
+      skills: ["Nuances très fines de sens", "Reconstruire des faits et arguments", "Style précis et adapté"], 
+      example: "The subtle irony in his speech was lost on the audience." 
+  },
+  'HSK 1': { 
+      code: 'HSK 1', 
+      title: 'HSK 1 (Chinois)', 
+      description: "Maîtrise de 150 mots de base. Compréhension de phrases très simples.", 
+      skills: ["Saluer", "Se présenter", "Compter"], 
+      example: "你好 (Nǐ hǎo) - Bonjour." 
+  },
+  'HSK 2': { 
+      code: 'HSK 2', 
+      title: 'HSK 2 (Chinois)', 
+      description: "Maîtrise de 300 mots. Échanges simples et directs sur le quotidien.", 
+      skills: ["Commander à manger", "Demander son chemin", "Parler de l'heure"], 
+      example: "我要喝咖啡 (Wǒ yào hē kāfēi) - Je veux boire du café." 
+  },
+  'HSK 3': { 
+      code: 'HSK 3', 
+      title: 'HSK 3 (Chinois)', 
+      description: "Maîtrise de 600 mots. Communication basique dans la vie courante.", 
+      skills: ["Parler de ses loisirs", "Décrire une situation", "Voyager en Chine"], 
+      example: "我昨天买了一本书 (Wǒ zuótiān mǎi le yī běn shū)." 
+  },
+  'HSK 4': { 
+      code: 'HSK 4', 
+      title: 'HSK 4 (Chinois)', 
+      description: "Maîtrise de 1200 mots. Discussion sur des sujets variés.", 
+      skills: ["Discuter de sujets abstraits", "Lire des articles simples", "Exprimer des sentiments"], 
+      example: "这个计划看起来不错 (Zhège jìhuà kàn qǐlái bùcuò)." 
+  },
+  'HSK 5': { 
+      code: 'HSK 5', 
+      title: 'HSK 5 (Chinois)', 
+      description: "2500 mots. Lecture de journaux et films.", 
+      skills: ["Discours complet", "Lire la presse", "Regarder la TV"], 
+      example: "随着经济的发展... (Suízhe jīngjì de fāzhǎn...)" 
+  },
+  'HSK 6': { 
+      code: 'HSK 6', 
+      title: 'HSK 6 (Chinois)', 
+      description: "5000+ mots. Compréhension totale.", 
+      skills: ["Expression écrite et orale fluide", "Sujets techniques", "Littérature"], 
+      example: "..." 
+  },
 };
 
 // === SMART TEACHER BRAIN 3.1 - CONTEXT AWARE ===
