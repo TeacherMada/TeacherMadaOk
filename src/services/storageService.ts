@@ -15,7 +15,8 @@ const DEFAULT_SETTINGS: SystemSettings = {
     orange: "032 69 790 17"
   },
   creditPrice: 50,
-  customLanguages: []
+  customLanguages: [],
+  validTransactionRefs: []
 };
 
 // --- Helper: Timezone Management ---
@@ -351,22 +352,48 @@ export const storageService = {
 
   // --- Admin Functions ---
 
-  sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'message' | 'password_reset', amount?: number, message?: string, contactInfo?: string) => {
-      if (!isSupabaseConfigured()) return;
-
-      const newRequest = {
-          id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          user_id: userId,
-          username,
-          type,
-          amount,
-          message,
-          contact_info: contactInfo,
-          status: 'pending',
-          created_at: Date.now()
-      };
+  sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'message' | 'password_reset', amount?: number, message?: string, contactInfo?: string): Promise<{status: 'pending' | 'approved' | 'rejected'}> => {
+      // AUTO-APPROVAL LOGIC
+      let finalStatus: 'pending' | 'approved' | 'rejected' = 'pending';
+      const settings = storageService.getSystemSettings();
+      const validRefs = settings.validTransactionRefs || [];
       
-      await supabase.from('admin_requests').insert(newRequest);
+      let matchedRef: string | null = null;
+
+      if (type === 'credit' && amount && message) {
+          // Check if message matches any pre-approved ref
+          // Logic: search for exact ref occurrence in message string
+          matchedRef = validRefs.find(ref => message.includes(ref)) || null;
+          
+          if (matchedRef) {
+              finalStatus = 'approved';
+              // Consume the ref
+              const newRefs = validRefs.filter(r => r !== matchedRef);
+              settings.validTransactionRefs = newRefs;
+              await storageService.updateSystemSettings(settings);
+              
+              // Add credits immediately
+              await storageService.addCredits(userId, amount);
+          }
+      }
+
+      if (isSupabaseConfigured()) {
+          const newRequest = {
+              id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              user_id: userId,
+              username,
+              type,
+              amount,
+              message,
+              contact_info: contactInfo,
+              status: finalStatus,
+              created_at: Date.now()
+          };
+          
+          await supabase.from('admin_requests').insert(newRequest);
+      }
+      
+      return { status: finalStatus };
   },
 
   getAdminRequests: async (): Promise<AdminRequest[]> => {

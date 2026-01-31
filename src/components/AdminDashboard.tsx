@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, SystemSettings, AdminRequest } from '../types';
 import { storageService } from '../services/storageService';
-import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle, AlertTriangle, Globe } from 'lucide-react';
+import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle, AlertTriangle, Globe, Banknote } from 'lucide-react';
 import { generateLanguageFlag } from '../services/geminiService';
 
 interface AdminDashboardProps {
@@ -25,6 +25,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
   // Custom Language State
   const [newLangName, setNewLangName] = useState('');
   const [addingLang, setAddingLang] = useState(false);
+
+  // Auto-Validation State
+  const [newTransactionRef, setNewTransactionRef] = useState('');
 
   // Manual Credit Input State (Key: userId, Value: amount string)
   const [manualCreditInputs, setManualCreditInputs] = useState<Record<string, string>>({});
@@ -139,6 +142,28 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
       setSettings(updatedSettings);
       await storageService.updateSystemSettings(updatedSettings);
       notify("Langue supprimée.", 'info');
+  };
+
+  const handleAddTransactionRef = async () => {
+      if (!newTransactionRef.trim()) return;
+      
+      const updatedSettings = {
+          ...settings,
+          validTransactionRefs: [...(settings.validTransactionRefs || []), newTransactionRef.trim()]
+      };
+      setSettings(updatedSettings);
+      await storageService.updateSystemSettings(updatedSettings);
+      setNewTransactionRef('');
+      notify("Référence ajoutée pour auto-validation.", 'success');
+  };
+
+  const removeTransactionRef = async (ref: string) => {
+      const updatedSettings = {
+          ...settings,
+          validTransactionRefs: (settings.validTransactionRefs || []).filter(r => r !== ref)
+      };
+      setSettings(updatedSettings);
+      await storageService.updateSystemSettings(updatedSettings);
   };
 
   const filteredUsers = users.filter(u => u.username.toLowerCase().includes(search.toLowerCase()) || (u.email && u.email.toLowerCase().includes(search.toLowerCase())) || (u.phoneNumber && u.phoneNumber.includes(search)));
@@ -281,6 +306,42 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
         {/* REQUESTS TAB */}
         {activeTab === 'requests' && (
              <div className="grid grid-cols-1 gap-4">
+                 
+                 {/* Auto-Validation Section */}
+                 <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-800 shadow-sm mb-4">
+                     <h3 className="text-sm font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-2 mb-3">
+                         <Banknote className="w-4 h-4"/> Auto-Validation Mobile Money
+                     </h3>
+                     <p className="text-xs text-slate-600 dark:text-slate-400 mb-3">
+                         Collez ici les références ou parties des SMS reçus (ex: "Ref 123456"). Si un utilisateur entre ce code, il sera validé automatiquement.
+                     </p>
+                     
+                     <div className="flex gap-2 mb-3">
+                         <input 
+                            type="text" 
+                            placeholder="Coller référence du SMS..." 
+                            value={newTransactionRef}
+                            onChange={(e) => setNewTransactionRef(e.target.value)}
+                            className="flex-1 p-2 rounded-lg border border-emerald-200 dark:border-emerald-800 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white dark:bg-slate-800"
+                         />
+                         <button onClick={handleAddTransactionRef} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-sm transition-colors">
+                             Ajouter
+                         </button>
+                     </div>
+
+                     <div className="flex flex-wrap gap-2">
+                         {settings.validTransactionRefs?.map((ref, i) => (
+                             <div key={i} className="flex items-center gap-1 bg-white dark:bg-slate-800 px-3 py-1 rounded-full border border-emerald-100 dark:border-emerald-900/50 shadow-sm">
+                                 <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">{ref}</span>
+                                 <button onClick={() => removeTransactionRef(ref)} className="text-red-400 hover:text-red-600 p-0.5"><X className="w-3 h-3"/></button>
+                             </div>
+                         ))}
+                         {(!settings.validTransactionRefs || settings.validTransactionRefs.length === 0) && (
+                             <span className="text-xs text-slate-400 italic">Aucune référence en attente.</span>
+                         )}
+                     </div>
+                 </div>
+
                  {requests.length === 0 && (
                      <div className="bg-white dark:bg-slate-900 p-12 rounded-2xl text-center text-slate-500 border-2 border-dashed border-slate-200 dark:border-slate-800">
                          Aucune demande en attente.

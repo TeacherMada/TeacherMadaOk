@@ -30,7 +30,7 @@ export enum LearningMode {
 }
 
 export interface UserPreferences {
-  targetLanguage: string; // Changed to string to support custom languages
+  targetLanguage: string;
   level: LanguageLevel; 
   explanationLanguage: ExplanationLanguage;
   mode: LearningMode;
@@ -42,7 +42,7 @@ export interface VocabularyItem {
   id: string;
   word: string;
   translation: string;
-  context?: string; // Example sentence
+  context?: string;
   mastered: boolean;
   addedAt: number;
 }
@@ -81,7 +81,7 @@ export interface UserProfile {
     pronunciation: number;
     listening: number;
   };
-  vocabulary?: VocabularyItem[]; // New: Word Box
+  vocabulary?: VocabularyItem[];
   dailyChallenges?: DailyChallenge[];
   lastChallengeDate?: string;
   aiMemory: string; 
@@ -118,9 +118,9 @@ export interface AdminRequest {
 }
 
 export interface CustomLanguage {
-  code: string; // e.g., 'Italien 🇮🇹'
-  baseName: string; // e.g., 'Italien'
-  flag: string; // e.g., '🇮🇹'
+  code: string; 
+  baseName: string; 
+  flag: string;
 }
 
 export interface SystemSettings {
@@ -132,7 +132,8 @@ export interface SystemSettings {
     orange: string;
   };
   creditPrice: number;
-  customLanguages?: CustomLanguage[]; // New: Dynamic Languages
+  customLanguages?: CustomLanguage[];
+  validTransactionRefs?: string[]; // New: List of refs waiting to be claimed
 }
 
 export interface ChatMessage {

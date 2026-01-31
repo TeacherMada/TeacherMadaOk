@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { X, Smartphone, ShieldCheck, Calculator, ArrowRight, Send, CheckCircle, Copy, Check, Coins, CreditCard, ChevronRight, User, Hash, FileText } from 'lucide-react';
+import { X, Smartphone, ShieldCheck, Calculator, ArrowRight, Send, CheckCircle, Copy, Check, Coins, CreditCard, ChevronRight, User, Hash, FileText, Zap } from 'lucide-react';
 import { ADMIN_CONTACTS, CREDIT_PRICE_ARIARY } from '../constants';
 import { storageService } from '../services/storageService';
 import { UserProfile } from '../types';
@@ -17,13 +17,13 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   const [amount, setAmount] = useState<number>(2000);
   const [refMessage, setRefMessage] = useState('');
   const [isSent, setIsSent] = useState(false);
+  const [isAutoApproved, setIsAutoApproved] = useState(false); // New: Instant approval state
   const [copied, setCopied] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedOperator, setSelectedOperator] = useState<'mvola' | 'airtel' | 'orange' | null>(null);
   
   const credits = Math.floor(amount / CREDIT_PRICE_ARIARY);
   
-  // Motif Generation
   const cleanUsername = user.username.replace(/[^a-zA-Z0-9]/g, ''); 
   const motifCode = `Crd_${cleanUsername}`.substring(0, 20); 
 
@@ -38,7 +38,8 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
       setLoading(true);
       
       try {
-          await storageService.sendAdminRequest(
+          // sendAdminRequest now returns { status: 'pending' | 'approved' }
+          const result = await storageService.sendAdminRequest(
               user.id,
               user.username,
               'credit',
@@ -46,10 +47,14 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
               `Paiement ${selectedOperator?.toUpperCase()}. Détails: ${refMessage}`
           );
           
+          if (result.status === 'approved') {
+              setIsAutoApproved(true);
+          }
+          
           setIsSent(true);
           setTimeout(() => {
               onClose();
-          }, 3000);
+          }, result.status === 'approved' ? 4000 : 3000); // Show success longer if approved
       } catch (e) {
           console.error("Payment Request Error", e);
       } finally {
@@ -238,7 +243,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                     </div>
                                     <textarea 
                                         rows={3}
-                                        placeholder="ex: Entrer un indice de votre transaction"
+                                        placeholder="Collez la référence du SMS reçu ici..."
                                         value={refMessage}
                                         onChange={(e) => setRefMessage(e.target.value)}
                                         className="w-full bg-transparent text-slate-800 dark:text-white outline-none resize-none font-medium placeholder:text-slate-400"
@@ -256,11 +261,21 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                         </>
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full text-center py-10">
-                            <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-6 animate-bounce">
-                                <CheckCircle className="w-10 h-10 text-emerald-500" />
+                            <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 animate-bounce ${isAutoApproved ? 'bg-gradient-to-tr from-yellow-400 to-orange-500 shadow-lg shadow-orange-500/50' : 'bg-emerald-100 dark:bg-emerald-900/30'}`}>
+                                {isAutoApproved ? <Zap className="w-10 h-10 text-white fill-white"/> : <CheckCircle className="w-10 h-10 text-emerald-500" />}
                             </div>
-                            <h3 className="text-2xl font-black text-slate-800 dark:text-white">Reçu 5/5 !</h3>
-                            <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">L'admin valide votre compte en un éclair.</p>
+                            
+                            {isAutoApproved ? (
+                                <>
+                                    <h3 className="text-2xl font-black text-slate-800 dark:text-white">Paiement Validé !</h3>
+                                    <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Vos {credits} crédits ont été ajoutés instantanément.</p>
+                                </>
+                            ) : (
+                                <>
+                                    <h3 className="text-2xl font-black text-slate-800 dark:text-white">Reçu 5/5 !</h3>
+                                    <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">L'admin vérifiera votre paiement sous peu.</p>
+                                </>
+                            )}
                         </div>
                     )}
                 </div>
