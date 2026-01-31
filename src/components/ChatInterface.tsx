@@ -4,6 +4,7 @@ import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, 
 import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage, VoiceCallSummary } from '../types';
 import { sendMessageToGeminiStream, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
 import { storageService } from '../services/storageService';
+import { TOTAL_LESSONS_PER_LEVEL } from '../constants';
 import MarkdownRenderer from './MarkdownRenderer';
 import ExerciseSession from './ExerciseSession';
 import DialogueSession from './DialogueSession';
@@ -105,27 +106,26 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const recognitionRef = useRef<any>(null);
   const preferences = user.preferences!;
 
-  // Logic to calculate Visual Level Progress (A1 -> A2, etc.)
-  const levelProgressData = useMemo(() => {
-      const lessons = user.stats.lessonsCompleted;
-      const levelLabel = user.preferences?.level || 'Débutant';
+  // --- SMART PROGRESS CALCULATION ---
+  // Calculates the EXACT percentage for the current Language + Level combo
+  const progressData = useMemo(() => {
+      const currentLang = preferences.targetLanguage;
+      const currentLevel = preferences.level;
+      const courseKey = `${currentLang}-${currentLevel}`;
       
-      let startCode = 'A1';
-      let targetCode = 'A2';
+      const lessonsDone = user.stats.progressByLevel?.[courseKey] || 0;
+      const percentage = Math.min((lessonsDone / TOTAL_LESSONS_PER_LEVEL) * 100, 100);
       
-      // Determine base codes from preferences
-      if (levelLabel.includes('Intermédiaire')) {
-          startCode = 'B1'; targetCode = 'B2';
-      } else if (levelLabel.includes('Avancé')) {
-          startCode = 'C1'; targetCode = 'C2';
-      }
+      return { 
+          lessonsDone, 
+          total: TOTAL_LESSONS_PER_LEVEL, 
+          percentage,
+          label: `${currentLevel} • ${Math.round(percentage)}%`
+      };
+  }, [user.stats.progressByLevel, preferences.targetLanguage, preferences.level]);
 
-      // Calculate localized progress (loops every 20 lessons for visual gratification)
-      const subLevelThreshold = 20; 
-      const percentage = Math.min(((lessons % subLevelThreshold) / subLevelThreshold) * 100, 100);
-      
-      return { startCode, targetCode, percentage };
-  }, [user.stats.lessonsCompleted, user.preferences?.level]);
+  // Determine next lesson number for the "Start/Next" button
+  const nextLessonNumber = progressData.lessonsDone + 1;
 
   // Dynamic Loading Text Logic for Voice Call
   useEffect(() => {
@@ -178,8 +178,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setCurrentMatchIndex(prev => (prev - 1 + matchingMessages.length) % matchingMessages.length);
   };
 
-  // Dynamic Lesson Number Calculation
-  const currentLessonNumber = useMemo(() => {
+  // Dynamic Lesson Number Calculation from Chat Text (Visual fallback)
+  const displayedLessonNumber = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
         const match = messages[i].text.match(/##\s*(?:🟢|🔴|🔵)?\s*(?:LEÇON|LECON|LESSON|LESONA)\s*(\d+)/i);
         if (match) return match[1];
@@ -665,9 +665,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const element = document.getElementById(`msg-content-${msgId}`);
       if (!element) return;
       try {
-          // @ts-ignore
           if (typeof (window as any).html2canvas === 'undefined') { notify("Erreur: Bibliothèque d'export indisponible", 'error'); return; }
-          // @ts-ignore
+          
+          // Use onclone to add signature before capture
           const canvas = await (window as any).html2canvas(element, { 
               scale: 2, 
               backgroundColor: null, 
@@ -694,6 +694,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   }
               }
           });
+          
           const link = document.createElement('a');
           link.download = `lesson-${msgId}.png`;
           link.href = canvas.toDataURL("image/png");
@@ -734,8 +735,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       {/* Voice Call Overlay */}
       {isCallActive && (
         <div className="fixed inset-0 z-[160] bg-slate-900/95 backdrop-blur-2xl flex flex-col items-center justify-between py-12 px-6 transition-all animate-fade-in overflow-hidden">
-            
-            {/* End Call Analysis View */}
+            {/* ... (Existing Voice Call UI kept the same) ... */}
             {isAnalyzingCall || callSummary ? (
                 <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-2xl animate-fade-in-up mt-20 relative border border-slate-100 dark:border-white/10">
                     {isAnalyzingCall ? (
@@ -969,7 +969,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         {/* Center: Current Lesson */}
         <div className="flex flex-col items-center w-auto shrink-0 px-2">
              <h2 className="text-base md:text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 whitespace-nowrap">
-                Leçon {currentLessonNumber}
+                Leçon {displayedLessonNumber !== '-' ? displayedLessonNumber : nextLessonNumber}
              </h2>
         </div>
 
@@ -1125,14 +1125,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 <>
                                     <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} highlight={searchQuery} />
                                     
-                                    {/* Start Button on First Message - Visible ONLY if no other messages sent */}
+                                    {/* Start Button on First Message - Only if no messages or just greeting */}
                                     {index === 0 && msg.role === 'model' && messages.length === 1 && (
                                         <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex justify-center">
                                             <button 
-                                                onClick={() => handleSend("Commence le cours / Leçon 1")} 
+                                                onClick={() => handleSend(`Commence la Leçon ${nextLessonNumber}`)} 
                                                 className="group relative px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center gap-2"
                                             >
-                                                <span>COMMENCER</span>
+                                                <span>COMMENCER LEÇON {nextLessonNumber}</span>
                                                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                                             </button>
                                         </div>
@@ -1200,23 +1200,23 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 </button>
             </Tooltip>
             
-            {/* Smart Level Progress Bar */}
+            {/* Smart Level Progress Bar (Dynamic) */}
             <div className="flex-1 mx-3 flex flex-col justify-center">
                 <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 px-1">
-                    <span className="text-indigo-500 dark:text-indigo-400">{levelProgressData.startCode}</span>
-                    <span className="text-slate-300 dark:text-slate-600">{Math.round(levelProgressData.percentage)}%</span>
-                    <span>{levelProgressData.targetCode}</span>
+                    <span className="text-indigo-500 dark:text-indigo-400">Leçon {progressData.lessonsDone}</span>
+                    <span className="text-slate-300 dark:text-slate-600">{Math.round(progressData.percentage)}%</span>
+                    <span>Total {progressData.total}</span>
                 </div>
                 <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative shadow-inner">
                     <div 
                         className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 animate-gradient-x absolute top-0 left-0 transition-all duration-1000 ease-out"
-                        style={{ width: `${levelProgressData.percentage}%` }}
+                        style={{ width: `${progressData.percentage}%` }}
                     ></div>
                 </div>
             </div>
             
              <Tooltip text="Leçon Suivante">
-                <button onClick={() => handleSend("Passe à la suite / Leçon suivante")} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-900/50">
+                <button onClick={() => handleSend(`Passe à la suite / Leçon ${nextLessonNumber}`)} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-900/50">
                     Suivant <ArrowRight className="w-3 h-3" />
                 </button>
             </Tooltip>

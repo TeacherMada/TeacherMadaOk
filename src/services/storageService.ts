@@ -73,7 +73,7 @@ export const storageService = {
             password: data.password,
             role: data.role,
             credits: data.credits,
-            stats: data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, levelProgress: 0, progressByLevel: {} },
+            stats: data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {} },
             preferences: data.preferences,
             skills: data.skills || { vocabulary: 10, grammar: 5, pronunciation: 5, listening: 5 },
             vocabulary: data.vocabulary || [], // Load Vocab
@@ -86,8 +86,10 @@ export const storageService = {
 
         if (!user.stats.progressByLevel) {
             user.stats.progressByLevel = {};
-            if (user.preferences?.level) {
-                user.stats.progressByLevel[user.preferences.level] = user.stats.levelProgress || 0;
+            // Migration legacy
+            if (user.preferences?.level && user.stats.levelProgress) {
+                const key = `${user.preferences.targetLanguage}-${user.preferences.level}`;
+                user.stats.progressByLevel[key] = user.stats.levelProgress;
             }
         }
 
@@ -133,7 +135,7 @@ export const storageService = {
             role: 'user',
             createdAt: Date.now(),
             preferences: null,
-            stats: { xp: 0, streak: 1, lessonsCompleted: 0, levelProgress: 0, progressByLevel: {} },
+            stats: { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {} },
             skills: { vocabulary: 10, grammar: 5, pronunciation: 5, listening: 5 },
             vocabulary: [],
             aiMemory: "Nouvel utilisateur.",
@@ -204,7 +206,7 @@ export const storageService = {
       if (data) {
           const local = storageService.getUserById(userId) || {} as UserProfile;
           
-          const stats = data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, levelProgress: 0, progressByLevel: {} };
+          const stats = data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {} };
           if (!stats.progressByLevel) stats.progressByLevel = {};
 
           const merged: UserProfile = { 
@@ -361,18 +363,13 @@ export const storageService = {
       let matchedRef: string | null = null;
 
       if (type === 'credit' && amount && message) {
-          // Check if message matches any pre-approved ref
-          // Logic: search for exact ref occurrence in message string
           matchedRef = validRefs.find(ref => message.includes(ref)) || null;
           
           if (matchedRef) {
               finalStatus = 'approved';
-              // Consume the ref
               const newRefs = validRefs.filter(r => r !== matchedRef);
               settings.validTransactionRefs = newRefs;
               await storageService.updateSystemSettings(settings);
-              
-              // Add credits immediately
               await storageService.addCredits(userId, amount);
           }
       }
@@ -389,7 +386,6 @@ export const storageService = {
               status: finalStatus,
               created_at: Date.now()
           };
-          
           await supabase.from('admin_requests').insert(newRequest);
       }
       
@@ -511,13 +507,12 @@ export const storageService = {
             email: 'admin@teachermada.mg',
             phone_number: '0349310268',
             created_at: Date.now(),
-            stats: { xp: 9999, streak: 999, lessonsCompleted: 999, levelProgress: 50 },
+            stats: { xp: 9999, streak: 999, lessonsCompleted: 999, progressByLevel: {} },
             credits: 999999,
             ai_memory: 'SUPER ADMIN',
             free_usage: { lastResetWeek: getMadagascarCurrentWeek(), count: 0 }
         };
         await supabase.from('profiles').upsert(adminUser);
-        console.log("Admin Seeded via App Logic");
     }
   },
   

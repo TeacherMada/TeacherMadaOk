@@ -71,9 +71,10 @@ export interface UserProfile {
   stats: {
     xp: number;
     streak: number;
-    lessonsCompleted: number;
-    progressByLevel?: Record<string, number>; 
-    levelProgress?: number;
+    lessonsCompleted: number; // Total global
+    // Clé: "TargetLang-Level" (ex: "Anglais 🇬🇧-A1"), Valeur: Numéro de la dernière leçon finie (ex: 4)
+    progressByLevel: Record<string, number>; 
+    levelProgress?: number; // Deprecated, kept for compat
   };
   skills?: {
     vocabulary: number;
@@ -133,7 +134,7 @@ export interface SystemSettings {
   };
   creditPrice: number;
   customLanguages?: CustomLanguage[];
-  validTransactionRefs?: string[]; // New: List of refs waiting to be claimed
+  validTransactionRefs?: string[];
 }
 
 export interface ChatMessage {

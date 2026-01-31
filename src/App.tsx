@@ -58,7 +58,6 @@ const App: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('theme');
-      // Check system preference if no saved theme
       if (!saved) return window.matchMedia('(prefers-color-scheme: dark)').matches;
       return saved === 'dark';
     }
@@ -80,15 +79,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const init = async () => {
-        // Sync system settings (API keys)
         await storageService.fetchSystemSettings();
-
         const currentUser = storageService.getCurrentUser();
-        // Seed admin on start
         storageService.seedAdmin();
         
         if (currentUser) {
-          // Sync critical data from cloud on load
           const syncedUser = await storageService.syncProfileFromCloud(currentUser.id);
           const finalUser = syncedUser || currentUser;
           
@@ -122,10 +117,8 @@ const App: React.FC = () => {
   }, [user?.id, user?.preferences]);
 
   const initializeSession = async (userProfile: UserProfile, prefs: UserPreferences) => {
-    // 1. Tenter de charger l'historique depuis le Cloud (pour le cross-device)
     let history = await storageService.loadChatHistoryFromCloud(userProfile.id, prefs.targetLanguage);
     
-    // 2. Si vide (nouvel appareil ou pas de réseau), fallback sur le local
     if (history.length === 0) {
         history = storageService.getChatHistory(userProfile.id, prefs.targetLanguage);
     }
@@ -135,11 +128,10 @@ const App: React.FC = () => {
     try {
       await startChatSession(userProfile, prefs, history);
       
-      // If no history, add greeting
       if (history.length === 0) {
         const greeting = prefs.explanationLanguage === ExplanationLanguage.French 
-            ? `Bonjour ${userProfile.username} ! TeacherMada est ravi de vous accueillir. Si vous êtes prêt à commencer, cliquez sur le bouton ci-dessous 👇🏻`
-            : `Salama i ${userProfile.username} ! Faly TeacherMada mandray anao, Raha vonona hanomboka amin'ny fampianarana ianao dia tsindrio ity bokotra ambany ity 👇🏻`;
+            ? `Bonjour ${userProfile.username} ! Prêt à commencer la Leçon 1 en ${prefs.targetLanguage} (${prefs.level}) ?`
+            : `Salama i ${userProfile.username} ! Vonona hanomboka Lesona 1 amin'ny ${prefs.targetLanguage} ve ianao ?`;
             
         const initialMsg: ChatMessage = { 
             id: 'init', 
@@ -208,14 +200,25 @@ const App: React.FC = () => {
 
   const handleEndSession = async () => {
     if (!user) return;
+    
+    // Only analyze and increment progress if there was substantial chat
     if (messages.length > 2 && user.role !== 'admin') {
         setIsAnalyzing(true);
         try {
-            const { newMemory, xpEarned, feedback } = await analyzeUserProgress(messages, user.aiMemory, user.id);
-            if (user.preferences?.mode === LearningMode.Course) handleUpdateChallengeProgress('lesson_complete');
+            const { newMemory, xpEarned } = await analyzeUserProgress(messages, user.aiMemory, user.id);
             
-            // Increment levelProgress if in course mode
-            const levelIncrement = user.preferences?.mode === LearningMode.Course ? 1 : 0;
+            // Logic: If user was in Course Mode, increment the SPECIFIC course progress
+            let newProgressByLevel = { ...user.stats.progressByLevel };
+            let globalLessonIncrement = 0;
+
+            if (user.preferences?.mode === LearningMode.Course && user.preferences.targetLanguage) {
+                handleUpdateChallengeProgress('lesson_complete');
+                globalLessonIncrement = 1;
+                
+                const courseKey = `${user.preferences.targetLanguage}-${user.preferences.level}`;
+                const currentLesson = newProgressByLevel[courseKey] || 0;
+                newProgressByLevel[courseKey] = currentLesson + 1;
+            }
             
             const updatedUser: UserProfile = {
                 ...user,
@@ -223,10 +226,10 @@ const App: React.FC = () => {
                 stats: { 
                     ...user.stats, 
                     xp: user.stats.xp + xpEarned, 
-                    lessonsCompleted: user.stats.lessonsCompleted + levelIncrement,
-                    levelProgress: (user.stats.levelProgress || 0) + levelIncrement
+                    lessonsCompleted: user.stats.lessonsCompleted + globalLessonIncrement,
+                    progressByLevel: newProgressByLevel
                 },
-                preferences: null
+                preferences: null // Reset preferences to allow mode/lang switch on next entry
             };
             setUser(updatedUser);
             notify(`Session terminée ! +${xpEarned} XP`, 'success');
