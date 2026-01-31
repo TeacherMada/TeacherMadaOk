@@ -464,11 +464,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   return newMessages;
               });
           });
-          
-          // Note: Full history save happens in storageService implicitly or we can do it here after stream
-          // For safety, we save the full state once stream is done implicitly by user leaving or next load
-          // But to be safe, let's grab the final state from the setMessages callback wrapper if possible
-          // Simpler: Just refresh user data
       }
 
       refreshUserData();
@@ -670,9 +665,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const element = document.getElementById(`msg-content-${msgId}`);
       if (!element) return;
       try {
+          // @ts-ignore
           if (typeof (window as any).html2canvas === 'undefined') { notify("Erreur: Bibliothèque d'export indisponible", 'error'); return; }
-          
-          // Use onclone to add signature before capture
+          // @ts-ignore
           const canvas = await (window as any).html2canvas(element, { 
               scale: 2, 
               backgroundColor: null, 
@@ -699,7 +694,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   }
               }
           });
-          
           const link = document.createElement('a');
           link.download = `lesson-${msgId}.png`;
           link.href = canvas.toDataURL("image/png");

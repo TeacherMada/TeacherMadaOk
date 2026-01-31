@@ -6,7 +6,8 @@ const CURRENT_USER_KEY = 'smart_teacher_current_user_id';
 const SETTINGS_KEY = 'smart_teacher_system_settings';
 
 const DEFAULT_SETTINGS: SystemSettings = {
-  apiKeys: [(import.meta as any).env.VITE_GOOGLE_API_KEY || ''],
+  // @ts-ignore
+  apiKeys: [import.meta.env.VITE_GOOGLE_API_KEY || ''],
   activeModel: 'gemini-3-flash-preview',
   adminContact: {
     telma: "034 93 102 68",
@@ -322,6 +323,12 @@ export const storageService = {
   getChatHistory: (userId: string, language?: string): ChatMessage[] => {
     const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
     const data = localStorage.getItem(`chat_history_${userId}_${langKey}`);
+    
+    // Fallback logic
+    if (!data && !language) {
+       return JSON.parse(localStorage.getItem(`chat_history_${userId}`) || '[]');
+    }
+    
     return data ? JSON.parse(data) : [];
   },
   

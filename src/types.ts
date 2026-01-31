@@ -7,7 +7,6 @@ export enum TargetLanguage {
   German = 'Allemand 🇩🇪'
 }
 
-// Niveaux CECRL et HSK
 export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2' | 'HSK 1' | 'HSK 2' | 'HSK 3' | 'HSK 4' | 'HSK 5' | 'HSK 6';
 
 export interface LevelDescriptor {
@@ -31,7 +30,7 @@ export enum LearningMode {
 }
 
 export interface UserPreferences {
-  targetLanguage: string; // Changed from enum to string to support custom languages
+  targetLanguage: string; // Changed to string to support custom languages
   level: LanguageLevel; 
   explanationLanguage: ExplanationLanguage;
   mode: LearningMode;
@@ -72,10 +71,9 @@ export interface UserProfile {
   stats: {
     xp: number;
     streak: number;
-    lessonsCompleted: number; // Total global
-    // Nouvelle structure : Progression spécifique par niveau (0 à 100%)
+    lessonsCompleted: number;
     progressByLevel?: Record<string, number>; 
-    levelProgress?: number; // Deprecated but kept for fallback
+    levelProgress?: number;
   };
   skills?: {
     vocabulary: number;
@@ -83,7 +81,7 @@ export interface UserProfile {
     pronunciation: number;
     listening: number;
   };
-  vocabulary?: VocabularyItem[]; // New Feature: Word Box
+  vocabulary?: VocabularyItem[]; // New: Word Box
   dailyChallenges?: DailyChallenge[];
   lastChallengeDate?: string;
   aiMemory: string; 
@@ -134,7 +132,7 @@ export interface SystemSettings {
     orange: string;
   };
   creditPrice: number;
-  customLanguages?: CustomLanguage[]; // New Feature: Dynamic Languages
+  customLanguages?: CustomLanguage[]; // New: Dynamic Languages
 }
 
 export interface ChatMessage {

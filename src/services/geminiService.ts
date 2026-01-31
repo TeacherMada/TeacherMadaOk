@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Chat, Content, Type, Modality, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Chat, Content, Type, Modality } from "@google/genai";
 import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, ExplanationLanguage, VoiceCallSummary, VocabularyItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
@@ -20,7 +20,8 @@ const getAvailableKeys = (): string[] => {
     const settings = storageService.getSystemSettings();
     let keys: string[] = settings.apiKeys && settings.apiKeys.length > 0 ? settings.apiKeys : [];
     
-    const envKey = (import.meta as any).env.VITE_GOOGLE_API_KEY;
+    // @ts-ignore
+    const envKey = import.meta.env.VITE_GOOGLE_API_KEY;
     if (envKey && typeof envKey === 'string' && !keys.includes(envKey)) {
         keys.push(envKey);
     }
@@ -159,8 +160,10 @@ export const sendMessageToGeminiStream = async (
 };
 
 export const sendMessageToGemini = async (message: string, userId: string): Promise<string> => {
-  // Legacy non-streaming fallback
-  return sendMessageToGeminiStream(message, userId, () => {});
+  // Fallback to non-streaming if needed, essentially wraps the stream
+  let fullText = '';
+  await sendMessageToGeminiStream(message, userId, (chunk) => fullText += chunk);
+  return fullText;
 };
 
 export const generateVocabularyFromHistory = async (userId: string, history: ChatMessage[]): Promise<VocabularyItem[]> => {
@@ -224,7 +227,6 @@ export const generateVoiceChatResponse = async (
         const user = await storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
-        // PROMPT OPTIMISÉ POUR VITESSE & HUMANITÉ
         const systemInstruction = `
             ROLE: You are TeacherMada, a professional, human language tutor.
             STRICT RULES:
@@ -242,19 +244,20 @@ export const generateVoiceChatResponse = async (
         }));
 
         const chat = aiClient.chats.create({
-            model: 'gemini-2.0-flash', // Use Flash for maximum speed on Voice
+            model: 'gemini-2.0-flash', 
             config: {
                 systemInstruction: systemInstruction,
                 temperature: 0.7,
-                maxOutputTokens: 100, // Hard limit to ensure speed
+                maxOutputTokens: 100, 
             },
             history: historyParts as Content[],
         });
 
         const result = await chat.sendMessage({ message });
         
-        // Deduct Credit specifically for voice response here
-        storageService.deductCreditOrUsage(userId);
+        // Deduct Credit specifically for voice response here if needed, or handled by caller
+        // We'll let the caller (time-based) handle deduction usually, but to be safe:
+        // storageService.deductCreditOrUsage(userId);
         
         return result.text || "Je vous écoute.";
     }, userId);
@@ -516,8 +519,7 @@ export const generateRoleplayResponse = async (
     isClosing: boolean = false,
     startNew: boolean = false
 ): Promise<any> => {
-    // This is used for DialogueSession, keeping existing logic but ensuring type safety with any
-    // Implementation kept as is from previous file, just ensuring exports match
+    // This is used for DialogueSession
     const status = storageService.canPerformRequest(userProfile.id);
     if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
 
@@ -532,8 +534,7 @@ export const generateRoleplayResponse = async (
 
         let personaDescription = "A helpful native speaker.";
         if (scenario.includes("market")) personaDescription = "A shrewd but friendly market vendor.";
-        // ... (keep existing persona logic if needed or simplify)
-
+        
         let prompt = ``;
         if (startNew) {
              prompt = `TASK: Start a roleplay conversation. ROLE: ${personaDescription} SCENARIO: ${scenario} TARGET LANGUAGE: ${lang}. STUDENT LEVEL: ${level}. INSTRUCTION: Start the conversation with a greeting and a question relevant to the scenario. RESPONSE FORMAT (JSON): { "aiReply": "string" }`;
