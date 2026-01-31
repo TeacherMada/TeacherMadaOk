@@ -8,13 +8,13 @@ let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION (Smart Chain) ===
-const PRIMARY_MODEL = 'gemini-3-flash-preview'; 
+const PRIMARY_MODEL = 'gemini-1.5-pro'; 
 
 // Fallback Chain
 const FALLBACK_CHAIN = [
-    'gemini-2.0-flash',              
+    'gemini-1.5-flash',              
     'gemini-2.0-flash-lite-preview', 
-    'gemini-1.5-flash'               
+    'gemini-1.5-flash-8b'               
 ];
 
 // Helper to get all available keys from "Backend" (Storage)
@@ -116,7 +116,6 @@ const checkCreditsBeforeAction = (userId: string) => {
 
 // --- EXPORTED FUNCTIONS ---
 
-// Fix: Add startChatSession
 export const startChatSession = async (
   profile: UserProfile, 
   prefs: UserPreferences,
@@ -138,13 +137,18 @@ export const sendMessageToGeminiStream = async (
         if (!aiClient) initializeGenAI();
         if (!aiClient) throw new Error("AI not init");
 
-        const history = await storageService.getChatHistory(userId);
-        const user = await storageService.getUserById(userId);
+        // Force refresh user data to get the exact latest lesson progress
+        const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
+        
+        // Load history specific to this language
+        let history = await storageService.getChatHistory(userId, user.preferences.targetLanguage);
 
+        // Generate context-aware system prompt
         const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
         
-        const historyParts = history.slice(-10).map(msg => ({
+        // Limit history to last 8 turns to keep context window focused and cheap
+        const historyParts = history.slice(-8).map(msg => ({
             role: msg.role,
             parts: [{ text: msg.text }]
         }));
@@ -329,7 +333,12 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
         const response = await aiClient!.models.generateContent({
             model: imageModel,
             contents: { parts: [{ text: prompt }] },
-            config: { imageConfig: { aspectRatio: "16:9" } }
+            // @ts-ignore - The imageConfig property is experimental and missing in strict TS types
+            config: { 
+                imageConfig: { 
+                    aspectRatio: "16:9" 
+                } 
+            }
         });
 
         storageService.deductCreditOrUsage(userId);
@@ -424,7 +433,6 @@ export const analyzeUserProgress = async (history: ChatMessage[], currentMemory:
     }, userId);
 };
 
-// Fix: Add RoleplayResponse interface and full implementation
 export interface RoleplayResponse {
     aiReply: string;
     correction?: string;

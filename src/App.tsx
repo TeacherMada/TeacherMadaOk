@@ -207,17 +207,22 @@ const App: React.FC = () => {
         try {
             const { newMemory, xpEarned } = await analyzeUserProgress(messages, user.aiMemory, user.id);
             
-            // Logic: If user was in Course Mode, increment the SPECIFIC course progress
+            // Logic: Update the SPECIFIC progress key for this Course + Level
             let newProgressByLevel = { ...user.stats.progressByLevel };
             let globalLessonIncrement = 0;
 
             if (user.preferences?.mode === LearningMode.Course && user.preferences.targetLanguage) {
                 handleUpdateChallengeProgress('lesson_complete');
-                globalLessonIncrement = 1;
+                globalLessonIncrement = 1; // Used for stats
                 
+                // Construct the unique key: "Language-Level"
                 const courseKey = `${user.preferences.targetLanguage}-${user.preferences.level}`;
+                
+                // Increment specific lesson counter
                 const currentLesson = newProgressByLevel[courseKey] || 0;
                 newProgressByLevel[courseKey] = currentLesson + 1;
+                
+                console.log(`[Smart Progress] Upgrading ${courseKey} to Lesson ${currentLesson + 1}`);
             }
             
             const updatedUser: UserProfile = {
@@ -227,7 +232,7 @@ const App: React.FC = () => {
                     ...user.stats, 
                     xp: user.stats.xp + xpEarned, 
                     lessonsCompleted: user.stats.lessonsCompleted + globalLessonIncrement,
-                    progressByLevel: newProgressByLevel
+                    progressByLevel: newProgressByLevel // Save the granular progress
                 },
                 preferences: null // Reset preferences to allow mode/lang switch on next entry
             };
