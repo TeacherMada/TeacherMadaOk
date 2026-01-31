@@ -1,10 +1,10 @@
 
 import React, { useMemo, useState } from 'react';
 import { UserProfile, ChatMessage, VocabularyItem } from '../types';
-import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown, Trash2, Shield, AlertTriangle, Plus, Sparkles, Loader2, Volume2 } from 'lucide-react';
+import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown, Trash2, Shield, AlertTriangle, Plus, Sparkles, Loader2, Volume2, Globe, GraduationCap } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { generateVocabularyFromHistory, generateSpeech } from '../services/geminiService';
-import { CREDIT_PRICE_ARIARY, ADMIN_CONTACTS } from '../constants';
+import { CREDIT_PRICE_ARIARY, ADMIN_CONTACTS, TOTAL_LESSONS_PER_LEVEL } from '../constants';
 
 interface SmartDashboardProps {
   user: UserProfile;
@@ -73,9 +73,24 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
     };
   }, [user]);
 
-  const currentLevelCode = user.preferences?.level || 'A1';
-  const specificLevelProgress = user.stats.progressByLevel?.[currentLevelCode] || 0;
-  const displayProgress = Math.min(specificLevelProgress, 100);
+  // Extract all active courses from progressByLevel
+  const activeCourses = useMemo(() => {
+      if (!user.stats.progressByLevel) return [];
+      return Object.entries(user.stats.progressByLevel).map(([key, lessonCount]) => {
+          // Key format: "Language Name-Level" (e.g., "Anglais 🇬🇧-A1")
+          const separatorIndex = key.lastIndexOf('-');
+          const language = key.substring(0, separatorIndex);
+          const level = key.substring(separatorIndex + 1);
+          
+          return {
+              id: key,
+              language,
+              level,
+              lessonCount,
+              progress: Math.min((lessonCount / TOTAL_LESSONS_PER_LEVEL) * 100, 100)
+          };
+      }).sort((a, b) => b.progress - a.progress);
+  }, [user.stats.progressByLevel]);
 
   const completedLessons = useMemo(() => {
     const lessons: {num: number, title: string, date: number}[] = [];
@@ -202,7 +217,9 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                      <div className="w-16 h-16 bg-gradient-to-tr from-indigo-500 to-violet-500 rounded-2xl rotate-3 shadow-lg flex items-center justify-center text-2xl font-black text-white border-2 border-white dark:border-slate-800">
                         {user.username.charAt(0).toUpperCase()}
                      </div>
-                     <div className="absolute -bottom-2 -right-2 bg-emerald-500 border-4 border-white dark:border-[#131825] w-6 h-6 rounded-full"></div>
+                     <div className="absolute -bottom-2 -right-2 bg-emerald-500 border-4 border-white dark:border-[#131825] w-6 h-6 rounded-full flex items-center justify-center">
+                        <Check className="w-3 h-3 text-white" />
+                     </div>
                  </div>
                  <div>
                      <h2 className="text-xl font-bold text-slate-900 dark:text-white">{user.username}</h2>
@@ -225,7 +242,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
             <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-x-auto scrollbar-hide">
                 <TabButton active={activeTab === 'hub'} onClick={() => setActiveTab('hub')} icon={<Target className="w-4 h-4"/>} label="Hub" />
                 <TabButton active={activeTab === 'vocab'} onClick={() => setActiveTab('vocab')} icon={<BookOpen className="w-4 h-4"/>} label="Mots" />
-                <TabButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} icon={<PieChart className="w-4 h-4"/>} label="Stats" />
+                <TabButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} icon={<PieChart className="w-4 h-4"/>} label="Parcours" />
                 <TabButton active={activeTab === 'lessons'} onClick={() => setActiveTab('lessons')} icon={<Calendar className="w-4 h-4"/>} label="Leçons" />
             </div>
         </div>
@@ -428,36 +445,61 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                 </div>
             )}
 
-            {/* === TAB: STATS === */}
+            {/* === TAB: PARCOURS (STATS MULTI-LANGUES) === */}
             {activeTab === 'stats' && (
                 <div className="space-y-6 animate-fade-in">
-                    {/* Level Progress Card */}
-                    <div className="bg-gradient-to-br from-white to-slate-50 dark:from-[#1A2030] dark:to-[#151a27] p-6 rounded-[2rem] border border-slate-100 dark:border-white/5 shadow-sm relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-4 opacity-10">
-                            <TrendingUp className="w-24 h-24 text-indigo-500" />
-                        </div>
-                        <div className="relative z-10">
-                            <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1">Niveau Actuel</h3>
-                            <div className="flex items-baseline gap-2 mb-4">
-                                <span className="text-4xl font-black text-slate-900 dark:text-white">{currentLevelCode}</span>
-                                <span className="text-sm font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-lg">En cours</span>
-                            </div>
-                            
-                            <div className="flex items-center justify-between text-xs font-bold text-slate-400 mb-2">
-                                <span>Progression</span>
-                                <span>{Math.round(displayProgress)}%</span>
-                            </div>
-                            <div className="h-4 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
-                                <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 shadow-[0_0_15px_rgba(99,102,241,0.5)] transition-all duration-1000 ease-out" style={{ width: `${displayProgress}%` }}></div>
-                            </div>
-                            <p className="text-xs text-slate-400 mt-3 text-center italic">Basé sur vos leçons et exercices pour ce niveau.</p>
-                        </div>
-                    </div>
+                    
+                    <h3 className="font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
+                        <GraduationCap className="w-5 h-5 text-indigo-500" /> Mes Parcours Actifs
+                    </h3>
 
-                    {/* Skills Radar (Simulated with Bars) */}
-                    <div className="bg-white dark:bg-[#1A2030] p-6 rounded-[2rem] border border-slate-100 dark:border-white/5 shadow-sm">
+                    {activeCourses.length === 0 ? (
+                        <div className="bg-slate-100 dark:bg-slate-800/50 p-6 rounded-2xl text-center text-slate-500">
+                            <p className="text-sm">Aucun cours commencé.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {activeCourses.map((course) => (
+                                <div key={course.id} className="bg-gradient-to-br from-white to-slate-50 dark:from-[#1A2030] dark:to-[#151a27] p-5 rounded-2xl border border-slate-100 dark:border-white/5 shadow-sm relative overflow-hidden group">
+                                    <div className="flex justify-between items-start mb-3 relative z-10">
+                                        <div>
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <Globe className="w-4 h-4 text-slate-400" />
+                                                <h4 className="font-black text-slate-800 dark:text-white text-lg">{course.language}</h4>
+                                            </div>
+                                            <span className="text-xs font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-800">
+                                                Niveau {course.level}
+                                            </span>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className="block text-2xl font-black text-slate-900 dark:text-white">{course.lessonCount}</span>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Leçons</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="relative z-10">
+                                        <div className="flex justify-between text-xs font-bold text-slate-400 mb-1">
+                                            <span>Progression</span>
+                                            <span>{Math.round(course.progress)}%</span>
+                                        </div>
+                                        <div className="h-2.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
+                                            <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 shadow-[0_0_10px_rgba(99,102,241,0.5)] transition-all duration-1000 ease-out group-hover:bg-gradient-to-r group-hover:from-indigo-400 group-hover:to-purple-400" style={{ width: `${course.progress}%` }}></div>
+                                        </div>
+                                    </div>
+
+                                    {/* Decorative Background */}
+                                    <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                                        <TrendingUp className="w-20 h-20 text-indigo-500" />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Global Skills Radar (Simulated with Bars) */}
+                    <div className="bg-white dark:bg-[#1A2030] p-6 rounded-[2rem] border border-slate-100 dark:border-white/5 shadow-sm mt-6">
                         <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
-                            <Brain className="w-5 h-5 text-indigo-500" /> Compétences
+                            <Brain className="w-5 h-5 text-indigo-500" /> Compétences Globales
                         </h3>
                         <div className="space-y-5">
                             <SkillBar label="Vocabulaire" value={skills.vocabulary} color="bg-emerald-500" icon="📖" />
@@ -474,7 +516,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                 <div className="space-y-4 animate-fade-in">
                      <div className="flex items-center justify-between mb-2">
                         <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                            <BookOpen className="w-4 h-4 text-indigo-500" /> Historique
+                            <BookOpen className="w-4 h-4 text-indigo-500" /> Historique ({user.preferences?.targetLanguage})
                         </h3>
                         <span className="text-xs font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full">{completedLessons.length} leçons</span>
                      </div>
@@ -508,7 +550,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                                 <BookOpen className="w-8 h-8 text-slate-300" />
                             </div>
                             <p className="text-sm font-bold text-slate-600 dark:text-slate-300">Aucune leçon terminée.</p>
-                            <p className="text-xs text-slate-400 mt-1 max-w-[200px]">Commencez une discussion pour débloquer votre historique.</p>
+                            <p className="text-xs text-slate-400 mt-1 max-w-[200px]">Commencez une discussion pour débloquer votre historique pour ce cours.</p>
                         </div>
                     )}
                 </div>
