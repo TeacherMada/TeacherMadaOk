@@ -333,12 +333,12 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
         const response = await aiClient!.models.generateContent({
             model: imageModel,
             contents: { parts: [{ text: prompt }] },
-            // @ts-ignore - The imageConfig property is experimental and missing in strict TS types
             config: { 
+                // @ts-ignore - The imageConfig property is experimental and missing in strict TS types
                 imageConfig: { 
                     aspectRatio: "16:9" 
                 } 
-            }
+            } as any
         });
 
         storageService.deductCreditOrUsage(userId);
