@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { UserProfile, ChatMessage } from '../types';
-import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown } from 'lucide-react';
+import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown, Trash2, Shield, AlertTriangle } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { CREDIT_PRICE_ARIARY, ADMIN_CONTACTS } from '../constants';
 
@@ -39,6 +39,8 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
       email: user.email || '',
       password: user.password || ''
   });
+  
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const [copied, setCopied] = useState(false);
   const cleanUsername = user.username.replace(/[^a-zA-Z0-9]/g, '');
@@ -99,6 +101,21 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
     notify('Profil mis à jour !', 'success');
   };
 
+  const handleClearHistory = async () => {
+      await storageService.clearChatHistory(user.id, user.preferences?.targetLanguage);
+      notify("Historique effacé. Redémarrez l'app si nécessaire.", 'success');
+      setShowClearConfirm(false);
+      onClose(); // Force reload usually triggered by parent, or user can assume cleared
+      window.location.reload(); // Simple refresh to clear memory state
+  };
+
+  // Redirection Admin
+  const handleAdminAccess = () => {
+      // Pour simuler la navigation, on recharge l'app. 
+      // Comme user.role = admin, App.tsx affichera l'AdminDashboard au mount.
+      window.location.reload(); 
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex justify-end">
       {/* Overlay Backdrop */}
@@ -127,11 +144,13 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                      <h2 className="text-xl font-bold text-slate-900 dark:text-white">{user.username}</h2>
                      <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wide">
-                            {user.preferences?.targetLanguage.split(' ')[0]}
+                            {user.preferences?.targetLanguage.split(' ')[0] || "Langue"}
                         </span>
-                        <span className="text-xs font-black text-indigo-500 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800">
-                            {user.preferences?.level.split(' ')[0]}
-                        </span>
+                        {user.preferences?.level && (
+                            <span className="text-xs font-black text-indigo-500 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800">
+                                {user.preferences?.level.split(' ')[0]}
+                            </span>
+                        )}
                      </div>
                  </div>
              </div>
@@ -153,6 +172,16 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
             {activeTab === 'hub' && (
                 <div className="space-y-6 animate-fade-in">
                     
+                    {/* Admin Access Button (Only for Admins) */}
+                    {user.role === 'admin' && (
+                        <button 
+                            onClick={handleAdminAccess}
+                            className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg mb-2"
+                        >
+                            <Shield className="w-5 h-5"/> Accéder au Panel Admin
+                        </button>
+                    )}
+
                     {/* Modern Wallet Card */}
                     <div className="group relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-slate-900 via-[#1e293b] to-indigo-900 p-6 shadow-2xl shadow-indigo-900/20 border border-white/10 transition-transform hover:scale-[1.01]">
                         <div className="absolute top-0 right-0 w-48 h-48 bg-white/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
@@ -242,6 +271,26 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                                 </div>
                             )}
                         </div>
+                    </div>
+
+                    {/* Danger Zone: Clear History */}
+                    <div className="bg-red-50 dark:bg-red-900/10 rounded-2xl p-4 border border-red-100 dark:border-red-900/30">
+                        {!showClearConfirm ? (
+                            <button onClick={() => setShowClearConfirm(true)} className="w-full flex items-center justify-between text-red-600 dark:text-red-400 font-bold text-sm">
+                                <span className="flex items-center gap-2"><Trash2 className="w-4 h-4"/> Effacer mon historique</span>
+                                <ChevronRight className="w-4 h-4"/>
+                            </button>
+                        ) : (
+                            <div className="animate-fade-in text-center">
+                                <p className="text-xs text-red-600 dark:text-red-400 mb-3 font-bold flex items-center justify-center gap-1">
+                                    <AlertTriangle className="w-3 h-3"/> Attention: Action irréversible.
+                                </p>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setShowClearConfirm(false)} className="flex-1 py-2 bg-white dark:bg-slate-800 text-slate-500 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700">Annuler</button>
+                                    <button onClick={handleClearHistory} className="flex-1 py-2 bg-red-500 text-white rounded-lg text-xs font-bold hover:bg-red-600 transition-colors">Confirmer</button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

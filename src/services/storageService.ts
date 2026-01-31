@@ -333,6 +333,27 @@ export const storageService = {
     const data = localStorage.getItem(`chat_history_${userId}_${langKey}`);
     return data ? JSON.parse(data) : [];
   },
+  
+  clearChatHistory: async (userId: string, language?: string) => {
+      const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
+      
+      // 1. Delete Local
+      localStorage.removeItem(`chat_history_${userId}_${langKey}`);
+      
+      // 2. Delete Cloud
+      if (isSupabaseConfigured()) {
+          try {
+              if (language) {
+                  await supabase.from('chat_history').delete().eq('user_id', userId).eq('language', langKey);
+              } else {
+                  // If no language specified, clear all for user
+                  await supabase.from('chat_history').delete().eq('user_id', userId);
+              }
+          } catch (e) {
+              console.error("Failed to clear cloud history", e);
+          }
+      }
+  },
 
   // --- Admin Functions ---
 
@@ -501,9 +522,17 @@ export const storageService = {
 
   fetchSystemSettings: async () => {
       if (!isSupabaseConfigured()) return;
-      const { data } = await supabase.from('system_settings').select('config').eq('id', 'global').single();
-      if (data && data.config) {
-          localStorage.setItem(SETTINGS_KEY, JSON.stringify(data.config));
+      try {
+          const { data, error } = await supabase.from('system_settings').select('config').eq('id', 'global').maybeSingle();
+          if (error) {
+              console.warn("Error fetching system settings:", error);
+              return;
+          }
+          if (data && data.config) {
+              localStorage.setItem(SETTINGS_KEY, JSON.stringify(data.config));
+          }
+      } catch (e) {
+          console.error("Failed fetch settings", e);
       }
   }
 };

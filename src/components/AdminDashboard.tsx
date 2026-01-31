@@ -88,9 +88,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
       notify(`Demande ${status === 'approved' ? 'approuvée' : 'rejetée'}.`, status === 'approved' ? 'success' : 'info');
   };
 
-  const saveSettings = () => {
-      storageService.updateSystemSettings(settings);
-      notify("Paramètres système mis à jour.", 'success');
+  const saveSettings = async () => {
+      await storageService.updateSystemSettings(settings);
+      notify("Paramètres système sauvegardés et synchronisés.", 'success');
   };
 
   const addApiKey = () => {

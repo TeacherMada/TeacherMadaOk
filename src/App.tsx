@@ -80,6 +80,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const init = async () => {
+        // Sync system settings (API keys)
+        await storageService.fetchSystemSettings();
+
         const currentUser = storageService.getCurrentUser();
         // Seed admin on start
         storageService.seedAdmin();
