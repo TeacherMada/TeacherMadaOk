@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState } from 'react';
 import { UserProfile, ChatMessage, VocabularyItem } from '../types';
 import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown, Trash2, Shield, AlertTriangle, Plus, Sparkles, Loader2, Volume2, Globe, GraduationCap, Map as MapIcon, Lock, Zap, Award, ArrowLeft } from 'lucide-react';
@@ -120,7 +121,6 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
         }
     });
     
-    // Use the native Map constructor here
     const uniqueLessons = new Map<number, {num: number, title: string, date: number}>();
     lessons.forEach(l => uniqueLessons.set(l.num, l));
     return Array.from(uniqueLessons.values()).sort((a, b) => b.num - a.num);
