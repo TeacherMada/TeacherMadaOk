@@ -106,13 +106,8 @@ const executeWithRetry = async <T>(
         const errorMsg = error.message?.toLowerCase() || '';
         
         // AUTO-HEAL: If conversation history is corrupt (400), don't crash.
-        // Throw a specific error that the caller can catch to retry with empty history?
-        // Or handle it here? simpler to log and throw, but we want robustness.
         if (errorMsg.includes('turn') || errorMsg.includes('conversation') || errorMsg.includes('400')) {
              console.warn("⚠️ History Sync Error. Retrying operation without history context.");
-             // We can't easily retry without history inside this generic wrapper without passing arguments.
-             // We let the specific functions handle the 'sanitize' logic, but if it fails here, it's usually fatal or quota.
-             // However, for 400 errors specifically related to "content", we might want to fail gracefully.
         }
 
         const isQuotaError = errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('resource_exhausted');
@@ -302,8 +297,6 @@ export const generateSpeech = async (text: string, userId: string, voiceName: st
     }, userId);
 };
 
-// ... (Rest of functions generateVocabularyFromHistory, etc. kept as is but using executeWithRetry)
-
 export const generateVocabularyFromHistory = async (userId: string, history: ChatMessage[]) => {
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
@@ -436,7 +429,10 @@ export const generateRoleplayResponse = async (history: ChatMessage[], scenario:
         
         // Use sanitizer here too
         const historyPayload = sanitizeHistory(history);
-        const context = historyPayload.map(m => `${m.role}: ${m.parts[0].text}`).join('\n');
+        
+        // --- FIX HERE: Optional chaining for safety ---
+        const context = historyPayload.map(m => `${m.role}: ${m.parts?.[0]?.text || ""}`).join('\n');
+        // ----------------------------------------------
 
         let systemPrompt = `ACT: Roleplay Partner. Scenario: ${scenario}. Language: ${userProfile.preferences?.targetLanguage}. Level: ${userProfile.preferences?.level}.`;
         
