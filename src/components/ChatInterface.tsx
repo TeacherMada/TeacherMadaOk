@@ -47,7 +47,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isSending, setIsSending] = useState(false); // New state to prevent double clicks
+  const [isSending, setIsSending] = useState(false); 
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showSmartOptions, setShowSmartOptions] = useState(false);
@@ -100,6 +100,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null); // New Ref for container
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastSpokenMessageId = useRef<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -211,8 +212,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const toggleListening = () => { isListening ? stopListening() : startListening(); };
 
-  const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); };
-  useEffect(() => { if (!isTrainingMode && !isDialogueActive && !searchQuery) scrollToBottom(); }, [messages, isTrainingMode, isDialogueActive]);
+  // SMART SCROLL: Only scroll if user is at the bottom
+  const scrollToBottom = () => { 
+      if (chatContainerRef.current) {
+          const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+          // If user is within 100px of bottom, auto-scroll. Otherwise, let them read.
+          if (scrollHeight - scrollTop - clientHeight < 150) {
+              messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
+          }
+      }
+  };
+
+  useEffect(() => { 
+      if (!isTrainingMode && !isDialogueActive && !searchQuery) scrollToBottom(); 
+  }, [messages, isTrainingMode, isDialogueActive]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -431,15 +444,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               const updatedUser = { ...user, aiMemory: result.newMemory };
               onUpdateUser(updatedUser);
               notify("Mémoire Optimisée 🧠", "info");
-              
-              // If memory was compressed, we should technically truncate the UI messages to match, 
-              // but for UX we keep them visible until next reload.
           }
       }
       refreshUserData();
     } catch (error) {
       handleErrorAction(error);
-      // Rollback UI if needed, or leave the error state
     } finally { 
       setIsLoading(false); 
       setIsSending(false); // Unlock
@@ -553,7 +562,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
      doc.save(`lecon_${Date.now()}.pdf`);
   };
   
-  const handleExportImage = (msgId: string) => { /* Placeholder for html2canvas logic if needed */ };
+  const handleExportImage = (msgId: string) => { 
+      const element = document.getElementById(`msg-content-${msgId}`);
+      if (!element) return;
+      try {
+          // @ts-ignore
+          if (typeof window.html2canvas === 'undefined') { notify("Export impossible", 'error'); return; }
+          // @ts-ignore
+          window.html2canvas(element).then((canvas: any) => {
+              const link = document.createElement('a');
+              link.download = `teacher_mada_${msgId}.png`;
+              link.href = canvas.toDataURL();
+              link.click();
+          });
+      } catch(e) { notify("Erreur export", 'error'); }
+  };
+
   const getAudioContext = () => { const AC = window.AudioContext || (window as any).webkitAudioContext; if (!audioContextRef.current || audioContextRef.current.state === 'closed') audioContextRef.current = new AC(); return audioContextRef.current; };
   const handleValidateJump = () => { const num = parseInt(jumpInputVal); setShowMenu(false); handleSend(`Aller à la leçon ${num}`); };
   const getLanguageDisplay = () => { const lang = preferences.targetLanguage; if (lang.includes("Chinois")) return "Chinois 🇨🇳"; const parts = lang.split(' '); return `${parts[0]} ${parts[parts.length - 1]}`; };
@@ -870,7 +894,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       </header>
       
       {/* Chat Area */}
-      <div id="chat-feed" className={`flex-1 overflow-y-auto p-3 md:p-4 space-y-4 md:space-y-6 pt-20 pb-4 scrollbar-hide`}>
+      <div 
+        id="chat-feed" 
+        ref={chatContainerRef} 
+        className={`flex-1 overflow-y-auto p-3 md:p-4 space-y-4 md:space-y-6 pt-20 pb-4 scrollbar-hide`}
+      >
         {messages.filter(msg => !searchQuery || msg.text.toLowerCase().includes(searchQuery.toLowerCase())).map((msg, index) => {
             const isMatch = searchQuery && msg.text.toLowerCase().includes(searchQuery.toLowerCase());
             const isCurrentMatch = matchingMessages[currentMatchIndex]?.id === msg.id;
@@ -905,7 +933,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     )}
 
                                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50" data-html2canvas-ignore>
-                                        <button onClick={() => handleSpeak(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Écouter"><Volume2 className="w-4 h-4 text-slate-400 hover:text-indigo-500"/></button>
+                                        <button onClick={() => handleSpeak(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors" title="Écouter"><Volume2 className="w-4 h-4 text-slate-400 hover:text-indigo-500"/></button>
                                         <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Copier">{copiedId === msg.id ? <Check className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4 text-slate-400"/>}</button>
                                         <button onClick={() => handleExportPDF(msg.text)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Télécharger PDF"><FileText className="w-4 h-4 text-slate-400 hover:text-red-500"/></button>
                                         <button onClick={() => handleExportImage(msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Exporter Image"><ImageIcon className="w-4 h-4 text-slate-400 hover:text-purple-500"/></button>
