@@ -23,7 +23,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   // Fetch Admin languages on mount
   useEffect(() => {
       const loadSettings = async () => {
-          await storageService.fetchSystemSettings(); // Sync with Supabase
+          await storageService.fetchSystemSettings(); 
           const settings = storageService.getSystemSettings();
           setCustomLangs(settings.customLanguages || []);
           setIsLoadingSettings(false);
@@ -34,14 +34,11 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   // Merge Static Enum languages with Dynamic System Settings languages
   const allLanguages = useMemo(() => {
       const staticLangs = Object.values(TargetLanguage);
-      
-      // Map static langs to same format
       const formattedStatic = staticLangs.map(l => ({
           code: l,
           baseName: l.split(' ')[0],
           flag: l.split(' ')[1] || '🏳️'
       }));
-
       return [...formattedStatic, ...customLangs];
   }, [customLangs]);
 
@@ -67,14 +64,12 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
           example: "" 
       };
       
-      // 1. Set static descriptor first
       setSelectedLevelDesc(desc);
       
-      // 2. Dynamic Example Generation based on selected language
+      // Dynamic Example Generation
       if (prefs.targetLanguage) {
           setIsGeneratingExample(true);
           try {
-              // Pass the specific target language (e.g. "Allemand 🇩🇪") to the AI
               const example = await generateLevelExample(prefs.targetLanguage, levelCode);
               if (example) {
                   setSelectedLevelDesc(prev => prev ? ({ ...prev, example }) : null);
@@ -89,7 +84,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
 
   const confirmLevel = () => {
       if (selectedLevelDesc) {
-          setPrefs(prev => ({ ...prev, level: selectedLevelDesc.code as LanguageLevel, needsAssessment: false }));
+          setPrefs(prev => ({ ...prev, level: selectedLevelDesc.code, needsAssessment: false }));
           setStep(3);
       }
   };

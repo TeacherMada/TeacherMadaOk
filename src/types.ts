@@ -17,6 +17,12 @@ export interface LevelDescriptor {
   example: string;
 }
 
+export enum ProficiencyLevel {
+  Beginner = 'Débutant (A1-A2)',
+  Intermediate = 'Intermédiaire (B1-B2)',
+  Advanced = 'Avancé (C1-C3)'
+}
+
 export enum ExplanationLanguage {
   French = 'Français 🇫🇷',
   Malagasy = 'Malagasy 🇲🇬'
@@ -30,21 +36,12 @@ export enum LearningMode {
 }
 
 export interface UserPreferences {
-  targetLanguage: string;
-  level: LanguageLevel; 
+  targetLanguage: string; // Changed from enum to string to allow dynamic languages
+  level: string; // Changed to string for flexibility (A1, HSK 1, etc.)
   explanationLanguage: ExplanationLanguage;
   mode: LearningMode;
   fontSize?: 'small' | 'normal' | 'large' | 'xl';
   needsAssessment?: boolean;
-}
-
-export interface VocabularyItem {
-  id: string;
-  word: string;
-  translation: string;
-  context?: string;
-  mastered: boolean;
-  addedAt: number;
 }
 
 export interface DailyChallenge {
@@ -55,6 +52,15 @@ export interface DailyChallenge {
   xpReward: number;
   isCompleted: boolean;
   type: 'message_count' | 'lesson_complete' | 'vocabulary' | 'exercise_score';
+}
+
+export interface VocabularyItem {
+  id: string;
+  word: string;
+  translation: string;
+  context?: string;
+  mastered: boolean;
+  addedAt: number;
 }
 
 export type UserRole = 'user' | 'admin';
@@ -72,11 +78,10 @@ export interface UserProfile {
     xp: number;
     streak: number;
     lessonsCompleted: number; // Total global
-    // Clé: "TargetLang-Level" (ex: "Anglais 🇬🇧-A1"), Valeur: Numéro de la dernière leçon finie (ex: 4)
+    // Clé: "TargetLang-Level" (ex: "Anglais 🇬🇧-A1"), Valeur: Numéro de la dernière leçon finie
     progressByLevel: Record<string, number>; 
-    levelProgress?: number; // Deprecated
-    weakPoints?: string[]; // Liste des concepts difficiles pour l'utilisateur
-    interests?: string[]; // Centres d'intérêt pour personnaliser les exemples
+    weakPoints?: string[]; 
+    interests?: string[]; 
   };
   skills?: {
     vocabulary: number;
@@ -90,6 +95,8 @@ export interface UserProfile {
   aiMemory: string; 
   isPremium: boolean;
   hasSeenTutorial?: boolean;
+  
+  // Credit System
   credits: number;
   freeUsage: {
     lastResetWeek: string;
@@ -110,20 +117,14 @@ export interface Transaction {
 
 export interface AdminRequest {
   id: string;
-  userId: string; 
-  username: string; 
-  type: 'credit' | 'message' | 'password_reset'; 
+  userId: string;
+  username: string;
+  type: 'credit' | 'message' | 'password_reset';
   amount?: number;
   message?: string;
-  contactInfo?: string; 
+  contactInfo?: string;
   status: 'pending' | 'approved' | 'rejected';
   createdAt: number;
-}
-
-export interface CustomLanguage {
-  code: string; 
-  baseName: string; 
-  flag: string;
 }
 
 export interface SystemSettings {
@@ -135,7 +136,7 @@ export interface SystemSettings {
     orange: string;
   };
   creditPrice: number;
-  customLanguages?: CustomLanguage[];
+  customLanguages?: { code: string; baseName: string; flag: string; }[];
   validTransactionRefs?: string[];
 }
 
@@ -164,6 +165,6 @@ export interface ExerciseItem {
 
 export interface VoiceCallSummary {
   score: number;
-  feedback: string; 
+  feedback: string;
   tip: string;
 }

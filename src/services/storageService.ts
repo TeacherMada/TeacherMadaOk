@@ -5,11 +5,10 @@ import { UserProfile, ChatMessage, UserPreferences, SystemSettings, AdminRequest
 const CURRENT_USER_KEY = 'smart_teacher_current_user_id';
 const SETTINGS_KEY = 'smart_teacher_system_settings';
 
-// Configuration par défaut (Fallback si Supabase est hors ligne)
 const DEFAULT_SETTINGS: SystemSettings = {
   // @ts-ignore
   apiKeys: [import.meta.env.VITE_GOOGLE_API_KEY || ''],
-  activeModel: 'gemini-2.0-flash', // Modèle rapide par défaut
+  activeModel: 'gemini-2.0-flash', 
   adminContact: {
     telma: "034 93 102 68",
     airtel: "033 38 784 20",
@@ -20,7 +19,6 @@ const DEFAULT_SETTINGS: SystemSettings = {
   validTransactionRefs: []
 };
 
-// --- Helper: Timezone Management ---
 const getMadagascarCurrentWeek = (): string => {
   const now = new Date();
   const madaTime = new Date(now.toLocaleString("en-US", { timeZone: "Indian/Antananarivo" }));
@@ -30,7 +28,7 @@ const getMadagascarCurrentWeek = (): string => {
   return madaTime.toISOString().split('T')[0];
 };
 
-// --- Data Migration Helper ---
+// --- DATA MIGRATION & SANITIZATION ---
 const sanitizeUser = (data: any): UserProfile => {
     if (!data) return data;
 
@@ -46,13 +44,18 @@ const sanitizeUser = (data: any): UserProfile => {
     const mergedStats = { ...defaultStats, ...(data.stats || {}) };
     if (!mergedStats.progressByLevel) mergedStats.progressByLevel = {};
     
-    // Migration: Renommer 'Chinois (Mandarin)' en 'Chinois'
+    // MIGRATION: 'Chinois (Mandarin)' -> 'Chinois' in Stats
     const migratedProgress: Record<string, number> = {};
     Object.entries(mergedStats.progressByLevel).forEach(([key, val]) => {
         const newKey = key.replace('Chinois (Mandarin)', 'Chinois');
         migratedProgress[newKey] = val as number;
     });
     mergedStats.progressByLevel = migratedProgress;
+
+    // MIGRATION: 'Chinois (Mandarin)' -> 'Chinois' in Preferences
+    if (data.preferences && data.preferences.targetLanguage) {
+        data.preferences.targetLanguage = data.preferences.targetLanguage.replace('Chinois (Mandarin)', 'Chinois');
+    }
 
     const vocabulary = Array.isArray(data.vocabulary) ? data.vocabulary : [];
     const freeUsage = data.free_usage || data.freeUsage || { lastResetWeek: getMadagascarCurrentWeek(), count: 0 };
@@ -211,8 +214,6 @@ export const storageService = {
     return storageService.getUserById(id);
   },
 
-  // --- Sync Logic ---
-
   syncProfileFromCloud: async (userId: string) => {
       if (!isSupabaseConfigured()) return null;
       const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
@@ -243,8 +244,6 @@ export const storageService = {
       }
       return null;
   },
-
-  // --- Credit System Logic ---
 
   canPerformRequest: (userId: string): { allowed: boolean, reason?: 'credits' | 'free_tier' | 'blocked' } => {
     const user = storageService.getUserById(userId);
@@ -283,8 +282,6 @@ export const storageService = {
       return user;
   },
 
-  // --- Chat History (CLOUD SYNCED) ---
-
   saveChatHistory: async (userId: string, messages: ChatMessage[], language?: string) => {
     const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
     localStorage.setItem(`chat_history_${userId}_${langKey}`, JSON.stringify(messages));
@@ -298,7 +295,6 @@ export const storageService = {
             timestamp: lastMsg.timestamp,
             language: langKey
         });
-        if (error) console.error("Failed to sync chat message", error);
     }
   },
 
@@ -306,14 +302,12 @@ export const storageService = {
       if (!isSupabaseConfigured()) return [];
       const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
       
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('chat_history')
         .select('*')
         .eq('user_id', userId)
         .eq('language', langKey)
         .order('timestamp', { ascending: true }); 
-
-      if (error) { console.error("Error fetching chat history", error); return []; }
 
       if (data && data.length > 0) {
           const formatted: ChatMessage[] = data.map(row => ({
@@ -338,19 +332,15 @@ export const storageService = {
   clearChatHistory: async (userId: string, language?: string) => {
       const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
       localStorage.removeItem(`chat_history_${userId}_${langKey}`);
-      
       if (isSupabaseConfigured()) {
           try {
               if (language) await supabase.from('chat_history').delete().eq('user_id', userId).eq('language', langKey);
               else await supabase.from('chat_history').delete().eq('user_id', userId);
-          } catch (e) { console.error("Failed to clear cloud history", e); }
+          } catch (e) { }
       }
   },
 
-  // --- Admin Functions ---
-
   sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'message' | 'password_reset', amount?: number, message?: string, contactInfo?: string): Promise<{status: 'pending' | 'approved' | 'rejected'}> => {
-      // AUTO-APPROVAL LOGIC
       let finalStatus: 'pending' | 'approved' | 'rejected' = 'pending';
       const settings = storageService.getSystemSettings();
       const validRefs = settings.validTransactionRefs || [];
@@ -358,12 +348,9 @@ export const storageService = {
       let matchedRef: string | null = null;
 
       if (type === 'credit' && amount && message) {
-          // Check if message contains one of the valid refs
           matchedRef = validRefs.find(ref => message.toUpperCase().includes(ref.toUpperCase())) || null;
-          
           if (matchedRef) {
               finalStatus = 'approved';
-              // Consume the ref so it can't be used twice
               const newRefs = validRefs.filter(r => r !== matchedRef);
               settings.validTransactionRefs = newRefs;
               await storageService.updateSystemSettings(settings);
@@ -385,7 +372,6 @@ export const storageService = {
           };
           await supabase.from('admin_requests').insert(newRequest);
       }
-      
       return { status: finalStatus };
   },
 
@@ -414,7 +400,6 @@ export const storageService = {
   resolveRequest: async (requestId: string, status: 'approved' | 'rejected') => {
       if (!isSupabaseConfigured()) return;
       const { data: request } = await supabase.from('admin_requests').select('*').eq('id', requestId).single();
-      
       if (request && request.status === 'pending') {
           await supabase.from('admin_requests').update({ status }).eq('id', requestId);
           if (status === 'approved' && request.type === 'credit' && request.amount) {
@@ -465,47 +450,28 @@ export const storageService = {
     }
   },
   
-  // --- SYSTEM SETTINGS (Synced with Supabase) ---
-
   updateSystemSettings: async (settings: SystemSettings) => {
-      // 1. Update Local Cache
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-      
-      // 2. Update Supabase (Global Config)
       if (isSupabaseConfigured()) {
-          // Use 'global' as the ID for the single row settings
-          await supabase.from('system_settings').upsert({ 
-              id: 'global', 
-              config: settings 
-          });
+          await supabase.from('system_settings').upsert({ id: 'global', config: settings });
       }
   },
   
-  // Synchronous getter for current session (fast access)
   getSystemSettings: (): SystemSettings => {
       const data = localStorage.getItem(SETTINGS_KEY);
       return data ? JSON.parse(data) : DEFAULT_SETTINGS;
   },
 
-  // Async Fetcher (Called on App Mount)
   fetchSystemSettings: async () => {
       if (!isSupabaseConfigured()) return;
       try {
-          const { data, error } = await supabase.from('system_settings').select('config').eq('id', 'global').maybeSingle();
-          if (error) {
-              console.warn("Error fetching system settings:", error);
-              return;
-          }
+          const { data } = await supabase.from('system_settings').select('config').eq('id', 'global').maybeSingle();
           if (data && data.config) {
-              // Merge with defaults to ensure all fields exist
               const mergedSettings = { ...DEFAULT_SETTINGS, ...data.config };
               localStorage.setItem(SETTINGS_KEY, JSON.stringify(mergedSettings));
           } else {
-              // Initial Seed if empty
               await storageService.updateSystemSettings(DEFAULT_SETTINGS);
           }
-      } catch (e) {
-          console.error("Failed fetch settings", e);
-      }
+      } catch (e) { console.error(e); }
   }
 };
