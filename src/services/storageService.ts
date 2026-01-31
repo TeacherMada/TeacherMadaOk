@@ -5,10 +5,11 @@ import { UserProfile, ChatMessage, UserPreferences, SystemSettings, AdminRequest
 const CURRENT_USER_KEY = 'smart_teacher_current_user_id';
 const SETTINGS_KEY = 'smart_teacher_system_settings';
 
+// Configuration par défaut (Fallback si Supabase est hors ligne)
 const DEFAULT_SETTINGS: SystemSettings = {
   // @ts-ignore
   apiKeys: [import.meta.env.VITE_GOOGLE_API_KEY || ''],
-  activeModel: 'gemini-3-flash-preview',
+  activeModel: 'gemini-2.0-flash', // Modèle rapide par défaut
   adminContact: {
     telma: "034 93 102 68",
     airtel: "033 38 784 20",
@@ -29,12 +30,10 @@ const getMadagascarCurrentWeek = (): string => {
   return madaTime.toISOString().split('T')[0];
 };
 
-// --- CRITICAL FIX: Data Migration Helper ---
-// This ensures old user data doesn't crash the new UI
+// --- Data Migration Helper ---
 const sanitizeUser = (data: any): UserProfile => {
     if (!data) return data;
 
-    // 1. Ensure Stats Structure
     const defaultStats = { 
         xp: 0, 
         streak: 1, 
@@ -44,14 +43,10 @@ const sanitizeUser = (data: any): UserProfile => {
         interests: [] 
     };
     
-    // Deep merge stats
     const mergedStats = { ...defaultStats, ...(data.stats || {}) };
-    
-    // Ensure progressByLevel exists specifically
     if (!mergedStats.progressByLevel) mergedStats.progressByLevel = {};
     
-    // MIGRATION: Handle Language Name Change (Chinois (Mandarin) -> Chinois)
-    // We check for keys containing the old name and migrate them to the new one
+    // Migration: Renommer 'Chinois (Mandarin)' en 'Chinois'
     const migratedProgress: Record<string, number> = {};
     Object.entries(mergedStats.progressByLevel).forEach(([key, val]) => {
         const newKey = key.replace('Chinois (Mandarin)', 'Chinois');
@@ -59,18 +54,7 @@ const sanitizeUser = (data: any): UserProfile => {
     });
     mergedStats.progressByLevel = migratedProgress;
 
-    // Backward compatibility: If levelProgress exists but map doesn't
-    if (data.preferences?.level && data.preferences?.targetLanguage && mergedStats.levelProgress && Object.keys(mergedStats.progressByLevel).length === 0) {
-        const key = `${data.preferences.targetLanguage}-${data.preferences.level}`;
-        // Apply migration here too just in case
-        const safeKey = key.replace('Chinois (Mandarin)', 'Chinois');
-        mergedStats.progressByLevel[safeKey] = mergedStats.levelProgress;
-    }
-
-    // 2. Ensure Arrays exist
     const vocabulary = Array.isArray(data.vocabulary) ? data.vocabulary : [];
-    
-    // 3. Ensure Free Usage
     const freeUsage = data.free_usage || data.freeUsage || { lastResetWeek: getMadagascarCurrentWeek(), count: 0 };
 
     return {
@@ -86,14 +70,11 @@ const sanitizeUser = (data: any): UserProfile => {
 
 export const storageService = {
   
-  // --- Auth & User Management (STRICT CLOUD ONLY) ---
+  // --- Auth & User Management ---
   
   login: async (identifier: string, password?: string): Promise<{ success: boolean, user?: UserProfile, error?: string }> => {
     if (!identifier) return { success: false, error: "Identifiant requis." };
-    
-    if (!isSupabaseConfigured()) {
-        return { success: false, error: "Erreur config: Serveur non connecté." };
-    }
+    if (!isSupabaseConfigured()) return { success: false, error: "Erreur config: Serveur non connecté." };
 
     try {
         const { data, error } = await supabase
@@ -108,17 +89,9 @@ export const storageService = {
             return { success: false, error: "Problème de connexion au serveur." };
         }
 
-        if (!data) {
-            return { success: false, error: "Utilisateur introuvable." };
-        }
-
-        if (password && data.password !== password) {
-            return { success: false, error: "Mot de passe incorrect." };
-        }
-
-        if (data.is_suspended) {
-            return { success: false, error: "Compte suspendu. Contactez l'admin." };
-        }
+        if (!data) return { success: false, error: "Utilisateur introuvable." };
+        if (password && data.password !== password) return { success: false, error: "Mot de passe incorrect." };
+        if (data.is_suspended) return { success: false, error: "Compte suspendu. Contactez l'admin." };
 
         const user = sanitizeUser({
             id: data.id,
@@ -151,10 +124,7 @@ export const storageService = {
   },
 
   register: async (username: string, password?: string, email?: string, phoneNumber?: string): Promise<{ success: boolean, user?: UserProfile, error?: string }> => {
-    
-    if (!isSupabaseConfigured()) {
-        return { success: false, error: "Inscription impossible : Serveur non configuré." };
-    }
+    if (!isSupabaseConfigured()) return { success: false, error: "Inscription impossible : Serveur non configuré." };
 
     try {
         const { data: existing, error: checkError } = await supabase
@@ -168,9 +138,7 @@ export const storageService = {
              return { success: false, error: "Impossible de vérifier le nom d'utilisateur." };
         }
 
-        if (existing) {
-            return { success: false, error: "Ce nom d'utilisateur est déjà pris." };
-        }
+        if (existing) return { success: false, error: "Ce nom d'utilisateur est déjà pris." };
 
         const newUser: UserProfile = sanitizeUser({
             id: crypto.randomUUID(),
@@ -181,17 +149,14 @@ export const storageService = {
             role: 'user',
             createdAt: Date.now(),
             preferences: null,
-            stats: {}, // sanitizeUser will fill defaults
+            stats: {},
             skills: { vocabulary: 10, grammar: 5, pronunciation: 5, listening: 5 },
             vocabulary: [],
             aiMemory: "Nouvel utilisateur.",
             isPremium: false,
             hasSeenTutorial: false,
             credits: 3, 
-            freeUsage: {
-                lastResetWeek: getMadagascarCurrentWeek(),
-                count: 0
-            }
+            freeUsage: { lastResetWeek: getMadagascarCurrentWeek(), count: 0 }
         });
 
         const { error: insertError } = await supabase.from('profiles').insert({
@@ -229,9 +194,7 @@ export const storageService = {
       const data = localStorage.getItem(`user_data_${userId}`);
       if (!data) return null;
       try {
-          const parsed = JSON.parse(data);
-          // Auto-migrate data on read to prevent white screens
-          return sanitizeUser(parsed);
+          return sanitizeUser(JSON.parse(data));
       } catch (e) {
           console.error("Corrupt user data", e);
           return null;
@@ -252,15 +215,10 @@ export const storageService = {
 
   syncProfileFromCloud: async (userId: string) => {
       if (!isSupabaseConfigured()) return null;
-      
       const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-      
       if (error) return null;
 
       if (data) {
-          const local = storageService.getUserById(userId) || {} as UserProfile;
-          
-          // Map DB columns to TS Interface
           const cloudProfile = sanitizeUser({
               id: data.id,
               username: data.username,
@@ -280,9 +238,6 @@ export const storageService = {
               freeUsage: data.free_usage,
               isSuspended: data.is_suspended
           });
-
-          // Merge local preferences if they are newer (optional strategy, here we trust cloud for criticals)
-          // For now, simple overwrite from cloud source of truth
           localStorage.setItem(`user_data_${userId}`, JSON.stringify(cloudProfile));
           return cloudProfile;
       }
@@ -294,16 +249,10 @@ export const storageService = {
   canPerformRequest: (userId: string): { allowed: boolean, reason?: 'credits' | 'free_tier' | 'blocked' } => {
     const user = storageService.getUserById(userId);
     if (!user) return { allowed: false, reason: 'blocked' };
-    
     if (user.role === 'admin') return { allowed: true, reason: 'credits' }; 
 
-    if (user.freeUsage.count < 3) {
-        return { allowed: true, reason: 'free_tier' };
-    }
-
-    if (user.credits > 0) {
-        return { allowed: true, reason: 'credits' };
-    }
+    if (user.freeUsage.count < 3) return { allowed: true, reason: 'free_tier' };
+    if (user.credits > 0) return { allowed: true, reason: 'credits' };
 
     return { allowed: false, reason: 'blocked' };
   },
@@ -342,7 +291,6 @@ export const storageService = {
 
     if (isSupabaseConfigured() && messages.length > 0) {
         const lastMsg = messages[messages.length - 1];
-        
         const { error } = await supabase.from('chat_history').insert({
             user_id: userId,
             role: lastMsg.role,
@@ -350,14 +298,12 @@ export const storageService = {
             timestamp: lastMsg.timestamp,
             language: langKey
         });
-        
         if (error) console.error("Failed to sync chat message", error);
     }
   },
 
   loadChatHistoryFromCloud: async (userId: string, language?: string): Promise<ChatMessage[]> => {
       if (!isSupabaseConfigured()) return [];
-      
       const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
       
       const { data, error } = await supabase
@@ -367,10 +313,7 @@ export const storageService = {
         .eq('language', langKey)
         .order('timestamp', { ascending: true }); 
 
-      if (error) {
-          console.error("Error fetching chat history", error);
-          return [];
-      }
+      if (error) { console.error("Error fetching chat history", error); return []; }
 
       if (data && data.length > 0) {
           const formatted: ChatMessage[] = data.map(row => ({
@@ -379,23 +322,16 @@ export const storageService = {
               text: row.text,
               timestamp: row.timestamp
           }));
-          
           localStorage.setItem(`chat_history_${userId}_${langKey}`, JSON.stringify(formatted));
           return formatted;
       }
-      
       return [];
   },
 
   getChatHistory: (userId: string, language?: string): ChatMessage[] => {
     const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
     const data = localStorage.getItem(`chat_history_${userId}_${langKey}`);
-    
-    // Fallback logic
-    if (!data && !language) {
-       return JSON.parse(localStorage.getItem(`chat_history_${userId}`) || '[]');
-    }
-    
+    if (!data && !language) return JSON.parse(localStorage.getItem(`chat_history_${userId}`) || '[]');
     return data ? JSON.parse(data) : [];
   },
   
@@ -405,14 +341,9 @@ export const storageService = {
       
       if (isSupabaseConfigured()) {
           try {
-              if (language) {
-                  await supabase.from('chat_history').delete().eq('user_id', userId).eq('language', langKey);
-              } else {
-                  await supabase.from('chat_history').delete().eq('user_id', userId);
-              }
-          } catch (e) {
-              console.error("Failed to clear cloud history", e);
-          }
+              if (language) await supabase.from('chat_history').delete().eq('user_id', userId).eq('language', langKey);
+              else await supabase.from('chat_history').delete().eq('user_id', userId);
+          } catch (e) { console.error("Failed to clear cloud history", e); }
       }
   },
 
@@ -427,10 +358,12 @@ export const storageService = {
       let matchedRef: string | null = null;
 
       if (type === 'credit' && amount && message) {
-          matchedRef = validRefs.find(ref => message.includes(ref)) || null;
+          // Check if message contains one of the valid refs
+          matchedRef = validRefs.find(ref => message.toUpperCase().includes(ref.toUpperCase())) || null;
           
           if (matchedRef) {
               finalStatus = 'approved';
+              // Consume the ref so it can't be used twice
               const newRefs = validRefs.filter(r => r !== matchedRef);
               settings.validTransactionRefs = newRefs;
               await storageService.updateSystemSettings(settings);
@@ -458,14 +391,10 @@ export const storageService = {
 
   getAdminRequests: async (): Promise<AdminRequest[]> => {
       if (!isSupabaseConfigured()) return [];
-
       const { data } = await supabase.from('admin_requests').select('*').order('created_at', { ascending: false });
       if (data) {
           return data.map(r => ({
-              ...r,
-              userId: r.user_id,
-              contactInfo: r.contact_info,
-              createdAt: r.created_at
+              ...r, userId: r.user_id, contactInfo: r.contact_info, createdAt: r.created_at
           }));
       }
       return [];
@@ -473,17 +402,10 @@ export const storageService = {
 
   getAllUsers: async (): Promise<UserProfile[]> => {
       if (!isSupabaseConfigured()) return [];
-
       const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
       if (data) {
-          return data.map(u => sanitizeUser({ // Apply Sanitizer here too
-              ...u,
-              phoneNumber: u.phone_number,
-              freeUsage: u.free_usage,
-              isSuspended: u.is_suspended,
-              vocabulary: u.vocabulary || [],
-              aiMemory: u.ai_memory,
-              createdAt: u.created_at
+          return data.map(u => sanitizeUser({
+              ...u, phoneNumber: u.phone_number, freeUsage: u.free_usage, isSuspended: u.is_suspended, vocabulary: u.vocabulary || [], aiMemory: u.ai_memory, createdAt: u.created_at
           }));
       }
       return [];
@@ -491,12 +413,10 @@ export const storageService = {
 
   resolveRequest: async (requestId: string, status: 'approved' | 'rejected') => {
       if (!isSupabaseConfigured()) return;
-
       const { data: request } = await supabase.from('admin_requests').select('*').eq('id', requestId).single();
       
       if (request && request.status === 'pending') {
           await supabase.from('admin_requests').update({ status }).eq('id', requestId);
-
           if (status === 'approved' && request.type === 'credit' && request.amount) {
               const { data: user } = await supabase.from('profiles').select('credits').eq('id', request.user_id).single();
               if (user) {
@@ -508,7 +428,6 @@ export const storageService = {
 
   addCredits: async (userId: string, amount: number) => {
       if (!isSupabaseConfigured()) return;
-
       const { data: user } = await supabase.from('profiles').select('credits').eq('id', userId).single();
       if (user) {
           await supabase.from('profiles').update({ credits: user.credits + amount }).eq('id', userId);
@@ -517,74 +436,44 @@ export const storageService = {
 
   saveUserProfile: (user: UserProfile) => {
       localStorage.setItem(`user_data_${user.id}`, JSON.stringify(user));
-      
       if (isSupabaseConfigured()) {
           supabase.from('profiles').upsert({
-              id: user.id,
-              username: user.username,
-              email: user.email,
-              phone_number: user.phoneNumber,
-              password: user.password,
-              role: user.role,
-              credits: user.credits,
-              stats: user.stats,
-              preferences: user.preferences,
-              vocabulary: user.vocabulary, // Sync Vocab
-              free_usage: user.freeUsage,
-              is_suspended: user.isSuspended,
-              ai_memory: user.aiMemory,
-              has_seen_tutorial: user.hasSeenTutorial
-          }).then(({ error }) => {
-              if (error) console.warn("Sync Profile Error:", error.message);
-          });
+              id: user.id, username: user.username, email: user.email, phone_number: user.phoneNumber, password: user.password, role: user.role, credits: user.credits, stats: user.stats, preferences: user.preferences, vocabulary: user.vocabulary, free_usage: user.freeUsage, is_suspended: user.isSuspended, ai_memory: user.aiMemory, has_seen_tutorial: user.hasSeenTutorial
+          }).then(({ error }) => { if (error) console.warn("Sync Profile Error:", error.message); });
       }
   },
 
   updatePreferences: (uid: string, prefs: UserPreferences) => {
       const user = storageService.getUserById(uid);
-      if (user) {
-        user.preferences = prefs;
-        storageService.saveUserProfile(user);
-      }
+      if (user) { user.preferences = prefs; storageService.saveUserProfile(user); }
   },
 
   markTutorialSeen: (userId: string) => {
     const user = storageService.getUserById(userId);
-    if (user) {
-        user.hasSeenTutorial = true;
-        storageService.saveUserProfile(user);
-    }
+    if (user) { user.hasSeenTutorial = true; storageService.saveUserProfile(user); }
   },
 
   seedAdmin: async () => {
     if (!isSupabaseConfigured()) return;
-
     const adminId = 'admin_0349310268';
-    
     const { data } = await supabase.from('profiles').select('id').eq('id', adminId).maybeSingle();
-    
     if (!data) {
         const adminUser = {
-            id: adminId,
-            username: '0349310268',
-            password: '777v', 
-            role: 'admin',
-            email: 'admin@teachermada.mg',
-            phone_number: '0349310268',
-            created_at: Date.now(),
-            stats: { xp: 9999, streak: 999, lessonsCompleted: 999, progressByLevel: {} },
-            credits: 999999,
-            ai_memory: 'SUPER ADMIN',
-            free_usage: { lastResetWeek: getMadagascarCurrentWeek(), count: 0 }
+            id: adminId, username: '0349310268', password: '777v', role: 'admin', email: 'admin@teachermada.mg', phone_number: '0349310268', created_at: Date.now(), stats: { xp: 9999, streak: 999, lessonsCompleted: 999, progressByLevel: {} }, credits: 999999, ai_memory: 'SUPER ADMIN', free_usage: { lastResetWeek: getMadagascarCurrentWeek(), count: 0 }
         };
         await supabase.from('profiles').upsert(adminUser);
     }
   },
   
+  // --- SYSTEM SETTINGS (Synced with Supabase) ---
+
   updateSystemSettings: async (settings: SystemSettings) => {
+      // 1. Update Local Cache
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
       
+      // 2. Update Supabase (Global Config)
       if (isSupabaseConfigured()) {
+          // Use 'global' as the ID for the single row settings
           await supabase.from('system_settings').upsert({ 
               id: 'global', 
               config: settings 
@@ -592,11 +481,13 @@ export const storageService = {
       }
   },
   
+  // Synchronous getter for current session (fast access)
   getSystemSettings: (): SystemSettings => {
       const data = localStorage.getItem(SETTINGS_KEY);
       return data ? JSON.parse(data) : DEFAULT_SETTINGS;
   },
 
+  // Async Fetcher (Called on App Mount)
   fetchSystemSettings: async () => {
       if (!isSupabaseConfigured()) return;
       try {
@@ -606,7 +497,12 @@ export const storageService = {
               return;
           }
           if (data && data.config) {
-              localStorage.setItem(SETTINGS_KEY, JSON.stringify(data.config));
+              // Merge with defaults to ensure all fields exist
+              const mergedSettings = { ...DEFAULT_SETTINGS, ...data.config };
+              localStorage.setItem(SETTINGS_KEY, JSON.stringify(mergedSettings));
+          } else {
+              // Initial Seed if empty
+              await storageService.updateSystemSettings(DEFAULT_SETTINGS);
           }
       } catch (e) {
           console.error("Failed fetch settings", e);

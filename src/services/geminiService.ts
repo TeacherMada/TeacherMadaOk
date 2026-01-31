@@ -15,29 +15,40 @@ const FALLBACK_CHAIN = [
     'gemini-1.5-flash-8b'               
 ];
 
+// CRITICAL: Fetch Keys from Storage Service (Synced with Supabase)
 const getAvailableKeys = (): string[] => {
     const settings = storageService.getSystemSettings();
     let keys = settings.apiKeys && settings.apiKeys.length > 0 ? settings.apiKeys : [];
+    
+    // Add env key if not present (as a fallback/dev convenience)
     // @ts-ignore
     const envKey = import.meta.env.VITE_GOOGLE_API_KEY;
     if (envKey && typeof envKey === 'string' && !keys.includes(envKey)) {
         keys.push(envKey);
     }
+    
+    // Filter duplicates and empty strings
     return Array.from(new Set(keys)).filter(k => k && k.trim().length > 0);
 };
 
 const initializeGenAI = (forceNextKey: boolean = false) => {
     const keys = getAvailableKeys();
+    
     if (keys.length === 0) {
-      console.error("CRITICAL: No API Keys available");
+      console.error("CRITICAL: No API Keys available in System Settings or Environment.");
       return null;
     }
+
     if (forceNextKey) {
         currentKeyIndex = (currentKeyIndex + 1) % keys.length;
     } else {
+        // Random start to distribute load on reload
         currentKeyIndex = Math.floor(Math.random() * keys.length);
     }
+
     const apiKey = keys[currentKeyIndex];
+    console.log(`[Gemini] Initializing with Key Index: ${currentKeyIndex} (Total: ${keys.length})`);
+    
     aiClient = new GoogleGenAI({ apiKey });
     return getActiveModelName(); 
 };
@@ -55,11 +66,9 @@ const sanitizeHistory = (history: ChatMessage[]): Content[] => {
     let lastRole = '';
 
     for (const msg of history) {
-        // 1. Validate content
         if (!msg.text || msg.text.trim() === "") continue;
         if (msg.role !== 'user' && msg.role !== 'model') continue;
 
-        // 2. Prevent Role Duplication (Merge consecutive messages)
         if (msg.role === lastRole) {
             const lastEntry = validHistory[validHistory.length - 1];
             if (lastEntry && lastEntry.parts) {
@@ -75,8 +84,6 @@ const sanitizeHistory = (history: ChatMessage[]): Content[] => {
         }
     }
     
-    // 3. Rule: History passed to chat session must NOT end with User message
-    // (Because sendMessage adds the new user message, creating a User->User conflict)
     if (validHistory.length > 0 && validHistory[validHistory.length - 1].role === 'user') {
         validHistory.pop();
     }
@@ -86,29 +93,27 @@ const sanitizeHistory = (history: ChatMessage[]): Content[] => {
 
 // === COMPRESSION ENGINE (MEMORY OPTIMIZER) ===
 const compressContext = async (history: ChatMessage[], currentMemory: string, userId: string): Promise<string> => {
-    // Only compress if history is long enough
     if (history.length < 6) return currentMemory;
 
     try {
         if (!aiClient) initializeGenAI();
         const textToCompress = history.map(m => `${m.role}: ${m.text}`).join('\n');
         
-        // Fast model for summarization to save costs/time
         const modelName = 'gemini-1.5-flash-8b'; 
         
         const prompt = `
         ACT: Data Compressor.
-        TASK: Merge the "Current Memory" with the "New Conversation" into a single, concise summary.
+        TASK: Merge "Current Memory" + "New Conversation" into a concise summary.
         
         CURRENT MEMORY: "${currentMemory}"
         NEW CONVERSATION: 
         ${textToCompress}
         
         OUTPUT FORMAT (Strict Text):
-        - List completed lessons (Ex: "Lesson 1, 2 done").
+        - List completed lessons.
         - List mastered vocabulary.
-        - Note persistent grammar errors.
-        - Keep it under 500 characters.
+        - Note grammar errors.
+        - Keep < 500 chars.
         `;
 
         const response = await aiClient!.models.generateContent({
@@ -116,9 +121,7 @@ const compressContext = async (history: ChatMessage[], currentMemory: string, us
             contents: prompt,
         });
 
-        const newMemory = response.text || currentMemory;
-        console.log("🧠 Memory Updated:", newMemory.substring(0, 50) + "...");
-        return newMemory;
+        return response.text || currentMemory;
 
     } catch (e) {
         console.warn("Compression failed, keeping old memory", e);
@@ -126,6 +129,7 @@ const compressContext = async (history: ChatMessage[], currentMemory: string, us
     }
 };
 
+// === EXECUTE WITH ROTATION STRATEGY ===
 const executeWithRetry = async <T>(
     operation: (modelName: string) => Promise<T>, 
     userId: string,
@@ -142,8 +146,7 @@ const executeWithRetry = async <T>(
         const errorMsg = error.message?.toLowerCase() || '';
         console.warn(`⚠️ AI Error (Attempt ${attempt}):`, errorMsg);
         
-        // --- AUTO-HEAL PROTOCOL ---
-        // If history is bad (400), we throw a specific error to trigger the "Fresh Start" fallback in the caller
+        // Corrupt History -> Fail fast to recover
         if (errorMsg.includes('400') || errorMsg.includes('invalid argument') || errorMsg.includes('turn')) {
              throw new Error("HISTORY_CORRUPT"); 
         }
@@ -152,14 +155,25 @@ const executeWithRetry = async <T>(
         const isServerBusy = errorMsg.includes('503') || errorMsg.includes('overloaded');
         const keys = getAvailableKeys();
 
-        if ((isQuotaError || isServerBusy) && attempt < keys.length * 2) {
-            initializeGenAI(true); 
-            // Exponential backoff for retries
+        // RETRY STRATEGY:
+        // 1. If Quota Error (429), rotate API KEY first.
+        // 2. If keys exhausted, switch MODEL (Fallback Chain).
+        if ((isQuotaError || isServerBusy) && attempt < keys.length * 3) { // Allow multiple cycles
+            console.log(`♻️ Rotating Key/Model... (Attempt ${attempt + 1})`);
+            initializeGenAI(true); // Force next key
+            
+            // If we've tried all keys for this model, move to next fallback model
+            let nextFallback = fallbackIndex;
+            if (attempt > 0 && attempt % keys.length === 0) {
+                nextFallback = fallbackIndex + 1;
+            }
+
+            // Backoff
             await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
-            return executeWithRetry(operation, userId, attempt + 1, fallbackIndex);
+            return executeWithRetry(operation, userId, attempt + 1, nextFallback);
         }
         
-        throw new Error("Service IA momentanément indisponible.");
+        throw new Error("Service IA momentanément indisponible. Réessayez.");
     }
 };
 
@@ -187,26 +201,19 @@ export const sendMessageToGeminiStream = async (
     const user = storageService.getUserById(userId);
     if (!user || !user.preferences) throw new Error("User data missing");
 
-    // 1. SMART COMPRESSION CHECK
-    // If history is getting too long (> 12 msgs), we compress it BEFORE sending to AI.
-    // This keeps the payload small for Supabase and Gemini.
     let effectiveHistory = previousHistory;
     let updatedMemory = user.aiMemory;
     let hasCompressed = false;
 
     if (previousHistory.length > 12) {
-        // Compress everything EXCEPT the last 2 messages (to keep immediate context flow)
         const historyToCompress = previousHistory.slice(0, -2);
         const immediateContext = previousHistory.slice(-2);
         
-        // Async compression (fire and await)
         updatedMemory = await compressContext(historyToCompress, user.aiMemory, userId);
         
-        // Update user memory in storage immediately
         const updatedUser = { ...user, aiMemory: updatedMemory };
         storageService.saveUserProfile(updatedUser);
         
-        // The AI only sees the new Memory + Immediate Context
         effectiveHistory = immediateContext;
         hasCompressed = true;
     }
@@ -215,7 +222,6 @@ export const sendMessageToGeminiStream = async (
         return executeWithRetry(async (modelName) => {
             if (!aiClient) initializeGenAI();
             
-            // Re-fetch user to get the absolute latest memory
             const currentUser = storageService.getUserById(userId) || user;
             const systemInstruction = SYSTEM_PROMPT_TEMPLATE(currentUser, currentUser.preferences!);
             
@@ -248,14 +254,11 @@ export const sendMessageToGeminiStream = async (
     try {
         const text = await runStream(effectiveHistory);
         storageService.deductCreditOrUsage(userId);
-        // Return newMemory so UI can update if compression happened
         return { fullText: text, newMemory: hasCompressed ? updatedMemory : undefined };
     } catch (e: any) {
-        // FALLBACK: If error 400 (Bad History), retry with ZERO history.
-        // This unblocks the user at the cost of immediate context, but keeps Long Term Memory (System Prompt).
         if (e.message === "HISTORY_CORRUPT" || e.message?.includes('turn')) {
             console.warn("🔄 History Corrupt. Auto-recovering with empty context...");
-            const text = await runStream([]); // Empty array = Clean start
+            const text = await runStream([]);
             storageService.deductCreditOrUsage(userId);
             return { fullText: text };
         }
@@ -274,7 +277,6 @@ export const sendMessageToGemini = async (message: string, userId: string): Prom
 export const generateVoiceChatResponse = async (message: string, userId: string, previousHistory: ChatMessage[]) => {
     checkCreditsBeforeAction(userId);
     
-    // Voice needs speed, so we use a shorter history window naturally (last 6)
     const runVoice = async (historyToUse: ChatMessage[]) => {
         return executeWithRetry(async () => {
             if (!aiClient) initializeGenAI();
@@ -291,10 +293,10 @@ export const generateVoiceChatResponse = async (message: string, userId: string,
                 3. If user says hello, just greet back.
             `;
 
-            const historyPayload = sanitizeHistory(historyToUse).slice(-6); // Aggressive slicing for voice
+            const historyPayload = sanitizeHistory(historyToUse).slice(-6);
 
             const chat = aiClient!.chats.create({
-                model: 'gemini-1.5-flash',
+                model: 'gemini-1.5-flash', // Use faster model explicitly
                 config: {
                     systemInstruction: systemInstruction,
                     temperature: 0.6, 

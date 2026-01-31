@@ -77,11 +77,17 @@ const App: React.FC = () => {
 
   const toggleTheme = () => setIsDarkMode(prev => !prev);
 
+  // APP INITIALIZATION
   useEffect(() => {
     const init = async () => {
         try {
+            // 1. Fetch System Settings (API Keys, Languages) from Supabase
             await storageService.fetchSystemSettings();
+            
+            // 2. Seed Admin if needed
             storageService.seedAdmin();
+            
+            // 3. Load User
             const currentUser = storageService.getCurrentUser();
             
             if (currentUser) {
