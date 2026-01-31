@@ -74,7 +74,8 @@ export interface UserProfile {
     lessonsCompleted: number; // Total global
     // Clé: "TargetLang-Level" (ex: "Anglais 🇬🇧-A1"), Valeur: Numéro de la dernière leçon finie (ex: 4)
     progressByLevel: Record<string, number>; 
-    levelProgress?: number; // Deprecated, kept for compat
+    levelProgress?: number; // Deprecated
+    weakPoints?: string[]; // New: List of concepts the user struggles with
   };
   skills?: {
     vocabulary: number;

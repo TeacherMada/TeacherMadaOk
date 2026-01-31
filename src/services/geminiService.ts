@@ -7,39 +7,44 @@ import { storageService } from "./storageService";
 let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
-// === MODEL CONFIGURATION ===
+// === MODEL CONFIGURATION (Smart Chain) ===
 const PRIMARY_MODEL = 'gemini-3-flash-preview'; 
 
+// Fallback Chain
 const FALLBACK_CHAIN = [
     'gemini-2.0-flash',              
     'gemini-2.0-flash-lite-preview', 
     'gemini-1.5-flash'               
 ];
 
+// Helper to get all available keys from "Backend" (Storage)
 const getAvailableKeys = (): string[] => {
     const settings = storageService.getSystemSettings();
-    let keys: string[] = settings.apiKeys && settings.apiKeys.length > 0 ? settings.apiKeys : [];
+    let keys = settings.apiKeys && settings.apiKeys.length > 0 ? settings.apiKeys : [];
     
+    // Add env key if not present (Development fallback)
     // @ts-ignore
     const envKey = import.meta.env.VITE_GOOGLE_API_KEY;
     if (envKey && typeof envKey === 'string' && !keys.includes(envKey)) {
         keys.push(envKey);
     }
     
-    return Array.from(new Set<string>(keys)).filter((k: string) => k && k.trim().length > 0);
+    // Deduplicate and filter empty
+    return Array.from(new Set(keys)).filter(k => k && k.trim().length > 0);
 };
 
 const initializeGenAI = (forceNextKey: boolean = false) => {
     const keys = getAvailableKeys();
     
     if (keys.length === 0) {
-      console.error("No API Keys available");
+      console.error("CRITICAL: No API Keys available");
       return null;
     }
 
     if (forceNextKey) {
         currentKeyIndex = (currentKeyIndex + 1) % keys.length;
     } else {
+        // Random start to distribute load on reload
         currentKeyIndex = Math.floor(Math.random() * keys.length);
     }
 
@@ -49,11 +54,14 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
     return getActiveModelName(); 
 };
 
+// Determines the starting model. Defaults to PRIMARY_MODEL unless overridden by Admin settings.
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
-    return settings.activeModel || PRIMARY_MODEL;
+    // Use admin setting if valid, otherwise default to PRIMARY
+    return settings.activeModel && settings.activeModel.length > 0 ? settings.activeModel : PRIMARY_MODEL;
 };
 
+// === CORE ROBUST EXECUTION LOGIC ===
 const executeWithRetry = async <T>(
     operation: (modelName: string) => Promise<T>, 
     userId: string,
@@ -68,25 +76,33 @@ const executeWithRetry = async <T>(
 
         return await operation(modelName);
     } catch (error: any) {
-        const isQuotaError = error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('resource_exhausted');
-        const isModelNotFoundError = error.message?.includes('404') || error.message?.includes('not found') || error.message?.includes('models/');
+        const errorMsg = error.message?.toLowerCase() || '';
+        const isQuotaError = errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('resource_exhausted');
+        const isModelError = errorMsg.includes('404') || errorMsg.includes('not found');
+        const isServerBusy = errorMsg.includes('503') || errorMsg.includes('overloaded');
         
         const keys = getAvailableKeys();
 
-        if (isQuotaError || isModelNotFoundError) {
-            if (isQuotaError && attempt < keys.length) {
+        if (isQuotaError || isModelError || isServerBusy) {
+            console.warn(`⚠️ Error on ${fallbackIndex === -1 ? 'Primary' : 'Fallback ' + fallbackIndex} (Key: ${currentKeyIndex}). Reason: ${errorMsg}`);
+
+            // Strategy A: Rotate Key (Try next key with SAME model first)
+            if (attempt < keys.length - 1) {
                 initializeGenAI(true); 
                 return executeWithRetry(operation, userId, attempt + 1, fallbackIndex);
             } 
             
+            // Strategy B: Switch Model (If Key rotation exhausted)
             if (fallbackIndex < FALLBACK_CHAIN.length - 1) {
                 const nextFallbackIndex = fallbackIndex + 1;
+                console.warn(`🔄 Switching to FALLBACK model: ${FALLBACK_CHAIN[nextFallbackIndex]}`);
                 initializeGenAI(true); 
                 return executeWithRetry(operation, userId, 0, nextFallbackIndex);
             }
         }
         
-        throw error;
+        console.error("❌ All models and keys exhausted. Service unavailable.");
+        throw new Error("SERVICE_OVERLOAD_ALL_MODELS");
     }
 };
 
@@ -98,6 +114,9 @@ const checkCreditsBeforeAction = (userId: string) => {
     return true;
 };
 
+// --- EXPORTED FUNCTIONS ---
+
+// Fix: Add startChatSession
 export const startChatSession = async (
   profile: UserProfile, 
   prefs: UserPreferences,
@@ -108,7 +127,6 @@ export const startChatSession = async (
   return null; 
 };
 
-// --- STREAMING IMPLEMENTATION ---
 export const sendMessageToGeminiStream = async (
     message: string, 
     userId: string,
@@ -122,11 +140,9 @@ export const sendMessageToGeminiStream = async (
 
         const history = await storageService.getChatHistory(userId);
         const user = await storageService.getUserById(userId);
-        const prefs = user?.preferences;
-        
-        if (!user || !prefs) throw new Error("User data missing");
+        if (!user || !user.preferences) throw new Error("User data missing");
 
-        const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, prefs);
+        const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
         
         const historyParts = history.slice(-10).map(msg => ({
             role: msg.role,
@@ -137,7 +153,8 @@ export const sendMessageToGeminiStream = async (
             model: modelName,
             config: {
                 systemInstruction: systemInstruction,
-                temperature: 0.7,
+                temperature: 0.7, 
+                maxOutputTokens: 2000,
             },
             history: historyParts as Content[],
         });
@@ -160,7 +177,6 @@ export const sendMessageToGeminiStream = async (
 };
 
 export const sendMessageToGemini = async (message: string, userId: string): Promise<string> => {
-  // Fallback to non-streaming if needed, essentially wraps the stream
   let fullText = '';
   await sendMessageToGeminiStream(message, userId, (chunk) => fullText += chunk);
   return fullText;
@@ -168,74 +184,69 @@ export const sendMessageToGemini = async (message: string, userId: string): Prom
 
 export const generateVocabularyFromHistory = async (userId: string, history: ChatMessage[]): Promise<VocabularyItem[]> => {
     checkCreditsBeforeAction(userId);
-
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
         if (!aiClient) throw new Error("AI not init");
 
-        const user = await storageService.getUserById(userId);
-        if (!user || !user.preferences) return [];
-
-        const context = history.slice(-6).map(m => m.text).join('\n');
+        const conversation = history.slice(-10).map(m => m.text).join('\n');
+        const prompt = `Extract 5 key vocabulary words from this conversation. Return valid JSON array: [{ "word": "string", "translation": "string", "context": "string (short sentence example)" }]`;
         
-        const prompt = `
-            Based on this conversation history, extract 3-5 important vocabulary words or expressions the user should learn.
-            Target Language: ${user.preferences.targetLanguage}.
-            Explanation Language: ${user.preferences.explanationLanguage}.
-            
-            Conversation:
-            ${context}
-
-            Output ONLY a JSON array:
-            [
-                { "word": "word in target lang", "translation": "translation in explanation lang", "context": "short example sentence" }
-            ]
-        `;
-
-        const response = await aiClient.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
+        const response = await aiClient.models.generateContent({ 
+            model: modelName, 
+            contents: prompt, 
+            config: { responseMimeType: "application/json" } 
         });
-
-        storageService.deductCreditOrUsage(userId);
         
+        storageService.deductCreditOrUsage(userId);
         const json = JSON.parse(response.text || "[]");
         return json.map((item: any, idx: number) => ({
-            id: `voc_${Date.now()}_${idx}`,
-            word: item.word,
-            translation: item.translation,
-            context: item.context,
+            ...item,
+            id: `vocab_${Date.now()}_${idx}`,
             mastered: false,
             addedAt: Date.now()
         }));
     }, userId);
 };
 
-export const generateVoiceChatResponse = async (
-    message: string, 
-    userId: string, 
-    history: ChatMessage[]
-): Promise<string> => {
-    const status = storageService.canPerformRequest(userId);
-    if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
+export const translateText = async (text: string, targetLang: string, userId: string): Promise<string> => {
+    checkCreditsBeforeAction(userId);
+    return executeWithRetry(async (modelName) => {
+        if (!aiClient) initializeGenAI();
+        const response = await aiClient!.models.generateContent({
+            model: modelName,
+            contents: `Translate to ${targetLang}: ${text}`,
+        });
+        storageService.deductCreditOrUsage(userId);
+        return response.text?.trim() || text;
+    }, userId);
+};
 
+export const generateLanguageFlag = async (languageName: string): Promise<{code: string, flag: string}> => {
+    return executeWithRetry(async (modelName) => {
+        if (!aiClient) initializeGenAI();
+        const prompt = `Generate standard name and flag emoji for language '${languageName}'. JSON: { "code": "Name + Flag", "flag": "FlagOnly" }`;
+        const response = await aiClient!.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+        });
+        return JSON.parse(response.text || '{"code": "Inconnu", "flag": "❓"}');
+    }, 'system');
+};
+
+export const generateVoiceChatResponse = async (message: string, userId: string, history: ChatMessage[]) => {
+    checkCreditsBeforeAction(userId);
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
         if (!aiClient) throw new Error("AI not init");
 
-        const user = await storageService.getUserById(userId);
+        const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
         const systemInstruction = `
-            ROLE: You are TeacherMada, a professional, human language tutor.
-            STRICT RULES:
-            1. NEVER say you are an AI, robot, or assistant. You are a real teacher on a phone call.
-            2. KEEP RESPONSES ULTRA SHORT. 1-2 sentences maximum. Speed is critical.
-            3. Act natural. Use fillers like "Hmm", "Exactement", "D'accord".
-            4. If the student makes a mistake, correct it gently and quickly, then ask a follow-up question.
-            5. ADAPT to level: ${user.preferences.level}. Target Language: ${user.preferences.targetLanguage}.
-            6. If user sends text input instead of voice, treat it as if they spoke it.
+            ACT: Friendly language tutor on a phone call.
+            USER: ${user.username}. LEVEL: ${user.preferences.level}. TARGET: ${user.preferences.targetLanguage}.
+            RULES: Short, natural, encouraging. Max 2 sentences. No lists.
         `;
 
         const historyParts = history.slice(-6).map(msg => ({
@@ -244,97 +255,17 @@ export const generateVoiceChatResponse = async (
         }));
 
         const chat = aiClient.chats.create({
-            model: 'gemini-2.0-flash', 
+            model: modelName,
             config: {
                 systemInstruction: systemInstruction,
-                temperature: 0.7,
-                maxOutputTokens: 100, 
+                temperature: 0.6, 
+                maxOutputTokens: 150, 
             },
             history: historyParts as Content[],
         });
 
         const result = await chat.sendMessage({ message });
-        
-        // Deduct Credit specifically for voice response here if needed, or handled by caller
-        // We'll let the caller (time-based) handle deduction usually, but to be safe:
-        // storageService.deductCreditOrUsage(userId);
-        
         return result.text || "Je vous écoute.";
-    }, userId);
-};
-
-export const analyzeVoiceCallPerformance = async (
-    history: ChatMessage[],
-    userId: string
-): Promise<VoiceCallSummary> => {
-    return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
-        if (!aiClient) throw new Error("AI not init");
-
-        const user = await storageService.getUserById(userId);
-        if (!user || !user.preferences) throw new Error("User data missing");
-
-        const conversation = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
-
-        const prompt = `
-            Act as a Lead Teacher analyzing a student's oral session.
-            Student Level: ${user.preferences.level}.
-            Context: ${conversation}
-
-            Output valid JSON only:
-            {
-                "score": number (1-10),
-                "feedback": "string (A polite, constructive feedback in ${user.preferences.explanationLanguage}. Max 2 sentences.)",
-                "tip": "string (One specific tip to improve.)"
-            }
-        `;
-
-        const response = await aiClient.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
-        });
-
-        const json = JSON.parse(response.text || "{}");
-        return {
-            score: json.score || 7,
-            feedback: json.feedback || "Bonne pratique ! Continuez comme ça.",
-            tip: json.tip || "Essayez de parler un peu plus fort."
-        };
-    }, userId);
-};
-
-export const translateText = async (text: string, targetLang: string, userId: string): Promise<string> => {
-    checkCreditsBeforeAction(userId);
-    
-    return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
-        if (!aiClient) throw new Error("AI Client not initialized");
-        
-        const prompt = `Translate to ${targetLang}. Return ONLY translation. Text: "${text}"`;
-        const response = await aiClient.models.generateContent({
-            model: modelName,
-            contents: prompt,
-        });
-        storageService.deductCreditOrUsage(userId);
-        return response.text?.trim() || text;
-    }, userId);
-};
-
-export const getLessonSummary = async (lessonNumber: number, context: string, userId: string): Promise<string> => {
-    checkCreditsBeforeAction(userId);
-
-    return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
-        if (!aiClient) throw new Error("AI Client not initialized");
-
-        const prompt = `Génère un résumé concis pour la LEÇON ${lessonNumber}. Contexte: ${context}. Format Markdown strict.`;
-        const response = await aiClient.models.generateContent({
-            model: modelName,
-            contents: prompt,
-        });
-        storageService.deductCreditOrUsage(userId);
-        return response.text || "Impossible de générer le résumé.";
     }, userId);
 };
 
@@ -375,25 +306,30 @@ export const generateSpeech = async (text: string, userId: string, voiceName: st
     }, userId);
 };
 
+export const getLessonSummary = async (lessonNumber: number, context: string, userId: string): Promise<string> => {
+    checkCreditsBeforeAction(userId);
+    return executeWithRetry(async (modelName) => {
+        if (!aiClient) initializeGenAI();
+        const prompt = `Génère un résumé concis pour la LEÇON ${lessonNumber}. Contexte: ${context}. Format Markdown strict.`;
+        const response = await aiClient!.models.generateContent({
+            model: modelName,
+            contents: prompt,
+        });
+        storageService.deductCreditOrUsage(userId);
+        return response.text || "Impossible de générer le résumé.";
+    }, userId);
+};
+
 export const generateConceptImage = async (prompt: string, userId: string): Promise<string | null> => {
     checkCreditsBeforeAction(userId);
-
     return executeWithRetry(async () => {
         if (!aiClient) initializeGenAI();
-        if (!aiClient) throw new Error("AI Client not initialized");
-
         const imageModel = 'gemini-2.5-flash-image';
         
-        const response = await aiClient.models.generateContent({
+        const response = await aiClient!.models.generateContent({
             model: imageModel,
-            contents: {
-                parts: [{ text: prompt }]
-            },
-            config: {
-                imageConfig: {
-                    aspectRatio: "16:9",
-                }
-            } as any
+            contents: { parts: [{ text: prompt }] },
+            config: { imageConfig: { aspectRatio: "16:9" } }
         });
 
         storageService.deductCreditOrUsage(userId);
@@ -409,13 +345,48 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
     }, userId);
 };
 
+export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId: string): Promise<VoiceCallSummary> => {
+    return executeWithRetry(async (modelName) => {
+        if (!aiClient) initializeGenAI();
+        const user = storageService.getUserById(userId);
+        const conversation = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
+        
+        const prompt = `Analyze this conversation. Return JSON: { "score": number(1-10), "feedback": "string", "tip": "string" }`;
+        const response = await aiClient!.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+        });
+        const json = JSON.parse(response.text || "{}");
+        return {
+            score: json.score || 7,
+            feedback: json.feedback || "Bonne pratique !",
+            tip: json.tip || "Continuez à pratiquer."
+        };
+    }, userId);
+};
+
+export const generatePracticalExercises = async (profile: UserProfile, history: ChatMessage[]): Promise<ExerciseItem[]> => {
+    checkCreditsBeforeAction(profile.id);
+    return executeWithRetry(async (modelName) => {
+        if (!aiClient) initializeGenAI();
+        const prompt = `Generate 5 varied language exercises (multiple_choice, true_false, fill_blank). JSON Array format.`;
+        const response = await aiClient!.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+        });
+        storageService.deductCreditOrUsage(profile.id);
+        const json = JSON.parse(response.text || "[]");
+        return json.map((item: any, idx: number) => ({ ...item, id: `ex_${Date.now()}_${idx}` }));
+    }, profile.id);
+};
+
 export const generateDailyChallenges = async (prefs: UserPreferences): Promise<DailyChallenge[]> => {
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
         if (!aiClient) return [];
-        
-        const prompt = `Génère 3 défis courts (${prefs.targetLanguage}, ${prefs.level}). JSON array: [{description, type (message_count|vocabulary), targetCount, xpReward}].`;
-
+        const prompt = `Generate 3 short language challenges. JSON Array.`;
         const response = await aiClient.models.generateContent({
             model: modelName,
             contents: prompt,
@@ -431,142 +402,117 @@ export const generateDailyChallenges = async (prefs: UserPreferences): Promise<D
             xpReward: item.xpReward,
             isCompleted: false
         }));
-    }, 'system'); 
+    }, 'system');
 };
 
-export const analyzeUserProgress = async (
-    history: ChatMessage[], 
-    currentMemory: string,
-    userId: string
-): Promise<{ newMemory: string; xpEarned: number; feedback: string }> => {
-    const status = storageService.canPerformRequest(userId);
-    if (!status.allowed) return { newMemory: currentMemory, xpEarned: 10, feedback: "Bonne session (Crédits épuisés)." };
-
+export const analyzeUserProgress = async (history: ChatMessage[], currentMemory: string, userId: string): Promise<{ newMemory: string; xpEarned: number; feedback: string }> => {
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
-        if (!aiClient) throw new Error("AI not init");
-
-        const conversationText = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
-        const prompt = `Analyse session. Mémoire: "${currentMemory}". Chat: ${conversationText}. Retourne JSON {newMemory, xpEarned (int), feedback (court)}.`;
-
-        const response = await aiClient.models.generateContent({
+        const prompt = `Analyze session progress. JSON: { "newMemory": "string", "xpEarned": number, "feedback": "string" }`;
+        const response = await aiClient!.models.generateContent({
             model: modelName,
             contents: prompt,
             config: { responseMimeType: "application/json" }
         });
-
         storageService.deductCreditOrUsage(userId);
         const json = JSON.parse(response.text || "{}");
         return {
             newMemory: json.newMemory || currentMemory,
-            xpEarned: json.xpEarned || 15,
+            xpEarned: json.xpEarned || 10,
             feedback: json.feedback || "Bien joué !"
         };
     }, userId);
 };
 
-export const generatePracticalExercises = async (
-  profile: UserProfile,
-  history: ChatMessage[]
-): Promise<ExerciseItem[]> => {
-  checkCreditsBeforeAction(profile.id);
-  
-  return executeWithRetry(async (modelName) => {
-      if (!aiClient) initializeGenAI();
-      if (!aiClient) throw new Error("AI Client not initialized");
-
-      const recentTopics = history.slice(-5).map(m => m.text).join(" ");
-      
-      const prompt = `
-        Génère 5 exercices pratiques pour apprendre : ${profile.preferences?.targetLanguage}.
-        Niveau: ${profile.preferences?.level}.
-        Contexte récent (si pertinent): ${recentTopics.substring(0, 500)}.
-        Types variés: multiple_choice, true_false, fill_blank.
-        
-        Retourne un tableau JSON pur (pas de markdown) suivant ce schéma exact:
-        [{
-            "type": "multiple_choice" | "true_false" | "fill_blank",
-            "question": "string",
-            "options": ["string", "string", "string", "string"] (requis pour QCM, optionnel sinon),
-            "correctAnswer": "string",
-            "explanation": "string (explication courte)"
-        }]
-      `;
-
-      const response = await aiClient.models.generateContent({
-        model: modelName,
-        contents: prompt,
-        config: { 
-            responseMimeType: "application/json",
-            temperature: 0.7 
-        }
-      });
-
-      storageService.deductCreditOrUsage(profile.id);
-      
-      let jsonStr = response.text || "[]";
-      jsonStr = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
-      
-      const json = JSON.parse(jsonStr);
-      return json.map((item: any, idx: number) => ({ ...item, id: `ex_${Date.now()}_${idx}` }));
-  }, profile.id);
-};
+// Fix: Add RoleplayResponse interface and full implementation
+export interface RoleplayResponse {
+    aiReply: string;
+    correction?: string;
+    explanation?: string;
+    score?: number;
+    feedback?: string;
+}
 
 export const generateRoleplayResponse = async (
     history: ChatMessage[],
     scenario: string,
     userProfile: UserProfile,
     isClosing: boolean = false,
-    startNew: boolean = false
-): Promise<any> => {
-    // This is used for DialogueSession
-    const status = storageService.canPerformRequest(userProfile.id);
-    if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
+    isInitializing: boolean = false
+): Promise<RoleplayResponse> => {
+    checkCreditsBeforeAction(userProfile.id);
 
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
         if (!aiClient) throw new Error("AI Client not initialized");
 
-        const context = history.map(m => `${m.role === 'user' ? 'Student' : 'You'}: ${m.text}`).join('\n');
-        const lang = userProfile.preferences?.targetLanguage;
-        const level = userProfile.preferences?.level;
-        const explainLang = userProfile.preferences?.explanationLanguage;
-
-        let personaDescription = "A helpful native speaker.";
-        if (scenario.includes("market")) personaDescription = "A shrewd but friendly market vendor.";
+        const context = history.map(m => `${m.role === 'user' ? 'Student' : 'Partner'}: ${m.text}`).join('\n');
         
-        let prompt = ``;
-        if (startNew) {
-             prompt = `TASK: Start a roleplay conversation. ROLE: ${personaDescription} SCENARIO: ${scenario} TARGET LANGUAGE: ${lang}. STUDENT LEVEL: ${level}. INSTRUCTION: Start the conversation with a greeting and a question relevant to the scenario. RESPONSE FORMAT (JSON): { "aiReply": "string" }`;
+        let systemPrompt = `
+            ACT: Roleplay Partner & Language Tutor.
+            SCENARIO: ${scenario}
+            TARGET LANGUAGE: ${userProfile.preferences?.targetLanguage} (Strict).
+            STUDENT LEVEL: ${userProfile.preferences?.level}.
+            EXPLANATION LANGUAGE: ${userProfile.preferences?.explanationLanguage}.
+        `;
+
+        if (isInitializing) {
+            systemPrompt += `
+                TASK: Start the conversation as the roleplay character.
+                - Be engaging but keep it simple for level ${userProfile.preferences?.level}.
+                - Do NOT act as an AI assistant. Be the character.
+                - Max 2 sentences.
+                - Output JSON: { "aiReply": "..." }
+            `;
         } else if (isClosing) {
-             prompt = `ROLE: Examiner. TASK: End roleplay: ${scenario}. Analyze: ${context}. SCORING RULES: If native lang used > ${lang}, score < 6. RESPONSE FORMAT (JSON): { "aiReply": "Goodbye msg", "score": number (0-20), "feedback": "string in ${explainLang}" }`;
+            systemPrompt += `
+                TASK: End the session and evaluate the student.
+                CONTEXT:
+                ${context}
+                
+                OUTPUT JSON:
+                {
+                    "aiReply": "Closing remark in target language.",
+                    "score": number (0-20),
+                    "feedback": "Constructive feedback in ${userProfile.preferences?.explanationLanguage}."
+                }
+            `;
         } else {
-             prompt = `TASK: Continue roleplay. ROLE: ${personaDescription} SCENARIO: ${scenario} TARGET: ${lang}. EXPLAIN: ${explainLang}. LEVEL: ${level}. INPUT: ${context}. CORRECTION LOGIC: If mistake, set 'correction' and 'explanation'. RESPONSE FORMAT (JSON): { "aiReply": "string", "correction": "string|null", "explanation": "string|null" }`;
+            systemPrompt += `
+                TASK: Reply to the student and correct if necessary.
+                CONTEXT:
+                ${context}
+                
+                RULES:
+                1. Reply naturally as the character (aiReply).
+                2. If the student made a grammar/vocab mistake in the LAST message, provide a correction and short explanation.
+                3. If no mistake, correction and explanation should be null.
+                
+                OUTPUT JSON:
+                {
+                    "aiReply": "...",
+                    "correction": "Corrected sentence or null",
+                    "explanation": "Why it was wrong (in ${userProfile.preferences?.explanationLanguage}) or null"
+                }
+            `;
         }
 
         const response = await aiClient.models.generateContent({
             model: modelName,
-            contents: prompt,
+            contents: systemPrompt,
             config: { 
                 responseMimeType: "application/json",
-                temperature: 0.7 
+                temperature: 0.7
             }
         });
 
-        return JSON.parse(response.text || "{}");
+        storageService.deductCreditOrUsage(userProfile.id);
+        
+        try {
+            return JSON.parse(response.text || "{}") as RoleplayResponse;
+        } catch (e) {
+            console.error("JSON Parse error", e);
+            return { aiReply: "..." };
+        }
     }, userProfile.id);
-};
-
-export const generateLanguageFlag = async (languageName: string): Promise<{code: string, flag: string}> => {
-    // Only used by Admin to generate metadata
-    return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
-        const prompt = `Generate a standard display name (Ex: 'Italien 🇮🇹') and just the flag emoji (Ex: '🇮🇹') for the language: '${languageName}'. JSON: { "code": "Name + Flag", "flag": "FlagOnly" }`;
-        const response = await aiClient!.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
-        });
-        return JSON.parse(response.text || '{"code": "Inconnu", "flag": "❓"}');
-    }, 'system');
 };

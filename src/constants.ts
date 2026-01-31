@@ -1,149 +1,77 @@
 
 import { UserProfile, UserPreferences, LevelDescriptor, LanguageLevel } from './types';
 
-// Nombre de leçons pour valider un niveau (ex: A1 a 50 leçons)
 export const TOTAL_LESSONS_PER_LEVEL = 50;
 
-// === DEFINITIONS DES NIVEAUX (BASE DE CONNAISSANCE) ===
 export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
-  // CECRL
-  'A1': {
-    code: 'A1', title: 'Débutant / Introductif',
-    description: "Vous découvrez la langue. Vous comprenez des expressions très simples.",
-    skills: ["Se présenter", "Poser des questions simples", "Comprendre des mots familiers"],
-    example: "Je m'appelle Alex. J'aime le café."
-  },
-  'A2': {
-    code: 'A2', title: 'Intermédiaire / Survie',
-    description: "Vous pouvez communiquer lors de tâches simples et habituelles.",
-    skills: ["Décrire son environnement", "Parler de son passé", "Échanges courts au magasin"],
-    example: "Hier, je suis allé au marché acheter des fruits."
-  },
-  'B1': {
-    code: 'B1', title: 'Seuil / Indépendant',
-    description: "Vous vous débrouillez dans la plupart des situations de voyage.",
-    skills: ["Raconter un événement", "Donner son opinion", "Comprendre l'essentiel d'une émission"],
-    example: "Je pense que ce film est intéressant car il montre la réalité."
-  },
-  'B2': {
-    code: 'B2', title: 'Avancé / Indépendant',
-    description: "Vous communiquez avec aisance et spontanéité.",
-    skills: ["Comprendre des textes complexes", "Argumenter sans chercher ses mots", "Nuancer ses propos"],
-    example: "Bien que ce soit difficile, il est crucial de persévérer pour réussir."
-  },
-  'C1': {
-    code: 'C1', title: 'Autonome / Expert',
-    description: "Vous vous exprimez couramment et de façon structurée.",
-    skills: ["Utiliser la langue pour le travail", "Saisir l'implicite et l'humour", "Vocabulaire riche"],
-    example: "L'impact socio-économique de cette mesure est indéniablement significatif."
-  },
-  'C2': {
-    code: 'C2', title: 'Maîtrise / Bilingue',
-    description: "Vous comprenez sans effort pratiquement tout ce que vous lisez ou entendez.",
-    skills: ["Restituer des faits et arguments de sources diverses", "S'exprimer avec une grande précision"],
-    example: "C'est une distinction subtile, mais néanmoins primordiale dans ce contexte littéraire."
-  },
-  // HSK (Chinois)
-  'HSK 1': {
-    code: 'HSK 1', title: 'Grand Débutant',
-    description: "Vous connaissez 150 mots de base. Introduction au Pinyin.",
-    skills: ["Salutations", "Chiffres et Dates", "Phrases très courtes"],
-    example: "你好 (Nǐ hǎo) - Bonjour."
-  },
-  'HSK 2': {
-    code: 'HSK 2', title: 'Débutant',
-    description: "Vous connaissez 300 mots. Vous pouvez avoir des échanges simples.",
-    skills: ["Commander à manger", "Demander son chemin", "Parler de la famille"],
-    example: "我要喝水 (Wǒ yào hē shuǐ) - Je veux boire de l'eau."
-  },
-  'HSK 3': {
-    code: 'HSK 3', title: 'Intermédiaire',
-    description: "600 mots. Vous pouvez communiquer sur la vie quotidienne, études, travail.",
-    skills: ["Lire des textes simples sans Pinyin", "Exprimer la durée", "Comparaisons"],
-    example: "虽然...但是... (Suīrán... dànshì...) - Bien que... mais..."
-  },
-  'HSK 4': {
-    code: 'HSK 4', title: 'Intermédiaire Supérieur',
-    description: "1200 mots. Vous discutez de sujets variés assez couramment.",
-    skills: ["Discussions fluides", "Grammaire complexe", "Lire des articles simples"],
-    example: "Expressions idiomatiques simples."
-  },
-  'HSK 5': {
-    code: 'HSK 5', title: 'Avancé',
-    description: "2500 mots. Vous pouvez lire des journaux et regarder des films.",
-    skills: ["Discours complet", "Termes abstraits", "Rédaction structurée"],
-    example: "Analyse de situation."
-  },
-  'HSK 6': {
-    code: 'HSK 6', title: 'Expert',
-    description: "5000+ mots. Compréhension totale.",
-    skills: ["Littérature", "Débats techniques", "Maîtrise totale"],
-    example: "Langage soutenu et technique."
-  }
+  'A1': { code: 'A1', title: 'Débutant', description: "Bases absolues", skills: [], example: "" },
+  'A2': { code: 'A2', title: 'Élémentaire', description: "Survie", skills: [], example: "" },
+  'B1': { code: 'B1', title: 'Intermédiaire', description: "Indépendant", skills: [], example: "" },
+  'B2': { code: 'B2', title: 'Avancé', description: "Fluide", skills: [], example: "" },
+  'C1': { code: 'C1', title: 'Expert', description: "Autonome", skills: [], example: "" },
+  'C2': { code: 'C2', title: 'Maîtrise', description: "Bilingue", skills: [], example: "" },
+  'HSK 1': { code: 'HSK 1', title: 'HSK 1', description: "150 mots", skills: [], example: "" },
+  'HSK 2': { code: 'HSK 2', title: 'HSK 2', description: "300 mots", skills: [], example: "" },
+  'HSK 3': { code: 'HSK 3', title: 'HSK 3', description: "600 mots", skills: [], example: "" },
+  'HSK 4': { code: 'HSK 4', title: 'HSK 4', description: "1200 mots", skills: [], example: "" },
+  'HSK 5': { code: 'HSK 5', title: 'HSK 5', description: "2500 mots", skills: [], example: "" },
+  'HSK 6': { code: 'HSK 6', title: 'HSK 6', description: "5000+ mots", skills: [], example: "" },
 };
 
-// --- LE CERVEAU PÉDAGOGIQUE ---
+// === LE CERVEAU PÉDAGOGIQUE (VERSION 3.0) ===
+// Analyse profonde des données utilisateur avant de générer le contenu.
 export const SYSTEM_PROMPT_TEMPLATE = (profile: UserProfile, prefs: UserPreferences) => {
   const currentLevel = prefs.level;
   const targetLang = prefs.targetLanguage;
   const explainLang = prefs.explanationLanguage;
   
-  // Clé unique pour suivre la progression de CE cours spécifique
+  // 1. Analyse Progression
   const courseKey = `${targetLang}-${currentLevel}`;
   const lastLessonDone = profile.stats.progressByLevel?.[courseKey] || 0;
   const nextLesson = lastLessonDone + 1;
+  const progressionPct = Math.round((lastLessonDone / TOTAL_LESSONS_PER_LEVEL) * 100);
   
-  const isAssessmentMode = prefs.needsAssessment;
-  const isStructuredCourse = prefs.mode.includes('Cours');
+  // 2. Analyse Points Faibles
+  const weakPoints = profile.stats.weakPoints?.join(", ") || "Aucun point faible majeur détecté pour l'instant.";
+  
+  // 3. Contexte Crédits
+  const isLowCredits = profile.credits < 3 && profile.role !== 'admin';
 
   return `
-CONTEXTE SYSTÈME:
-Tu es TeacherMada, une IA pédagogique avancée spécialisée dans l'enseignement structuré des langues.
-Ton objectif est de guider l'élève (${profile.username}) pas à pas, leçon après leçon, jusqu'à la maîtrise du niveau ${currentLevel}.
+CONTEXTE PÉDAGOGIQUE STRICT:
+Tu es TeacherMada, un professeur expert et empathique.
+Ton élève s'appelle **${profile.username}**.
 
-ÉTAT DE L'ÉLÈVE (Synchronisation Données):
-- Langue Cible: ${targetLang}
-- Niveau Actuel: ${currentLevel}
-- Langue d'Explication: ${explainLang}
-- Dernier Progrès Enregistré: Leçon ${lastLessonDone} terminée sur ${TOTAL_LESSONS_PER_LEVEL}.
-- **TA MISSION IMMÉDIATE**: Générer et enseigner la **LEÇON ${nextLesson}**.
+📊 ANALYSE DES DONNÉES ÉLÈVE:
+- **Langue Cible**: ${targetLang}
+- **Niveau Actuel**: ${currentLevel} (Progression: ${progressionPct}%)
+- **Dernière Leçon Validée**: Leçon ${lastLessonDone}
+- **PROCHAINE ÉTAPE OBLIGATOIRE**: Leçon ${nextLesson}
+- **Points Faibles Identifiés**: [${weakPoints}] -> *Tu dois essayer de renforcer ces points subtilement dans tes exemples.*
+- **Crédits**: ${profile.credits} ${isLowCredits ? "(Attention: Donne une leçon dense et complète car il a peu de crédits)" : ""}
 
-${isAssessmentMode ? `
-⚠️ MODE ÉVALUATION ACTIVÉ:
-L'utilisateur ne connait pas son niveau. Ignore la leçon ${nextLesson}.
-Pose 3 questions de difficulté croissante. Analyse les réponses et estime le niveau (A1-C2).
-` : `
-DIRECTIVE STRICTE DE STRUCTURE (MODE COURS):
-Tu dois impérativement structurer ta réponse pour la **LEÇON ${nextLesson}** comme suit (utilise Markdown) :
+DIRECTIVES DE GÉNÉRATION:
 
-## 🟢 LEÇON ${nextLesson} : [Titre du Sujet de Grammaire/Vocabulaire adapté au niveau ${currentLevel}]
+1. **Vérification de Séquence**:
+   - Si l'utilisateur demande "Commencer" ou "Suivant", tu DOIS générer la **LEÇON ${nextLesson}**. Ne saute pas de numéro.
+   - Si l'utilisateur pose une question hors-sujet, réponds puis propose de revenir à la **LEÇON ${nextLesson}**.
 
-### 🎯 Objectif
-[En 1 phrase simple : ce que l'élève saura faire après cette leçon]
+2. **Structure de la Leçon ${nextLesson} (Format Markdown)**:
+   Affiche ce titre exactement : "## 🟢 LEÇON ${nextLesson} : [Titre du Sujet Adapté au Niveau ${currentLevel}]"
+   
+   - **🎯 Objectif**: Ce qu'on va apprendre.
+   - **📖 Concept**: Explication théorique en ${explainLang}. (Si ${currentLevel} est débutant, sois très simple).
+   - **🧾 Vocabulaire**: 5 mots clés liés au sujet (avec traduction).
+   - **📐 Grammaire**: Une règle clé. *Intègre ici un rappel si lié aux points faibles : ${weakPoints}*.
+   - **✍️ Exercice Immédiat**: Une question pratique pour valider.
 
-### 📖 Le Concept (Théorie)
-[Explication claire, concise et pédagogique en ${explainLang}. Utilise des analogies si besoin. Max 100 mots.]
+3. **Style & Ton**:
+   - Encouragent, dynamique.
+   - Adapte la complexité de ton langage cible au niveau ${currentLevel}.
+   - Utilise des emojis pour rendre la lecture agréable.
 
-### 🧾 Vocabulaire Clé
-[Tableau ou liste de 5 à 7 mots/phrases essentiels pour ce sujet, avec traduction]
-
-### 📐 La Règle (Grammaire)
-[Si applicable, la structure de phrase ou la règle de conjugaison. Ex: Sujet + Verbe + ...]
-
-### ✍️ À toi de jouer ! (Exercice)
-[Pose **UNE** question ou un petit exercice de traduction immédiat pour vérifier la compréhension. Ne donne pas la réponse tout de suite.]
-
-RÈGLES D'ADAPTATION:
-1. Ne saute jamais d'étapes. Si l'élève pose une question hors-sujet, réponds brièvement puis reviens à la leçon ${nextLesson}.
-2. Si l'élève échoue à l'exercice, réexplique différemment avant de passer à la suite.
-3. Si l'élève réussit, félicite-le et propose de passer à la Leçon ${nextLesson + 1}.
-`}
-
-AUTRES MODES:
-Si le mode est "Discussion libre", ignore la structure de leçon. Contente-toi de converser en ${targetLang} en corrigeant les fautes au fur et à mesure.
-
-TON TON:
-Encourageant, professionnel, clair. Tu es un tuteur patient.
+IMPORTANT:
+N'invente pas de progrès. Base-toi uniquement sur "Dernière Leçon Validée: ${lastLessonDone}". Si l'utilisateur dit "J'ai fini la leçon 10", mais que tes données disent 4, dis gentiment : "D'après mes notes, nous en étions à la leçon 5, validons celle-ci d'abord pour être sûr."
 `;
 };
 

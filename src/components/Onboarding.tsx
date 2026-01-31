@@ -1,9 +1,9 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { TargetLanguage, ExplanationLanguage, LearningMode, UserPreferences, LanguageLevel, LevelDescriptor } from '../types';
 import { LEVEL_DEFINITIONS } from '../constants';
 import { storageService } from '../services/storageService';
-import { BookOpen, Languages, GraduationCap, Sun, Moon, ArrowLeft, CheckCircle2, Info, HelpCircle } from 'lucide-react';
+import { BookOpen, Languages, GraduationCap, Sun, Moon, ArrowLeft, CheckCircle2, Info, HelpCircle, Loader2 } from 'lucide-react';
 
 interface OnboardingProps {
   onComplete: (prefs: UserPreferences) => void;
@@ -15,11 +15,22 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   const [step, setStep] = useState(1);
   const [prefs, setPrefs] = useState<Partial<UserPreferences>>({});
   const [selectedLevelDesc, setSelectedLevelDesc] = useState<LevelDescriptor | null>(null);
+  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
+  const [customLangs, setCustomLangs] = useState<any[]>([]);
+
+  // Fetch Admin languages on mount
+  useEffect(() => {
+      const loadSettings = async () => {
+          await storageService.fetchSystemSettings(); // Sync with Supabase
+          const settings = storageService.getSystemSettings();
+          setCustomLangs(settings.customLanguages || []);
+          setIsLoadingSettings(false);
+      };
+      loadSettings();
+  }, []);
 
   // Merge Static Enum languages with Dynamic System Settings languages
   const allLanguages = useMemo(() => {
-      const systemSettings = storageService.getSystemSettings();
-      const customLangs = systemSettings.customLanguages || [];
       const staticLangs = Object.values(TargetLanguage);
       
       // Map static langs to same format
@@ -30,7 +41,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
       }));
 
       return [...formattedStatic, ...customLangs];
-  }, []);
+  }, [customLangs]);
 
   // Determine levels based on language choice
   const availableLevels = useMemo(() => {
@@ -45,8 +56,15 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
     setStep(2);
   };
 
+  // Fix: Cast levelCode to LanguageLevel
   const handleLevelSelect = (levelCode: string) => {
-      const desc = LEVEL_DEFINITIONS[levelCode];
+      const desc = LEVEL_DEFINITIONS[levelCode] || { 
+          code: levelCode as LanguageLevel, 
+          title: levelCode, 
+          description: "Niveau standard", 
+          skills: [], 
+          example: "" 
+      };
       setSelectedLevelDesc(desc);
   };
 
@@ -78,6 +96,14 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
         setSelectedLevelDesc(null);
     }
   };
+
+  if (isLoadingSettings) {
+      return (
+          <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+              <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
+          </div>
+      );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 transition-colors duration-300 relative font-sans">
@@ -135,7 +161,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
             
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
               {availableLevels.map((levelCode) => {
-                  const def = LEVEL_DEFINITIONS[levelCode];
+                  const def = LEVEL_DEFINITIONS[levelCode] || { code: levelCode, title: levelCode };
                   return (
                     <button
                       key={levelCode}
