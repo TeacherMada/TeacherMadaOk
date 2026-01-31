@@ -216,7 +216,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const scrollToBottom = () => { 
       if (chatContainerRef.current) {
           const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-          // If user is within 100px of bottom, auto-scroll. Otherwise, let them read.
+          // If user is within 150px of bottom, auto-scroll. Otherwise, let them read.
           if (scrollHeight - scrollTop - clientHeight < 150) {
               messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
           }
@@ -981,13 +981,28 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
         )}
 
-        {/* Quick Actions Toolbar */}
+        {/* Quick Actions Toolbar with Progress Bar */}
         <div className="max-w-4xl mx-auto mb-2 flex items-center gap-2 px-2 overflow-x-auto scrollbar-hide">
             <Tooltip text="Appel Vocal">
                 <button onClick={handleStartCall} className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded-full shadow-sm border border-purple-100 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors">
                     <Phone className="w-4 h-4" />
                 </button>
             </Tooltip>
+            
+            {/* Smart Level Progress Bar */}
+            <div className="flex-1 mx-3 flex flex-col justify-center">
+                <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 px-1">
+                    <span className="text-indigo-500 dark:text-indigo-400">{preferences.level}</span>
+                    <span className="text-slate-300 dark:text-slate-600">{Math.round(progressData.percentage)}%</span>
+                    <span>Suivant 🚀</span>
+                </div>
+                <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative shadow-inner">
+                    <div 
+                        className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 animate-gradient-x absolute top-0 left-0 transition-all duration-1000 ease-out"
+                        style={{ width: `${progressData.percentage}%` }}
+                    ></div>
+                </div>
+            </div>
             
              <Tooltip text="Leçon Suivante">
                 <button onClick={() => handleSend("Passe à la suite / Leçon suivante")} disabled={isSending} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-900/50 ml-auto disabled:opacity-50">
