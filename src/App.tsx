@@ -79,20 +79,28 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const init = async () => {
-        await storageService.fetchSystemSettings();
-        const currentUser = storageService.getCurrentUser();
-        storageService.seedAdmin();
-        
-        if (currentUser) {
-          const syncedUser = await storageService.syncProfileFromCloud(currentUser.id);
-          const finalUser = syncedUser || currentUser;
-          
-          setUser(finalUser);
-          
-          if (finalUser.role === 'admin') setIsAdminMode(true);
-          if (finalUser.preferences && finalUser.role !== 'admin') {
-            initializeSession(finalUser, finalUser.preferences);
-          }
+        try {
+            await storageService.fetchSystemSettings();
+            storageService.seedAdmin();
+            const currentUser = storageService.getCurrentUser();
+            
+            if (currentUser) {
+              // Try cloud sync but fallback to local
+              const syncedUser = await storageService.syncProfileFromCloud(currentUser.id).catch(() => null);
+              const finalUser = syncedUser || currentUser;
+              
+              setUser(finalUser);
+              
+              if (finalUser.role === 'admin') setIsAdminMode(true);
+              if (finalUser.preferences && finalUser.role !== 'admin') {
+                initializeSession(finalUser, finalUser.preferences);
+              }
+            }
+        } catch (error) {
+            console.error("CRITICAL INIT ERROR:", error);
+            // If critical data corruption, logout to reset state and fix white screen
+            storageService.logout();
+            setUser(null);
         }
     };
     init();
@@ -208,7 +216,7 @@ const App: React.FC = () => {
             const { newMemory, xpEarned } = await analyzeUserProgress(messages, user.aiMemory, user.id);
             
             // Logic: Update the SPECIFIC progress key for this Course + Level
-            let newProgressByLevel = { ...user.stats.progressByLevel };
+            let newProgressByLevel = { ...(user.stats.progressByLevel || {}) };
             let globalLessonIncrement = 0;
 
             if (user.preferences?.mode === LearningMode.Course && user.preferences.targetLanguage) {

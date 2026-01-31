@@ -29,6 +29,49 @@ const getMadagascarCurrentWeek = (): string => {
   return madaTime.toISOString().split('T')[0];
 };
 
+// --- CRITICAL FIX: Data Migration Helper ---
+// This ensures old user data doesn't crash the new UI
+const sanitizeUser = (data: any): UserProfile => {
+    if (!data) return data;
+
+    // 1. Ensure Stats Structure
+    const defaultStats = { 
+        xp: 0, 
+        streak: 1, 
+        lessonsCompleted: 0, 
+        progressByLevel: {}, 
+        weakPoints: [], 
+        interests: [] 
+    };
+    
+    // Deep merge stats
+    const mergedStats = { ...defaultStats, ...(data.stats || {}) };
+    
+    // Ensure progressByLevel exists specifically
+    if (!mergedStats.progressByLevel) mergedStats.progressByLevel = {};
+    // Backward compatibility: If levelProgress exists but map doesn't
+    if (data.preferences?.level && data.preferences?.targetLanguage && mergedStats.levelProgress && Object.keys(mergedStats.progressByLevel).length === 0) {
+        const key = `${data.preferences.targetLanguage}-${data.preferences.level}`;
+        mergedStats.progressByLevel[key] = mergedStats.levelProgress;
+    }
+
+    // 2. Ensure Arrays exist
+    const vocabulary = Array.isArray(data.vocabulary) ? data.vocabulary : [];
+    
+    // 3. Ensure Free Usage
+    const freeUsage = data.free_usage || data.freeUsage || { lastResetWeek: getMadagascarCurrentWeek(), count: 0 };
+
+    return {
+        ...data,
+        stats: mergedStats,
+        vocabulary: vocabulary,
+        aiMemory: data.aiMemory || data.ai_memory || "Nouvel utilisateur.",
+        freeUsage: freeUsage,
+        credits: typeof data.credits === 'number' ? data.credits : 0,
+        isSuspended: !!(data.isSuspended || data.is_suspended)
+    } as UserProfile;
+};
+
 export const storageService = {
   
   // --- Auth & User Management (STRICT CLOUD ONLY) ---
@@ -65,7 +108,7 @@ export const storageService = {
             return { success: false, error: "Compte suspendu. Contactez l'admin." };
         }
 
-        const user: UserProfile = {
+        const user = sanitizeUser({
             id: data.id,
             username: data.username,
             email: data.email,
@@ -73,25 +116,16 @@ export const storageService = {
             password: data.password,
             role: data.role,
             credits: data.credits,
-            stats: data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {}, weakPoints: [], interests: [] },
+            stats: data.stats,
             preferences: data.preferences,
-            skills: data.skills || { vocabulary: 10, grammar: 5, pronunciation: 5, listening: 5 },
-            vocabulary: data.vocabulary || [], // Load Vocab
-            aiMemory: data.ai_memory || "Nouvel utilisateur.",
+            skills: data.skills,
+            vocabulary: data.vocabulary,
+            aiMemory: data.ai_memory,
             isPremium: false,
-            hasSeenTutorial: data.has_seen_tutorial || false,
+            hasSeenTutorial: data.has_seen_tutorial,
             createdAt: data.created_at,
-            freeUsage: data.free_usage || { lastResetWeek: getMadagascarCurrentWeek(), count: 0 }
-        };
-
-        if (!user.stats.progressByLevel) {
-            user.stats.progressByLevel = {};
-            // Migration legacy
-            if (user.preferences?.level && user.stats.levelProgress) {
-                const key = `${user.preferences.targetLanguage}-${user.preferences.level}`;
-                user.stats.progressByLevel[key] = user.stats.levelProgress;
-            }
-        }
+            freeUsage: data.free_usage
+        });
 
         localStorage.setItem(CURRENT_USER_KEY, user.id);
         localStorage.setItem(`user_data_${user.id}`, JSON.stringify(user));
@@ -126,7 +160,7 @@ export const storageService = {
             return { success: false, error: "Ce nom d'utilisateur est déjà pris." };
         }
 
-        const newUser: UserProfile = {
+        const newUser: UserProfile = sanitizeUser({
             id: crypto.randomUUID(),
             username,
             email,
@@ -135,14 +169,7 @@ export const storageService = {
             role: 'user',
             createdAt: Date.now(),
             preferences: null,
-            stats: { 
-                xp: 0, 
-                streak: 1, 
-                lessonsCompleted: 0, 
-                progressByLevel: {},
-                weakPoints: [],
-                interests: [] 
-            },
+            stats: {}, // sanitizeUser will fill defaults
             skills: { vocabulary: 10, grammar: 5, pronunciation: 5, listening: 5 },
             vocabulary: [],
             aiMemory: "Nouvel utilisateur.",
@@ -153,7 +180,7 @@ export const storageService = {
                 lastResetWeek: getMadagascarCurrentWeek(),
                 count: 0
             }
-        };
+        });
 
         const { error: insertError } = await supabase.from('profiles').insert({
             id: newUser.id,
@@ -188,7 +215,15 @@ export const storageService = {
 
   getUserById: (userId: string): UserProfile | null => {
       const data = localStorage.getItem(`user_data_${userId}`);
-      return data ? JSON.parse(data) : null;
+      if (!data) return null;
+      try {
+          const parsed = JSON.parse(data);
+          // Auto-migrate data on read to prevent white screens
+          return sanitizeUser(parsed);
+      } catch (e) {
+          console.error("Corrupt user data", e);
+          return null;
+      }
   },
 
   logout: () => {
@@ -213,21 +248,31 @@ export const storageService = {
       if (data) {
           const local = storageService.getUserById(userId) || {} as UserProfile;
           
-          const stats = data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {}, weakPoints: [], interests: [] };
-          if (!stats.progressByLevel) stats.progressByLevel = {};
-
-          const merged: UserProfile = { 
-              ...local, 
-              credits: data.credits,
-              role: data.role,
-              isSuspended: data.is_suspended,
-              freeUsage: data.free_usage,
+          // Map DB columns to TS Interface
+          const cloudProfile = sanitizeUser({
+              id: data.id,
               username: data.username,
-              vocabulary: data.vocabulary || [], // Sync Vocab
-              stats: stats
-          };
-          localStorage.setItem(`user_data_${userId}`, JSON.stringify(merged));
-          return merged;
+              email: data.email,
+              phoneNumber: data.phone_number,
+              password: data.password,
+              role: data.role,
+              credits: data.credits,
+              stats: data.stats,
+              preferences: data.preferences,
+              skills: data.skills,
+              vocabulary: data.vocabulary,
+              aiMemory: data.ai_memory,
+              isPremium: false,
+              hasSeenTutorial: data.has_seen_tutorial,
+              createdAt: data.created_at,
+              freeUsage: data.free_usage,
+              isSuspended: data.is_suspended
+          });
+
+          // Merge local preferences if they are newer (optional strategy, here we trust cloud for criticals)
+          // For now, simple overwrite from cloud source of truth
+          localStorage.setItem(`user_data_${userId}`, JSON.stringify(cloudProfile));
+          return cloudProfile;
       }
       return null;
   },
@@ -419,12 +464,13 @@ export const storageService = {
 
       const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
       if (data) {
-          return data.map(u => ({
+          return data.map(u => sanitizeUser({ // Apply Sanitizer here too
               ...u,
               phoneNumber: u.phone_number,
               freeUsage: u.free_usage,
               isSuspended: u.is_suspended,
               vocabulary: u.vocabulary || [],
+              aiMemory: u.ai_memory,
               createdAt: u.created_at
           }));
       }
