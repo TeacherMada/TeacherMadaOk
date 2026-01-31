@@ -80,9 +80,8 @@ const sanitizeHistory = (history: ChatMessage[]): Content[] => {
     }
     
     // CRITICAL: The history passed to 'chats.create' establishes CONTEXT.
-    // The next message will be sent via 'sendMessage'. 
-    // Gemini API requires the history to end with 'model' if we are about to send a 'user' message.
-    // If the last message in history is 'user', we must pop it (it's likely a duplicate or the current message being sent).
+    // If the last message in history is 'user', we must pop it because 'sendMessage' will add the new user message.
+    // Gemini expects History to end with Model if we are about to send User.
     if (validHistory.length > 0 && validHistory[validHistory.length - 1].role === 'user') {
         validHistory.pop();
     }
@@ -105,9 +104,9 @@ const executeWithRetry = async <T>(
     } catch (error: any) {
         const errorMsg = error.message?.toLowerCase() || '';
         
-        // AUTO-HEAL: If conversation history is corrupt (400), don't crash.
+        // AUTO-HEAL: If conversation history is corrupt (400), log it.
         if (errorMsg.includes('turn') || errorMsg.includes('conversation') || errorMsg.includes('400')) {
-             console.warn("⚠️ History Sync Error. Retrying operation without history context.");
+             console.warn("⚠️ History Sync Error. Logic should handle retry with empty history.");
         }
 
         const isQuotaError = errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('resource_exhausted');
@@ -422,17 +421,34 @@ export const analyzeUserProgress = async (history: ChatMessage[], currentMemory:
     }, userId);
 };
 
-export const generateRoleplayResponse = async (history: ChatMessage[], scenario: string, userProfile: UserProfile, isClosing: boolean = false, isInitializing: boolean = false) => {
+// --- Roleplay Logic with TS Fix ---
+export interface RoleplayResponse {
+    aiReply: string;
+    correction?: string;
+    explanation?: string;
+    score?: number;
+    feedback?: string;
+}
+
+export const generateRoleplayResponse = async (
+    history: ChatMessage[], 
+    scenario: string, 
+    userProfile: UserProfile, 
+    isClosing: boolean = false, 
+    isInitializing: boolean = false
+): Promise<RoleplayResponse> => {
     checkCreditsBeforeAction(userProfile.id);
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
         
-        // Use sanitizer here too
+        // Use sanitizer
         const historyPayload = sanitizeHistory(history);
         
-        // --- FIX HERE: Optional chaining for safety ---
-        const context = historyPayload.map(m => `${m.role}: ${m.parts?.[0]?.text || ""}`).join('\n');
-        // ----------------------------------------------
+        // Correctly handle the potentially undefined parts with optional chaining
+        const context = historyPayload.map(m => {
+            const text = m.parts?.[0]?.text || "";
+            return `${m.role}: ${text}`;
+        }).join('\n');
 
         let systemPrompt = `ACT: Roleplay Partner. Scenario: ${scenario}. Language: ${userProfile.preferences?.targetLanguage}. Level: ${userProfile.preferences?.level}.`;
         

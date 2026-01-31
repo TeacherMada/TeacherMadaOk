@@ -406,7 +406,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       if (isCallActive) {
           // Voice Mode (Not Streamed for latency)
           // We pass 'historyForAI' (clean history) to the service
-          // The service will append 'textToSend' internally or handle it via chat.sendMessage
           responseText = await generateVoiceChatResponse(textToSend, user.id, historyForAI);
           
           const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() };
