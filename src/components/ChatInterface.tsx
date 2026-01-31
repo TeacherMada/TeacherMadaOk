@@ -30,6 +30,15 @@ interface ChatInterfaceProps {
   notify: (message: string, type: 'success' | 'error' | 'info') => void;
 }
 
+// --- TYPING INDICATOR COMPONENT ---
+const TypingIndicator = () => (
+  <div className="flex items-center space-x-1 h-6 p-1">
+    <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+    <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+    <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></div>
+  </div>
+);
+
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
   user,
   messages, 
@@ -250,7 +259,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   useEffect(() => { 
       if (!isTrainingMode && !isDialogueActive && !searchQuery) scrollToBottom(); 
-  }, [messages, isTrainingMode, isDialogueActive]);
+  }, [messages, isTrainingMode, isDialogueActive, isLoading]); // Added isLoading to scroll when typing indicator appears
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -966,8 +975,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         {(isLoading || isAnalyzing) && (
              <div className="flex justify-start animate-fade-in">
                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1"><img src="/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
-                 <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border shadow-sm flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-indigo-500"/> <span className="text-sm text-slate-500">TeacherMada écrit...</span>
+                 <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border shadow-sm flex items-center gap-2 min-w-[120px]">
+                    <TypingIndicator />
                  </div>
              </div>
         )}
