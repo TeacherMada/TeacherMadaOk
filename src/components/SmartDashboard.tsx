@@ -63,11 +63,12 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
 
   const activeCourses = useMemo(() => {
       if (!user.stats.progressByLevel) return [];
-      return Object.entries(user.stats.progressByLevel).map(([key, lessonCount]) => {
+      return Object.entries(user.stats.progressByLevel).map(([key, count]) => {
           // Key format: "Language Name-Level" (e.g., "Anglais 🇬🇧-A1")
           const separatorIndex = key.lastIndexOf('-');
           const language = key.substring(0, separatorIndex);
           const level = key.substring(separatorIndex + 1);
+          const lessonCount = Number(count);
           
           return {
               id: key,
@@ -119,6 +120,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
         }
     });
     
+    // Use the native Map constructor here
     const uniqueLessons = new Map<number, {num: number, title: string, date: number}>();
     lessons.forEach(l => uniqueLessons.set(l.num, l));
     return Array.from(uniqueLessons.values()).sort((a, b) => b.num - a.num);

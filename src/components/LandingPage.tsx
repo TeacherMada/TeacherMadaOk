@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useMemo } from 'react';
 import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target } from 'lucide-react';
 import LiveChatDemo from './LiveChatDemo';
@@ -357,7 +356,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
 };
 
 // Sub-components for UI
-const LanguageBadge = ({ flag, name, onClick }: { flag: string, name: string, onClick?: () => void }) => (
+const LanguageBadge: React.FC<{ flag: string, name: string, onClick?: () => void }> = ({ flag, name, onClick }) => (
     <div 
         onClick={onClick}
         className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm hover:scale-105 transition-transform cursor-pointer hover:bg-white dark:hover:bg-slate-700 hover:border-indigo-200 dark:hover:border-indigo-800"
