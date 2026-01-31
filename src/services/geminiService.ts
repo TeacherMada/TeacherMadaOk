@@ -47,7 +47,6 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
     }
 
     const apiKey = keys[currentKeyIndex];
-    console.log(`[Gemini] Initializing with Key Index: ${currentKeyIndex} (Total: ${keys.length})`);
     
     aiClient = new GoogleGenAI({ apiKey });
     return getActiveModelName(); 
@@ -156,19 +155,15 @@ const executeWithRetry = async <T>(
         const keys = getAvailableKeys();
 
         // RETRY STRATEGY:
-        // 1. If Quota Error (429), rotate API KEY first.
-        // 2. If keys exhausted, switch MODEL (Fallback Chain).
         if ((isQuotaError || isServerBusy) && attempt < keys.length * 3) { // Allow multiple cycles
             console.log(`♻️ Rotating Key/Model... (Attempt ${attempt + 1})`);
             initializeGenAI(true); // Force next key
             
-            // If we've tried all keys for this model, move to next fallback model
             let nextFallback = fallbackIndex;
             if (attempt > 0 && attempt % keys.length === 0) {
                 nextFallback = fallbackIndex + 1;
             }
 
-            // Backoff
             await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
             return executeWithRetry(operation, userId, attempt + 1, nextFallback);
         }
@@ -277,30 +272,33 @@ export const sendMessageToGemini = async (message: string, userId: string): Prom
 export const generateVoiceChatResponse = async (message: string, userId: string, previousHistory: ChatMessage[]) => {
     checkCreditsBeforeAction(userId);
     
+    // VOICE OPTIMIZATION: Always use Flash model for speed, override general settings
     const runVoice = async (historyToUse: ChatMessage[]) => {
         return executeWithRetry(async () => {
             if (!aiClient) initializeGenAI();
             const user = storageService.getUserById(userId);
             
+            // STRICT INSTRUCTION FOR SPEED: MAX 15 WORDS
             const systemInstruction = `
-                ACT: Phone Tutor.
+                ACT: Audio Tutor.
                 USER: ${user?.username}.
                 LANG: ${user?.preferences?.targetLanguage}.
-                MEMORY: ${user?.aiMemory || 'None'}.
-                RULES:
+                
+                CRITICAL RULES:
                 1. Answer in 1 short sentence (Max 15 words).
-                2. Be natural. No emojis.
-                3. If user says hello, just greet back.
+                2. Be natural and encouraging.
+                3. No emojis, No markdown.
+                4. Focus on keeping the conversation flowing fast.
             `;
 
             const historyPayload = sanitizeHistory(historyToUse).slice(-6);
 
             const chat = aiClient!.chats.create({
-                model: 'gemini-1.5-flash', // Use faster model explicitly
+                model: 'gemini-1.5-flash', // Force fast model
                 config: {
                     systemInstruction: systemInstruction,
                     temperature: 0.6, 
-                    maxOutputTokens: 60,
+                    maxOutputTokens: 50, // Hard limit output tokens
                 },
                 history: historyPayload,
             });
@@ -384,14 +382,24 @@ export const translateText = async (text: string, targetLang: string, userId: st
 };
 
 export const generateLanguageFlag = async (languageName: string) => {
-    return executeWithRetry(async (modelName) => {
+    return executeWithRetry(async () => {
         if (!aiClient) initializeGenAI();
+        // Use flash model for simple data extraction
+        const modelName = 'gemini-1.5-flash';
+        
         const response = await aiClient!.models.generateContent({
             model: modelName,
-            contents: `Generate standard name and flag emoji for '${languageName}'. JSON: { "code": "Name + Flag", "flag": "FlagOnly" }`,
+            contents: `Generate standard name (Native name) and flag emoji for '${languageName}'. 
+            Strict JSON format: { "code": "LanguageName FlagEmoji", "flag": "FlagEmoji" }
+            Example: { "code": "Français 🇫🇷", "flag": "🇫🇷" }`,
             config: { responseMimeType: "application/json" }
         });
-        return JSON.parse(response.text || '{"code": "Inconnu", "flag": "❓"}');
+        
+        // Robust JSON parsing
+        let text = response.text || "";
+        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        return JSON.parse(text || '{"code": "Inconnu", "flag": "❓"}');
     }, 'system');
 };
 
