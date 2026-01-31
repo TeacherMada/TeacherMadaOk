@@ -5,9 +5,18 @@ import { UserProfile, ChatMessage, UserPreferences, SystemSettings, AdminRequest
 const CURRENT_USER_KEY = 'smart_teacher_current_user_id';
 const SETTINGS_KEY = 'smart_teacher_system_settings';
 
+// Helper to safely get ENV var
+const getEnvApiKey = () => {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GOOGLE_API_KEY) {
+        // @ts-ignore
+        return import.meta.env.VITE_GOOGLE_API_KEY;
+    }
+    return '';
+};
+
 const DEFAULT_SETTINGS: SystemSettings = {
-  // @ts-ignore
-  apiKeys: [import.meta.env.VITE_GOOGLE_API_KEY || ''],
+  apiKeys: getEnvApiKey() ? [getEnvApiKey()] : [],
   activeModel: 'gemini-2.0-flash', 
   adminContact: {
     telma: "034 93 102 68",

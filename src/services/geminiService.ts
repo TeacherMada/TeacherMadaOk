@@ -7,41 +7,63 @@ import { storageService } from "./storageService";
 let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
+// Utilisation de modèles stables et rapides par défaut
 const PRIMARY_MODEL = 'gemini-1.5-flash'; 
 
 const FALLBACK_CHAIN = [
-    'gemini-1.5-pro',              
+    'gemini-2.0-flash',              
     'gemini-2.0-flash-lite-preview', 
-    'gemini-1.5-flash-8b'               
+    'gemini-1.5-pro'               
 ];
 
 const getAvailableKeys = (): string[] => {
+    // 1. Récupérer depuis les réglages Admin/System stockés
     const settings = storageService.getSystemSettings();
-    let keys = settings.apiKeys && settings.apiKeys.length > 0 ? settings.apiKeys : [];
+    let keys = settings.apiKeys ? [...settings.apiKeys] : [];
     
+    // 2. Récupérer depuis l'environnement Vite (Local/Prod)
     // @ts-ignore
-    const envKey = import.meta.env.VITE_GOOGLE_API_KEY;
-    if (envKey && typeof envKey === 'string' && !keys.includes(envKey)) {
-        keys.push(envKey);
+    if (import.meta.env.VITE_GOOGLE_API_KEY) {
+        // @ts-ignore
+        keys.push(import.meta.env.VITE_GOOGLE_API_KEY);
     }
     
-    return Array.from(new Set(keys)).filter(k => k && k.trim().length > 0);
+    // 3. Récupérer depuis process.env (Node/Docker contexts)
+    // @ts-ignore
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+         // @ts-ignore
+         keys.push(process.env.API_KEY);
+    }
+    
+    // 4. Nettoyage : Déduplication et filtre des clés vides ou trop courtes
+    return Array.from(new Set(keys)).filter(k => k && typeof k === 'string' && k.trim().length > 10);
 };
 
 const initializeGenAI = (forceNextKey: boolean = false) => {
     const keys = getAvailableKeys();
+    
     if (keys.length === 0) {
-      console.error("CRITICAL: No API Keys available in System Settings or Environment.");
+      console.warn("GeminiService: Aucune clé API disponible. L'IA ne fonctionnera pas.");
+      aiClient = null;
       return null;
     }
+
     if (forceNextKey) {
         currentKeyIndex = (currentKeyIndex + 1) % keys.length;
     } else {
+        // Random start to distribute load on reload
         currentKeyIndex = Math.floor(Math.random() * keys.length);
     }
+
     const apiKey = keys[currentKeyIndex];
-    aiClient = new GoogleGenAI({ apiKey });
-    return getActiveModelName(); 
+    
+    try {
+        aiClient = new GoogleGenAI({ apiKey });
+        return getActiveModelName(); 
+    } catch (e) {
+        console.error("GeminiService: Erreur d'initialisation du client", e);
+        return null;
+    }
 };
 
 const getActiveModelName = () => {
@@ -56,6 +78,12 @@ const executeWithRetry = async <T>(
     fallbackIndex: number = -1 
 ): Promise<T> => {
     try {
+        // Tentative d'initialisation si client manquant
+        if (!aiClient) {
+            initializeGenAI();
+            if (!aiClient) throw new Error("API_KEY_MISSING");
+        }
+
         let modelName = getActiveModelName();
         if (fallbackIndex >= 0 && fallbackIndex < FALLBACK_CHAIN.length) {
             modelName = FALLBACK_CHAIN[fallbackIndex];
@@ -63,17 +91,37 @@ const executeWithRetry = async <T>(
         return await operation(modelName);
     } catch (error: any) {
         const errorMsg = error.message?.toLowerCase() || '';
-        const keys = getAvailableKeys();
+        
+        // Si aucune clé n'est configurée, on arrête tout de suite
+        if (errorMsg.includes('api_key_missing')) {
+            throw new Error("Configuration IA manquante. Contactez l'admin.");
+        }
 
-        if (attempt < keys.length * 2) {
+        const keys = getAvailableKeys();
+        const isQuotaError = errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('exhausted');
+        const isModelError = errorMsg.includes('not found') || errorMsg.includes('404');
+
+        // Stratégie de Retry
+        if (attempt < keys.length * 2 || (isModelError && fallbackIndex < FALLBACK_CHAIN.length)) {
+            console.warn(`Gemini Retry (${attempt+1}): ${errorMsg}`);
+            
+            // Rotation de clé
             initializeGenAI(true); 
+            
             let nextFallback = fallbackIndex;
-            if (attempt > 0 && attempt % keys.length === 0) {
+            
+            // Si c'est une erreur de modèle ou qu'on a fait le tour des clés, on change de modèle
+            if (isModelError || (attempt > 0 && attempt % keys.length === 0)) {
                 nextFallback = fallbackIndex + 1;
             }
-            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+            
+            // Petit délai exponentiel
+            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+            
             return executeWithRetry(operation, userId, attempt + 1, nextFallback);
         }
+        
+        console.error("Gemini Fatal Error:", error);
         throw new Error("Service IA momentanément indisponible. Réessayez.");
     }
 };
@@ -99,14 +147,15 @@ export const sendMessageToGeminiStream = async (
 ): Promise<{ fullText: string }> => {
     checkCreditsBeforeAction(userId);
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("API_KEY_MISSING");
+        
         const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
         
         const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
         const historyPayload = previousHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
 
-        const chat = aiClient!.chats.create({
+        const chat = aiClient.chats.create({
             model: modelName,
             config: {
                 systemInstruction: systemInstruction,
@@ -140,9 +189,9 @@ export const sendMessageToGemini = async (message: string, userId: string): Prom
 export const generateVoiceChatResponse = async (message: string, userId: string, previousHistory: ChatMessage[]) => {
     checkCreditsBeforeAction(userId);
     return executeWithRetry(async () => {
-        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("API_KEY_MISSING");
         const user = storageService.getUserById(userId);
-        const chat = aiClient!.chats.create({
+        const chat = aiClient.chats.create({
             model: 'gemini-1.5-flash',
             config: {
                 systemInstruction: `ACT: Tutor. USER: ${user?.username}. LANG: ${user?.preferences?.targetLanguage}. KEEP SHORT (15 words max).`,
@@ -160,8 +209,8 @@ export const generateSpeech = async (text: string, userId: string): Promise<Arra
     const status = storageService.canPerformRequest(userId);
     if (!status.allowed) return null; 
     return executeWithRetry(async () => {
-        if (!aiClient) initializeGenAI(); 
-        const response = await aiClient!.models.generateContent({
+        if (!aiClient) throw new Error("API_KEY_MISSING");
+        const response = await aiClient.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
             contents: [{ parts: [{ text: text.substring(0, 500) }] }],
             config: { responseModalities: [Modality.AUDIO], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } } },
@@ -177,13 +226,13 @@ export const generateSpeech = async (text: string, userId: string): Promise<Arra
 
 export const generateLevelExample = async (language: string, level: string): Promise<string | null> => {
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("API_KEY_MISSING");
         const prompt = `Génère une phrase d'exemple amusante, utile ou culturellement intéressante en ${language} pour le niveau ${level}. 
         Format: La phrase en langue cible (Traduction française).
         Exemple: "I love coding" (J'adore coder).
         Pas de markdown, pas de listes. Juste la phrase et sa traduction.`;
         
-        const response = await aiClient!.models.generateContent({
+        const response = await aiClient.models.generateContent({
             model: modelName,
             contents: prompt,
             config: { temperature: 0.8, maxOutputTokens: 60 }
@@ -194,10 +243,10 @@ export const generateLevelExample = async (language: string, level: string): Pro
 
 export const generateVocabularyFromHistory = async (userId: string, history: ChatMessage[]): Promise<VocabularyItem[]> => {
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("API_KEY_MISSING");
         const conversation = history.slice(-10).map(m => m.text).join('\n');
         const prompt = `Extract 5 key vocabulary words from conversation. JSON: [{ "word": "string", "translation": "string", "context": "string" }]`;
-        const response = await aiClient!.models.generateContent({ 
+        const response = await aiClient.models.generateContent({ 
             model: modelName, 
             contents: prompt, 
             config: { responseMimeType: "application/json" } 
@@ -210,8 +259,8 @@ export const generateVocabularyFromHistory = async (userId: string, history: Cha
 
 export const translateText = async (text: string, targetLang: string, userId: string) => {
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
-        const response = await aiClient!.models.generateContent({ model: modelName, contents: `Translate to ${targetLang}: ${text}` });
+        if (!aiClient) throw new Error("API_KEY_MISSING");
+        const response = await aiClient.models.generateContent({ model: modelName, contents: `Translate to ${targetLang}: ${text}` });
         storageService.deductCreditOrUsage(userId);
         return response.text?.trim() || text;
     }, userId);
@@ -219,22 +268,22 @@ export const translateText = async (text: string, targetLang: string, userId: st
 
 export const getLessonSummary = async (num: number, ctx: string, userId: string) => { 
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
-        const response = await aiClient!.models.generateContent({ model: modelName, contents: `Summarize lesson ${num} from context: ${ctx}` });
+        if (!aiClient) throw new Error("API_KEY_MISSING");
+        const response = await aiClient.models.generateContent({ model: modelName, contents: `Summarize lesson ${num} from context: ${ctx}` });
         return response.text || "Résumé indisponible.";
     }, userId);
 };
 
 export const generateConceptImage = async (prompt: string, userId: string) => { 
     return executeWithRetry(async () => {
-        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("API_KEY_MISSING");
         
         // Define config as 'any' to bypass TS check for imageConfig which is present in API but missing in SDK types
         const modelConfig: any = {
             imageConfig: { aspectRatio: "16:9" }
         };
 
-        const response = await aiClient!.models.generateContent({
+        const response = await aiClient.models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: { parts: [{ text: prompt }] },
             config: modelConfig
@@ -254,9 +303,9 @@ export const generateConceptImage = async (prompt: string, userId: string) => {
 
 export const generateDailyChallenges = async (prefs: UserPreferences): Promise<DailyChallenge[]> => { 
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
+        if (!aiClient) return [];
         const prompt = `Generate 3 short language challenges for ${prefs.targetLanguage} ${prefs.level}. JSON: [{ "description": "string", "type": "message_count"|"vocabulary"|"lesson_complete", "targetCount": number, "xpReward": number }]`;
-        const response = await aiClient!.models.generateContent({ 
+        const response = await aiClient.models.generateContent({ 
             model: modelName, 
             contents: prompt,
             config: { responseMimeType: "application/json" }
@@ -268,9 +317,9 @@ export const generateDailyChallenges = async (prefs: UserPreferences): Promise<D
 
 export const analyzeUserProgress = async (history: ChatMessage[], mem: string, userId: string) => { 
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("API_KEY_MISSING");
         const prompt = `Analyze progress. Old Memory: ${mem}. Chat: ${history.slice(-5).map(m=>m.text).join('\n')}. JSON: { "newMemory": "string", "xpEarned": number, "feedback": "string" }`;
-        const response = await aiClient!.models.generateContent({ 
+        const response = await aiClient.models.generateContent({ 
             model: modelName, 
             contents: prompt,
             config: { responseMimeType: "application/json" }
@@ -282,9 +331,9 @@ export const analyzeUserProgress = async (history: ChatMessage[], mem: string, u
 
 export const generatePracticalExercises = async (profile: UserProfile, history: ChatMessage[]): Promise<ExerciseItem[]> => { 
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("API_KEY_MISSING");
         const prompt = `Generate 5 exercises for ${profile.preferences?.targetLanguage} ${profile.preferences?.level}. JSON: [{ "type": "multiple_choice"|"true_false"|"fill_blank", "question": "string", "options": ["string"]?, "correctAnswer": "string", "explanation": "string" }]`;
-        const response = await aiClient!.models.generateContent({ 
+        const response = await aiClient.models.generateContent({ 
             model: modelName, 
             contents: prompt,
             config: { responseMimeType: "application/json" }
@@ -311,7 +360,7 @@ export const generateRoleplayResponse = async (
     init: boolean = false
 ): Promise<RoleplayResponse> => {
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("API_KEY_MISSING");
         
         const context = hist.map(m => `${m.role === 'user' ? 'Student' : 'Partner'}: ${m.text}`).join('\n');
         let prompt = "";
@@ -324,7 +373,7 @@ export const generateRoleplayResponse = async (
              prompt = `CONTINUE ROLEPLAY: ${scen}. User said last. Reply. If error, correct. JSON: { "aiReply": "...", "correction": "string" | null, "explanation": "string" | null }`;
         }
 
-        const response = await aiClient!.models.generateContent({
+        const response = await aiClient.models.generateContent({
             model: modelName,
             contents: prompt + "\n\nCONTEXT:\n" + context,
             config: { responseMimeType: "application/json" }
@@ -343,9 +392,9 @@ export const generateRoleplayResponse = async (
 
 export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId: string): Promise<VoiceCallSummary> => { 
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("API_KEY_MISSING");
         const prompt = `Analyze voice call. JSON: { "score": number (1-10), "feedback": "string", "tip": "string" }`;
-        const response = await aiClient!.models.generateContent({ 
+        const response = await aiClient.models.generateContent({ 
             model: modelName, 
             contents: prompt + "\n" + history.map(m=>m.text).join('\n'),
             config: { responseMimeType: "application/json" }
@@ -356,8 +405,8 @@ export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId
 
 export const generateLanguageFlag = async (name: string) => { 
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
-        const response = await aiClient!.models.generateContent({ 
+        if (!aiClient) throw new Error("API_KEY_MISSING");
+        const response = await aiClient.models.generateContent({ 
             model: modelName, 
             contents: `Return flag emoji and ISO code for language "${name}". JSON: { "code": "string", "flag": "string" }`,
             config: { responseMimeType: "application/json" }
