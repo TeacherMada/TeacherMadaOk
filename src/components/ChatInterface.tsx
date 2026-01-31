@@ -47,6 +47,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false); // New state to prevent double clicks
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showSmartOptions, setShowSmartOptions] = useState(false);
@@ -112,7 +113,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const currentLevel = preferences.level;
       const courseKey = `${currentLang}-${currentLevel}`;
       
-      // Get the lesson progress specific to this language+level
       const lessonsDone = user.stats.progressByLevel?.[courseKey] || 0;
       
       const percentage = Math.min((lessonsDone / TOTAL_LESSONS_PER_LEVEL) * 100, 100);
@@ -368,7 +368,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     stopAudio();
     const textToSend = typeof textOverride === 'string' ? textOverride : input;
     
-    if (!textToSend.trim() || isLoading || isAnalyzing) return;
+    if (!textToSend.trim() || isLoading || isAnalyzing || isSending) return;
 
     if (!storageService.canPerformRequest(user.id).allowed) {
         notify("Crédit insuffisant.", 'error');
@@ -377,17 +377,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         return;
     }
     
+    setIsSending(true); // Lock the button immediately
+
     // 1. Prepare UI Update
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
     
     // IMPORTANT: Grab current history BEFORE adding the new user message
-    // This is crucial for the sanitizer to work (it expects History + New Message separate)
     const historyForAI = [...messages]; 
 
     // Update UI immediately (Optimistic)
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
-    storageService.saveChatHistory(user.id, updatedMessages, preferences.targetLanguage);
+    // Don't save to storage yet, wait for success or partial stream
     
     setInput('');
     setVoiceTextInput('');
@@ -397,10 +398,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     try {
       let responseText = "";
+      let newMemory: string | undefined;
       
       if (isCallActive) {
-          // Voice Mode (Not Streamed for latency)
-          // We pass 'historyForAI' (clean history) to the service
+          // Voice Mode (Not Streamed)
           responseText = await generateVoiceChatResponse(textToSend, user.id, historyForAI);
           
           const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() };
@@ -414,8 +415,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           const placeholderMsg: ChatMessage = { id: aiMsgId, role: 'model', text: '', timestamp: Date.now() };
           setMessages(prev => [...prev, placeholderMsg]);
 
-          // We pass 'historyForAI' here too
-          await sendMessageToGeminiStream(textToSend, user.id, historyForAI, (chunkText) => {
+          const result = await sendMessageToGeminiStream(textToSend, user.id, historyForAI, (chunkText) => {
               setMessages(current => {
                   const newMessages = [...current];
                   const lastMsg = newMessages[newMessages.length - 1];
@@ -425,13 +425,24 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   return newMessages;
               });
           });
+          
+          if (result.newMemory) {
+              // Context was compressed! Update local user state
+              const updatedUser = { ...user, aiMemory: result.newMemory };
+              onUpdateUser(updatedUser);
+              notify("Mémoire Optimisée 🧠", "info");
+              
+              // If memory was compressed, we should technically truncate the UI messages to match, 
+              // but for UX we keep them visible until next reload.
+          }
       }
       refreshUserData();
     } catch (error) {
       handleErrorAction(error);
-      setMessages(current => current.filter(m => m.text.trim() !== '')); // Rollback empty placeholders if err
+      // Rollback UI if needed, or leave the error state
     } finally { 
       setIsLoading(false); 
+      setIsSending(false); // Unlock
     }
   };
 
@@ -559,7 +570,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       {isCallActive && (
         <div className="fixed inset-0 z-[160] bg-slate-900/95 backdrop-blur-2xl flex flex-col items-center justify-between py-12 px-6 transition-all animate-fade-in overflow-hidden">
             {isAnalyzingCall || callSummary ? (
-                /* Analysis UI (Kept same) */
+                /* Analysis UI */
                 <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-2xl animate-fade-in-up mt-20 relative border border-slate-100 dark:border-white/10">
                     <button onClick={closeCallOverlay} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold">Fermer</button>
                 </div>
@@ -951,7 +962,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </Tooltip>
             
              <Tooltip text="Leçon Suivante">
-                <button onClick={() => handleSend("Passe à la suite / Leçon suivante")} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-900/50 ml-auto">
+                <button onClick={() => handleSend("Passe à la suite / Leçon suivante")} disabled={isSending} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-900/50 ml-auto disabled:opacity-50">
                     Suivant <ArrowRight className="w-3 h-3" />
                 </button>
             </Tooltip>
@@ -963,7 +974,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={!canSend ? "Recharge nécessaire..." : "Message.. | Parler..."}
-                disabled={isLoading || isAnalyzing}
+                disabled={isLoading || isAnalyzing || isSending}
                 rows={1}
                 className="w-full bg-transparent text-slate-800 dark:text-white rounded-xl pl-4 py-3 text-base focus:outline-none resize-none max-h-32 scrollbar-hide self-center disabled:opacity-50"
             />
@@ -976,7 +987,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                  </button>
                  <button 
                     onClick={() => handleSend()} 
-                    disabled={!input.trim() || isLoading || isAnalyzing} 
+                    disabled={!input.trim() || isLoading || isAnalyzing || isSending} 
                     className={`p-2.5 rounded-full text-white transition-all shadow-md transform hover:scale-105 active:scale-95 flex items-center justify-center
                         ${canSend ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-slate-400 cursor-not-allowed'}
                     `}

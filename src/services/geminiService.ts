@@ -7,8 +7,6 @@ import { storageService } from "./storageService";
 let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
-// === MODEL CONFIGURATION ===
-// Flash est prioritaire pour la vitesse perçue
 const PRIMARY_MODEL = 'gemini-1.5-flash'; 
 
 const FALLBACK_CHAIN = [
@@ -49,10 +47,7 @@ const getActiveModelName = () => {
     return settings.activeModel && settings.activeModel.length > 0 ? settings.activeModel : PRIMARY_MODEL;
 };
 
-// === ROBUST HISTORY SANITIZER (CORRECTIF CRITIQUE) ===
-// 1. Assure l'alternance stricte User -> Model -> User
-// 2. Fusionne les messages consécutifs du même rôle
-// 3. Retire le dernier message si c'est un User (car sendMessage va en ajouter un)
+// === SMART CONTEXT SANITIZER ===
 const sanitizeHistory = (history: ChatMessage[]): Content[] => {
     const validHistory: Content[] = [];
     if (!history || history.length === 0) return [];
@@ -60,18 +55,18 @@ const sanitizeHistory = (history: ChatMessage[]): Content[] => {
     let lastRole = '';
 
     for (const msg of history) {
-        // Filter invalid roles
+        // 1. Validate content
+        if (!msg.text || msg.text.trim() === "") continue;
         if (msg.role !== 'user' && msg.role !== 'model') continue;
 
+        // 2. Prevent Role Duplication (Merge consecutive messages)
         if (msg.role === lastRole) {
-            // MERGE strategy: Si l'utilisateur envoie 2 msgs, on les combine
             const lastEntry = validHistory[validHistory.length - 1];
             if (lastEntry && lastEntry.parts) {
                 // @ts-ignore
                 lastEntry.parts[0].text += "\n" + msg.text;
             }
         } else {
-            // New turn
             validHistory.push({
                 role: msg.role,
                 parts: [{ text: msg.text }]
@@ -80,14 +75,55 @@ const sanitizeHistory = (history: ChatMessage[]): Content[] => {
         }
     }
     
-    // CRITICAL FIX: L'historique passé à 'chats.create' sert de CONTEXTE PASSÉ.
-    // La méthode 'sendMessage' ajoute le message ACTUEL.
-    // Donc, l'historique NE DOIT PAS finir par 'user', sinon Gemini reçoit [User, User] et plante (400).
+    // 3. Rule: History passed to chat session must NOT end with User message
+    // (Because sendMessage adds the new user message, creating a User->User conflict)
     if (validHistory.length > 0 && validHistory[validHistory.length - 1].role === 'user') {
         validHistory.pop();
     }
 
     return validHistory;
+};
+
+// === COMPRESSION ENGINE (MEMORY OPTIMIZER) ===
+const compressContext = async (history: ChatMessage[], currentMemory: string, userId: string): Promise<string> => {
+    // Only compress if history is long enough
+    if (history.length < 6) return currentMemory;
+
+    try {
+        if (!aiClient) initializeGenAI();
+        const textToCompress = history.map(m => `${m.role}: ${m.text}`).join('\n');
+        
+        // Fast model for summarization to save costs/time
+        const modelName = 'gemini-1.5-flash-8b'; 
+        
+        const prompt = `
+        ACT: Data Compressor.
+        TASK: Merge the "Current Memory" with the "New Conversation" into a single, concise summary.
+        
+        CURRENT MEMORY: "${currentMemory}"
+        NEW CONVERSATION: 
+        ${textToCompress}
+        
+        OUTPUT FORMAT (Strict Text):
+        - List completed lessons (Ex: "Lesson 1, 2 done").
+        - List mastered vocabulary.
+        - Note persistent grammar errors.
+        - Keep it under 500 characters.
+        `;
+
+        const response = await aiClient!.models.generateContent({
+            model: modelName,
+            contents: prompt,
+        });
+
+        const newMemory = response.text || currentMemory;
+        console.log("🧠 Memory Updated:", newMemory.substring(0, 50) + "...");
+        return newMemory;
+
+    } catch (e) {
+        console.warn("Compression failed, keeping old memory", e);
+        return currentMemory;
+    }
 };
 
 const executeWithRetry = async <T>(
@@ -106,11 +142,9 @@ const executeWithRetry = async <T>(
         const errorMsg = error.message?.toLowerCase() || '';
         console.warn(`⚠️ AI Error (Attempt ${attempt}):`, errorMsg);
         
-        // AUTO-HEAL: Si l'historique est corrompu (400), on réessaie SANS historique.
-        // C'est mieux de perdre le contexte que de planter l'app.
-        if (errorMsg.includes('turn') || errorMsg.includes('conversation') || errorMsg.includes('400') || errorMsg.includes('invalid argument')) {
-             console.warn("🔄 History Sync Error detected. Retrying operation with clean context.");
-             // On relance une exception spécifique que le caller (sendMessageToGeminiStream) peut attraper pour vider l'historique
+        // --- AUTO-HEAL PROTOCOL ---
+        // If history is bad (400), we throw a specific error to trigger the "Fresh Start" fallback in the caller
+        if (errorMsg.includes('400') || errorMsg.includes('invalid argument') || errorMsg.includes('turn')) {
              throw new Error("HISTORY_CORRUPT"); 
         }
 
@@ -118,18 +152,14 @@ const executeWithRetry = async <T>(
         const isServerBusy = errorMsg.includes('503') || errorMsg.includes('overloaded');
         const keys = getAvailableKeys();
 
-        if (isQuotaError || isServerBusy) {
-            if (attempt < keys.length - 1) {
-                initializeGenAI(true); 
-                return executeWithRetry(operation, userId, attempt + 1, fallbackIndex);
-            } 
-            if (fallbackIndex < FALLBACK_CHAIN.length - 1) {
-                initializeGenAI(true); 
-                return executeWithRetry(operation, userId, 0, fallbackIndex + 1);
-            }
+        if ((isQuotaError || isServerBusy) && attempt < keys.length * 2) {
+            initializeGenAI(true); 
+            // Exponential backoff for retries
+            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+            return executeWithRetry(operation, userId, attempt + 1, fallbackIndex);
         }
         
-        throw new Error("Service IA momentanément indisponible (Réseau ou Quota).");
+        throw new Error("Service IA momentanément indisponible.");
     }
 };
 
@@ -151,30 +181,52 @@ export const sendMessageToGeminiStream = async (
     userId: string,
     previousHistory: ChatMessage[], 
     onChunk: (text: string) => void
-): Promise<string> => {
+): Promise<{ fullText: string, newMemory?: string }> => {
     checkCreditsBeforeAction(userId);
 
-    // WRAPPER for Auto-Healing History
+    const user = storageService.getUserById(userId);
+    if (!user || !user.preferences) throw new Error("User data missing");
+
+    // 1. SMART COMPRESSION CHECK
+    // If history is getting too long (> 12 msgs), we compress it BEFORE sending to AI.
+    // This keeps the payload small for Supabase and Gemini.
+    let effectiveHistory = previousHistory;
+    let updatedMemory = user.aiMemory;
+    let hasCompressed = false;
+
+    if (previousHistory.length > 12) {
+        // Compress everything EXCEPT the last 2 messages (to keep immediate context flow)
+        const historyToCompress = previousHistory.slice(0, -2);
+        const immediateContext = previousHistory.slice(-2);
+        
+        // Async compression (fire and await)
+        updatedMemory = await compressContext(historyToCompress, user.aiMemory, userId);
+        
+        // Update user memory in storage immediately
+        const updatedUser = { ...user, aiMemory: updatedMemory };
+        storageService.saveUserProfile(updatedUser);
+        
+        // The AI only sees the new Memory + Immediate Context
+        effectiveHistory = immediateContext;
+        hasCompressed = true;
+    }
+
     const runStream = async (historyToUse: ChatMessage[]) => {
         return executeWithRetry(async (modelName) => {
             if (!aiClient) initializeGenAI();
-            if (!aiClient) throw new Error("AI not init");
-
-            const user = storageService.getUserById(userId);
-            if (!user || !user.preferences) throw new Error("User data missing");
             
-            const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
+            // Re-fetch user to get the absolute latest memory
+            const currentUser = storageService.getUserById(userId) || user;
+            const systemInstruction = SYSTEM_PROMPT_TEMPLATE(currentUser, currentUser.preferences!);
             
-            // IMPORTANT: sanitizeHistory va retirer le dernier message User s'il existe
-            // pour préparer le terrain pour le 'sendMessageStream' qui suit.
-            const historyPayload = sanitizeHistory(historyToUse).slice(-12); 
+            const historyPayload = sanitizeHistory(historyToUse);
 
-            const chat = aiClient.chats.create({
+            const chat = aiClient!.chats.create({
                 model: modelName,
                 config: {
                     systemInstruction: systemInstruction,
                     temperature: 0.7, 
-                    maxOutputTokens: 1500, // Augmenté pour les leçons complètes
+                    maxOutputTokens: 2000, 
                 },
                 history: historyPayload,
             });
@@ -194,17 +246,18 @@ export const sendMessageToGeminiStream = async (
     };
 
     try {
-        const text = await runStream(previousHistory);
+        const text = await runStream(effectiveHistory);
         storageService.deductCreditOrUsage(userId);
-        return text;
+        // Return newMemory so UI can update if compression happened
+        return { fullText: text, newMemory: hasCompressed ? updatedMemory : undefined };
     } catch (e: any) {
-        // Fallback: If history causes error, try with EMPTY history to save the user interaction
+        // FALLBACK: If error 400 (Bad History), retry with ZERO history.
+        // This unblocks the user at the cost of immediate context, but keeps Long Term Memory (System Prompt).
         if (e.message === "HISTORY_CORRUPT" || e.message?.includes('turn')) {
-            console.log("🔄 Auto-recovering chat with empty context...");
-            // Retry with empty history
-            const text = await runStream([]);
+            console.warn("🔄 History Corrupt. Auto-recovering with empty context...");
+            const text = await runStream([]); // Empty array = Clean start
             storageService.deductCreditOrUsage(userId);
-            return text;
+            return { fullText: text };
         }
         throw e;
     }
@@ -221,34 +274,31 @@ export const sendMessageToGemini = async (message: string, userId: string): Prom
 export const generateVoiceChatResponse = async (message: string, userId: string, previousHistory: ChatMessage[]) => {
     checkCreditsBeforeAction(userId);
     
-    const VOICE_MODEL = 'gemini-1.5-flash';
-
+    // Voice needs speed, so we use a shorter history window naturally (last 6)
     const runVoice = async (historyToUse: ChatMessage[]) => {
         return executeWithRetry(async () => {
             if (!aiClient) initializeGenAI();
-            if (!aiClient) throw new Error("AI not init");
-
             const user = storageService.getUserById(userId);
             
-            // Ultra-concise system prompt for speed
             const systemInstruction = `
                 ACT: Phone Tutor.
                 USER: ${user?.username}.
                 LANG: ${user?.preferences?.targetLanguage}.
+                MEMORY: ${user?.aiMemory || 'None'}.
                 RULES:
                 1. Answer in 1 short sentence (Max 15 words).
                 2. Be natural. No emojis.
                 3. If user says hello, just greet back.
             `;
 
-            const historyPayload = sanitizeHistory(historyToUse).slice(-6);
+            const historyPayload = sanitizeHistory(historyToUse).slice(-6); // Aggressive slicing for voice
 
-            const chat = aiClient.chats.create({
-                model: VOICE_MODEL,
+            const chat = aiClient!.chats.create({
+                model: 'gemini-1.5-flash',
                 config: {
                     systemInstruction: systemInstruction,
                     temperature: 0.6, 
-                    maxOutputTokens: 50, // Extreme limit for speed
+                    maxOutputTokens: 60,
                 },
                 history: historyPayload,
             });
@@ -277,7 +327,7 @@ export const generateSpeech = async (text: string, userId: string, voiceName: st
         if (!aiClient) return null;
 
         if (!text || !text.trim()) return null;
-        const safeText = text.replace(/[*#_`~]/g, '').substring(0, 500); // Limit chars for TTS speed
+        const safeText = text.replace(/[*#_`~]/g, '').substring(0, 500); 
 
         const response = await aiClient.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
@@ -393,7 +443,7 @@ export const generatePracticalExercises = async (profile: UserProfile, history: 
         if (!aiClient) initializeGenAI();
         const response = await aiClient!.models.generateContent({
             model: modelName,
-            contents: `Generate 5 language exercises. JSON Array.`,
+            contents: `Generate 5 language exercises based on recent chat. JSON Array.`,
             config: { responseMimeType: "application/json" }
         });
         storageService.deductCreditOrUsage(profile.id);
@@ -418,9 +468,14 @@ export const generateDailyChallenges = async (prefs: UserPreferences): Promise<D
 export const analyzeUserProgress = async (history: ChatMessage[], currentMemory: string, userId: string) => {
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
+        // This function is explicitly for closing sessions, so we can use it to compress heavily
+        const context = history.slice(-10).map(m => m.text).join('\n');
         const response = await aiClient!.models.generateContent({
             model: modelName,
-            contents: `Analyze progress. JSON: { "newMemory": "string", "xpEarned": number, "feedback": "string" }`,
+            contents: `Analyze progress & Update Memory. 
+            Old Memory: ${currentMemory}
+            Recent Chat: ${context}
+            JSON: { "newMemory": "string (updated summary of learned concepts)", "xpEarned": number, "feedback": "string" }`,
             config: { responseMimeType: "application/json" }
         });
         storageService.deductCreditOrUsage(userId);
@@ -448,12 +503,8 @@ export const generateRoleplayResponse = async (
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
         
-        // Use sanitizer here too
         const historyPayload = sanitizeHistory(history);
-        
-        // --- FIX HERE: Optional chaining for safety ---
         const context = historyPayload.map(m => `${m.role}: ${m.parts?.[0]?.text || ""}`).join('\n');
-        // ----------------------------------------------
 
         let systemPrompt = `ACT: Roleplay Partner. Scenario: ${scenario}. Language: ${userProfile.preferences?.targetLanguage}. Level: ${userProfile.preferences?.level}.`;
         
