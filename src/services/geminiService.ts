@@ -101,7 +101,7 @@ const executeWithRetry = async <T>(
             }
         }
         
-        console.error("❌ All models and keys exhausted. Service unavailable.");
+        console.error("❌ All models and keys exhausted. Service unavailable.", error);
         throw new Error("SERVICE_OVERLOAD_ALL_MODELS");
     }
 };
@@ -144,11 +144,18 @@ export const sendMessageToGeminiStream = async (
         // Load history specific to this language
         let history = await storageService.getChatHistory(userId, user.preferences.targetLanguage);
 
+        // CRITICAL FIX: The history typically includes the 'user' message we just added in the UI.
+        // We MUST remove it from the 'history' passed to 'chats.create', because 'sendMessageStream' 
+        // sends the user message again. Double user turn = API Error.
+        if (history.length > 0 && history[history.length - 1].role === 'user') {
+            history = history.slice(0, -1);
+        }
+
         // Generate context-aware system prompt
         const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
         
-        // Limit history to last 8 turns to keep context window focused and cheap
-        const historyParts = history.slice(-8).map(msg => ({
+        // Limit history to last 10 turns to keep context window focused and cheap
+        const historyParts = history.slice(-10).map(msg => ({
             role: msg.role,
             parts: [{ text: msg.text }]
         }));
@@ -247,13 +254,20 @@ export const generateVoiceChatResponse = async (message: string, userId: string,
         const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
+        // CRITICAL FIX: Exclude the last user message from history initialization
+        // because we are sending it as the new prompt.
+        let validHistory = history;
+        if (validHistory.length > 0 && validHistory[validHistory.length - 1].role === 'user') {
+            validHistory = validHistory.slice(0, -1);
+        }
+
         const systemInstruction = `
             ACT: Friendly language tutor on a phone call.
             USER: ${user.username}. LEVEL: ${user.preferences.level}. TARGET: ${user.preferences.targetLanguage}.
             RULES: Short, natural, encouraging. Max 2 sentences. No lists.
         `;
 
-        const historyParts = history.slice(-6).map(msg => ({
+        const historyParts = validHistory.slice(-6).map(msg => ({
             role: msg.role,
             parts: [{ text: msg.text }]
         }));
