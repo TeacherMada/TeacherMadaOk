@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, SystemSettings, AdminRequest } from '../types';
 import { storageService } from '../services/storageService';
-import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle, AlertTriangle } from 'lucide-react';
+import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle, AlertTriangle, Globe } from 'lucide-react';
+import { generateLanguageFlag } from '../services/geminiService';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
@@ -13,13 +14,17 @@ interface AdminDashboardProps {
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, onBack, isDarkMode, notify }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'requests' | 'settings'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'requests' | 'settings' | 'languages'>('users');
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [requests, setRequests] = useState<AdminRequest[]>([]);
   const [search, setSearch] = useState('');
   const [settings, setSettings] = useState<SystemSettings>(storageService.getSystemSettings());
   const [newApiKey, setNewApiKey] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // Custom Language State
+  const [newLangName, setNewLangName] = useState('');
+  const [addingLang, setAddingLang] = useState(false);
 
   // Manual Credit Input State (Key: userId, Value: amount string)
   const [manualCreditInputs, setManualCreditInputs] = useState<Record<string, string>>({});
@@ -39,6 +44,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
         ]);
         setUsers(fetchedUsers);
         setRequests(fetchedRequests);
+        setSettings(storageService.getSystemSettings());
     } catch (e) {
         notify("Erreur lors du chargement des données.", 'error');
     } finally {
@@ -77,7 +83,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
   const toggleSuspend = (user: UserProfile) => {
       const updated = { ...user, isSuspended: !user.isSuspended };
       storageService.saveUserProfile(updated);
-      // Optimistic update locally for immediate UI feedback
       setUsers(prev => prev.map(u => u.id === user.id ? updated : u));
       notify(`Utilisateur ${updated.isSuspended ? 'suspendu' : 'réactivé'}.`, 'info');
   };
@@ -102,6 +107,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
 
   const removeApiKey = (key: string) => {
       setSettings(prev => ({ ...prev, apiKeys: prev.apiKeys.filter(k => k !== key) }));
+  };
+
+  const handleAddLanguage = async () => {
+      if (!newLangName.trim()) return;
+      setAddingLang(true);
+      try {
+          const generated = await generateLanguageFlag(newLangName);
+          const newLang = { code: generated.code, baseName: newLangName, flag: generated.flag };
+          
+          const updatedSettings = {
+              ...settings,
+              customLanguages: [...(settings.customLanguages || []), newLang]
+          };
+          setSettings(updatedSettings);
+          await storageService.updateSystemSettings(updatedSettings);
+          setNewLangName('');
+          notify(`Langue ${generated.code} ajoutée !`, 'success');
+      } catch (e) {
+          notify("Erreur IA lors de l'ajout de la langue.", 'error');
+      } finally {
+          setAddingLang(false);
+      }
+  };
+
+  const removeLanguage = async (code: string) => {
+      const updatedSettings = {
+          ...settings,
+          customLanguages: (settings.customLanguages || []).filter(l => l.code !== code)
+      };
+      setSettings(updatedSettings);
+      await storageService.updateSystemSettings(updatedSettings);
+      notify("Langue supprimée.", 'info');
   };
 
   const filteredUsers = users.filter(u => u.username.toLowerCase().includes(search.toLowerCase()) || (u.email && u.email.toLowerCase().includes(search.toLowerCase())) || (u.phoneNumber && u.phoneNumber.includes(search)));
@@ -141,6 +178,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
             </button>
             <button onClick={() => setActiveTab('requests')} className={`px-4 py-3 md:px-6 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap transition-all ${activeTab === 'requests' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white dark:bg-slate-900 text-slate-500'}`}>
                 <MessageSquare className="w-5 h-5" /> Demandes <span className="bg-white/20 px-1.5 rounded-full text-xs">{requests.filter(r => r.status === 'pending').length}</span>
+            </button>
+            <button onClick={() => setActiveTab('languages')} className={`px-4 py-3 md:px-6 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap transition-all ${activeTab === 'languages' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white dark:bg-slate-900 text-slate-500'}`}>
+                <Globe className="w-5 h-5" /> Langues
             </button>
             <button onClick={() => setActiveTab('settings')} className={`px-4 py-3 md:px-6 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap transition-all ${activeTab === 'settings' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white dark:bg-slate-900 text-slate-500'}`}>
                 <Settings className="w-5 h-5" /> Système
@@ -253,8 +293,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
                                  <span className="font-bold text-lg text-slate-800 dark:text-white">{req.username}</span>
                                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full">{new Date(req.createdAt).toLocaleDateString()}</span>
                              </div>
-                             
-                             {/* Content Type Handling */}
                              <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
                                  {req.type === 'credit' && req.amount && (
                                      <div className="inline-flex items-center gap-1 text-indigo-600 font-bold bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1.5 rounded-lg text-sm w-fit">
@@ -266,7 +304,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
                                          <AlertTriangle className="w-4 h-4" /> RESET MDP
                                      </div>
                                  )}
-                                 
                                  {req.message && (
                                      <div className="text-slate-600 dark:text-slate-300 italic text-sm bg-slate-50 dark:bg-slate-800 p-2 rounded-lg border border-slate-100 dark:border-slate-700">
                                          "{req.message}"
@@ -279,7 +316,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
                                  )}
                              </div>
                          </div>
-                         
                          <div className="flex items-center gap-2 w-full md:w-auto">
                              {req.status === 'pending' ? (
                                  <div className="flex gap-2 w-full">
@@ -299,6 +335,48 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
                      </div>
                  ))}
              </div>
+        )}
+
+        {/* LANGUAGES TAB */}
+        {activeTab === 'languages' && (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 md:p-6 space-y-6">
+                <h3 className="text-lg font-bold flex items-center gap-2"><Globe className="w-5 h-5 text-indigo-500" /> Gestion des Langues Supplémentaires</h3>
+                
+                <div className="flex flex-col md:flex-row gap-2">
+                    <input 
+                        type="text" 
+                        value={newLangName}
+                        onChange={(e) => setNewLangName(e.target.value)}
+                        placeholder="Ex: Portugais, Italien..."
+                        className="flex-1 p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                    <button 
+                        onClick={handleAddLanguage} 
+                        disabled={addingLang || !newLangName.trim()}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 disabled:opacity-50"
+                    >
+                        {addingLang ? 'Génération IA...' : 'Ajouter Langue'} <Plus className="w-4 h-4"/>
+                    </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {settings.customLanguages?.map((lang) => (
+                        <div key={lang.code} className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
+                            <div>
+                                <span className="text-2xl mr-2">{lang.flag}</span>
+                                <span className="font-bold text-slate-800 dark:text-white">{lang.baseName}</span>
+                            </div>
+                            <button onClick={() => removeLanguage(lang.code)} className="text-red-500 hover:bg-red-100 p-2 rounded-full transition-colors"><X className="w-4 h-4"/></button>
+                        </div>
+                    ))}
+                    {(!settings.customLanguages || settings.customLanguages.length === 0) && (
+                        <div className="col-span-full text-center py-8 text-slate-400 text-sm">Aucune langue personnalisée ajoutée.</div>
+                    )}
+                </div>
+                <button onClick={saveSettings} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg mt-4">
+                    <Save className="w-5 h-5" /> Sauvegarder les changements
+                </button>
+            </div>
         )}
 
         {/* SETTINGS TAB */}

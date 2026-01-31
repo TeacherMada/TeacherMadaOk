@@ -1,7 +1,9 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target } from 'lucide-react';
 import LiveChatDemo from './LiveChatDemo';
+import { storageService } from '../services/storageService';
+import { TargetLanguage } from '../types';
 
 interface LandingPageProps {
   onStart: () => void;
@@ -29,6 +31,21 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
         setFadeKey((prev) => prev + 1);
     }, 2500);
     return () => clearInterval(interval);
+  }, []);
+
+  const displayedLanguages = useMemo(() => {
+      const systemSettings = storageService.getSystemSettings();
+      const customLangs = systemSettings.customLanguages || [];
+      const staticLangs = Object.values(TargetLanguage);
+      
+      const formattedStatic = staticLangs.map(l => ({
+          code: l,
+          baseName: l.split(' ')[0],
+          flag: l.split(' ')[1] || '🏳️'
+      }));
+
+      // Merge and take top 5
+      return [...formattedStatic, ...customLangs].slice(0, 7);
   }, []);
 
   return (
@@ -161,11 +178,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
           <div className="max-w-7xl mx-auto px-6">
               <p className="text-center text-sm font-bold text-slate-400 uppercase tracking-widest mb-8">Choisissez votre langue</p>
               <div className="flex flex-wrap justify-center gap-4 md:gap-8">
-                  <LanguageBadge flag="🇫🇷" name="Français" onClick={onStart} />
-                  <LanguageBadge flag="🇬🇧" name="Anglais" onClick={onStart} />
-                  <LanguageBadge flag="🇨🇳" name="Mandarin" onClick={onStart} />
-                  <LanguageBadge flag="🇪🇸" name="Espagnol" onClick={onStart} />
-                  <LanguageBadge flag="🇩🇪" name="Allemand" onClick={onStart} />
+                  {displayedLanguages.map((lang, idx) => (
+                      <LanguageBadge key={idx} flag={lang.flag} name={lang.baseName} onClick={onStart} />
+                  ))}
+                  <div onClick={onStart} className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm cursor-pointer opacity-70 hover:opacity-100">
+                      <span className="text-xs font-bold">Et + encore...</span>
+                  </div>
               </div>
           </div>
       </section>

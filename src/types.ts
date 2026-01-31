@@ -31,12 +31,21 @@ export enum LearningMode {
 }
 
 export interface UserPreferences {
-  targetLanguage: TargetLanguage;
+  targetLanguage: string; // Changed from enum to string to support custom languages
   level: LanguageLevel; 
   explanationLanguage: ExplanationLanguage;
   mode: LearningMode;
   fontSize?: 'small' | 'normal' | 'large' | 'xl';
   needsAssessment?: boolean;
+}
+
+export interface VocabularyItem {
+  id: string;
+  word: string;
+  translation: string;
+  context?: string; // Example sentence
+  mastered: boolean;
+  addedAt: number;
 }
 
 export interface DailyChallenge {
@@ -74,6 +83,7 @@ export interface UserProfile {
     pronunciation: number;
     listening: number;
   };
+  vocabulary?: VocabularyItem[]; // New Feature: Word Box
   dailyChallenges?: DailyChallenge[];
   lastChallengeDate?: string;
   aiMemory: string; 
@@ -109,6 +119,12 @@ export interface AdminRequest {
   createdAt: number;
 }
 
+export interface CustomLanguage {
+  code: string; // e.g., 'Italien 🇮🇹'
+  baseName: string; // e.g., 'Italien'
+  flag: string; // e.g., '🇮🇹'
+}
+
 export interface SystemSettings {
   apiKeys: string[];
   activeModel: string;
@@ -118,6 +134,7 @@ export interface SystemSettings {
     orange: string;
   };
   creditPrice: number;
+  customLanguages?: CustomLanguage[]; // New Feature: Dynamic Languages
 }
 
 export interface ChatMessage {

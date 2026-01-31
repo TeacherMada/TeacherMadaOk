@@ -1,44 +1,33 @@
 
-# 🚀 TeacherMada - Mise à jour "Intelligence & Progression" (v2.0)
+# 🚀 TeacherMada - Mise à jour v2.1 "Streaming & Vocabulaire"
 
-Cette mise à jour majeure transforme l'application en un tuteur intelligent adaptatif, avec une progression pédagogique stricte (CECRL / HSK).
+## 📋 Nouveautés
 
-## 📋 Nouveautés Principales
+1.  **Streaming des Réponses (Chat)** :
+    *   Les réponses de l'IA s'affichent désormais mot par mot en temps réel.
+    *   Améliore la perception de vitesse, crucial pour les connexions lentes à Madagascar.
+    *   Utilise `sendMessageStream` de l'API Gemini.
 
-1.  **Niveaux Standardisés & Intelligents** :
-    *   Support complet des niveaux CECRL (A1 à C2) pour les langues européennes.
-    *   Support complet des niveaux HSK (1 à 6) pour le Mandarin.
-2.  **Sélection Intelligente (Onboarding)** :
-    *   Nouvelle interface d'Onboarding interactive.
-    *   Descriptions détaillées et exemples concrets pour chaque niveau avant sélection.
-    *   Option "Je ne connais pas mon niveau" qui active un mode d'évaluation IA.
-3.  **Cerveau Pédagogique (Prompt System)** :
-    *   L'IA reçoit désormais des instructions contextuelles strictes.
-    *   Si l'utilisateur est A1, l'IA s'interdit d'utiliser du vocabulaire complexe.
-    *   Détection automatique des écarts de niveau (ex: un utilisateur se dit B2 mais fait des fautes A1 -> l'IA adapte).
-4.  **Suivi de Progression Précis** :
-    *   La barre de progression dans le chat n'est plus aléatoire.
-    *   Elle suit la progression réelle dans le niveau actuel (0 à 50 leçons).
-    *   Animation visuelle A1 -> A2 dans l'interface.
+2.  **Boîte à Mots (Vocabulaire)** :
+    *   Nouvel onglet "Mots" dans le Dashboard (SmartDashboard).
+    *   **Génération IA** : Un bouton permet d'analyser les 6 derniers messages pour extraire automatiquement 3-5 mots clés avec traduction et contexte.
+    *   **Ajout Manuel** : L'utilisateur peut ajouter ses propres mots.
+    *   **Audio TTS** : Écoute de la prononciation de chaque mot via l'icône haut-parleur.
+    *   **Suivi** : Marquer les mots comme "Maîtrisés".
 
-## 🛠️ Actions Requises (Admin / Développeur)
+3.  **Gestion Dynamique des Langues (Admin)** :
+    *   L'Admin peut désormais ajouter des langues non prévues initialement (ex: Portugais, Russe...).
+    *   L'IA génère automatiquement le drapeau (Emoji) et le nom standardisé.
+    *   Ces langues apparaissent immédiatement sur la Landing Page et l'Onboarding.
 
-### 1. Base de Données (Supabase)
-Aucune migration bloquante n'est nécessaire car nous utilisons le champ JSONB `stats`, mais pour information, la structure interne de `stats` évolue :
-- Avant : `{ xp, streak, lessonsCompleted }`
-- Maintenant : `{ xp, streak, lessonsCompleted, levelProgress }`
+## 🛠️ Modifications Techniques
 
-Le code gère automatiquement la migration des anciens utilisateurs lors de leur prochaine connexion (initialisation de `levelProgress` à 0).
+*   **Frontend** : Refonte de `handleSend` dans `ChatInterface` pour gérer le stream.
+*   **Backend/Storage** : Mise à jour de `UserProfile` pour inclure `vocabulary` et `SystemSettings` pour `customLanguages`.
+*   **Services** : Ajout de `sendMessageToGeminiStream` et `generateVocabularyFromHistory` dans `geminiService`.
 
-### 2. Configuration Backend (Si mode Hybride)
-Si vous utilisez le Backend Node.js optionnel, assurez-vous de redéployer le serveur. Cependant, cette mise à jour est conçue pour fonctionner en mode Serverless (Frontend -> Supabase Direct).
+## ⚠️ Notes Importantes
 
-### 3. Vérification post-déploiement
-1.  Connectez-vous avec un compte existant.
-2.  Allez dans le menu (cliquez sur le drapeau en haut à gauche) pour changer de langue/niveau.
-3.  Vérifiez que l'écran de sélection affiche bien les cartes détaillées (A1, A2, etc.).
-4.  Lancez une leçon et vérifiez que la barre de progression (en bas) indique bien "A1 -> A2" (ou HSK1 -> HSK2) avec un pourcentage cohérent.
-
-## 🐛 Corrections Incluses
-- Correction de l'erreur de syntaxe `error TS1005: '}' expected` dans `ChatInterface.tsx`.
-- Optimisation des types TypeScript pour éviter les conflits d'enum.
+*   Le streaming fonctionne uniquement en mode Chat texte. Le mode Vocal reste en réponse unique pour optimiser la latence audio.
+*   La génération de vocabulaire consomme 1 crédit utilisateur.
+*   Les langues ajoutées par l'admin sont stockées dans `system_settings` sur Supabase (si connecté) ou LocalStorage.

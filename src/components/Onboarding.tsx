@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { TargetLanguage, ExplanationLanguage, LearningMode, UserPreferences, LanguageLevel, LevelDescriptor } from '../types';
 import { LEVEL_DEFINITIONS } from '../constants';
+import { storageService } from '../services/storageService';
 import { BookOpen, Languages, GraduationCap, Sun, Moon, ArrowLeft, CheckCircle2, Info, HelpCircle } from 'lucide-react';
 
 interface OnboardingProps {
@@ -15,16 +16,32 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   const [prefs, setPrefs] = useState<Partial<UserPreferences>>({});
   const [selectedLevelDesc, setSelectedLevelDesc] = useState<LevelDescriptor | null>(null);
 
+  // Merge Static Enum languages with Dynamic System Settings languages
+  const allLanguages = useMemo(() => {
+      const systemSettings = storageService.getSystemSettings();
+      const customLangs = systemSettings.customLanguages || [];
+      const staticLangs = Object.values(TargetLanguage);
+      
+      // Map static langs to same format
+      const formattedStatic = staticLangs.map(l => ({
+          code: l,
+          baseName: l.split(' ')[0],
+          flag: l.split(' ')[1] || '🏳️'
+      }));
+
+      return [...formattedStatic, ...customLangs];
+  }, []);
+
   // Determine levels based on language choice
   const availableLevels = useMemo(() => {
-    if (prefs.targetLanguage === TargetLanguage.Chinese) {
+    if (prefs.targetLanguage && prefs.targetLanguage.includes("Chinois")) {
         return ['HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
     }
     return ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
   }, [prefs.targetLanguage]);
 
-  const handleLanguageSelect = (lang: TargetLanguage) => {
-    setPrefs(prev => ({ ...prev, targetLanguage: lang }));
+  const handleLanguageSelect = (langCode: string) => {
+    setPrefs(prev => ({ ...prev, targetLanguage: langCode }));
     setStep(2);
   };
 
@@ -41,7 +58,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   };
 
   const handleUnknownLevel = () => {
-      const defaultLevel = prefs.targetLanguage === TargetLanguage.Chinese ? 'HSK 1' : 'A1';
+      const defaultLevel = prefs.targetLanguage?.includes("Chinois") ? 'HSK 1' : 'A1';
       setPrefs(prev => ({ ...prev, level: defaultLevel, needsAssessment: true }));
       setStep(3);
   };
@@ -89,18 +106,18 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
                 <Languages className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
             </div>
             <h2 className="text-2xl md:text-3xl font-black mb-2 text-slate-900 dark:text-white">Quelle langue apprendre ?</h2>
-            <p className="text-slate-500 dark:text-slate-400 mb-8">Choisissez la langue que vous souhaitez maîtriser.</p>
+            <p className="text-slate-500 dark:text-slate-400 mb-8">Choisissez parmi {allLanguages.length} langues disponibles.</p>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Object.values(TargetLanguage).map((lang) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto scrollbar-hide">
+              {allLanguages.map((lang, idx) => (
                 <button
-                  key={lang}
-                  onClick={() => handleLanguageSelect(lang)}
+                  key={idx}
+                  onClick={() => handleLanguageSelect(lang.code)}
                   className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-all flex items-center group text-left shadow-sm hover:shadow-md"
                 >
-                  <span className="text-3xl mr-4">{lang.split(' ').pop()}</span>
+                  <span className="text-3xl mr-4">{lang.flag}</span>
                   <div>
-                      <span className="font-bold text-lg text-slate-800 dark:text-white block">{lang.replace(/ .*/, '')}</span>
+                      <span className="font-bold text-lg text-slate-800 dark:text-white block">{lang.baseName}</span>
                       <span className="text-xs text-slate-400 group-hover:text-indigo-500 dark:group-hover:text-indigo-300">Sélectionner</span>
                   </div>
                 </button>

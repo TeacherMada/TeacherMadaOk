@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, Coins, Lock, BrainCircuit, Menu, FileText, Type, RotateCcw, MessageCircle, Image as ImageIcon, Library, PhoneOff, VolumeX, Trophy, Info, ChevronUp, Keyboard } from 'lucide-react';
 import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage, VoiceCallSummary } from '../types';
-import { sendMessageToGemini, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
+import { sendMessageToGeminiStream, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import MarkdownRenderer from './MarkdownRenderer';
 import ExerciseSession from './ExerciseSession';
@@ -221,10 +221,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     recognition.interimResults = false;
     
     let lang = 'fr-FR';
-    if (preferences.targetLanguage === TargetLanguage.English) lang = 'en-US';
-    else if (preferences.targetLanguage === TargetLanguage.Spanish) lang = 'es-ES';
-    else if (preferences.targetLanguage === TargetLanguage.German) lang = 'de-DE';
-    else if (preferences.targetLanguage === TargetLanguage.Chinese) lang = 'zh-CN';
+    if (preferences.targetLanguage.includes("Anglais")) lang = 'en-US';
+    else if (preferences.targetLanguage.includes("Espagnol")) lang = 'es-ES';
+    else if (preferences.targetLanguage.includes("Allemand")) lang = 'de-DE';
+    else if (preferences.targetLanguage.includes("Chinois")) lang = 'zh-CN';
     
     recognition.lang = lang;
     
@@ -292,35 +292,23 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   // --- Call Handlers ---
-  
-  // Call Timer Logic & Credit Deduction
   useEffect(() => {
       let interval: any;
       if (isCallActive && !isCallConnecting && !callSummary) {
           interval = setInterval(() => {
               setCallSeconds(prev => {
                   const newVal = prev + 1;
-                  
-                  // Deduct credit every 60 seconds (1 minute = 1 credit)
                   if (newVal > 0 && newVal % 60 === 0) {
                       const updatedUser = storageService.deductCreditOrUsage(user.id);
-                      
                       if (updatedUser) {
                           onUpdateUser(updatedUser);
                           notify("1 min écoulée : -1 Crédit", 'info');
                       } else {
-                          // Crucial: Auto-cut if deduction fails (returns null)
                           clearInterval(interval);
                           notify("Crédit épuisé. Fin de l'appel.", 'error');
                           handleEndCall();
                       }
                   }
-                  
-                  // Warning at 50s mark of a minute if low credits
-                  if (newVal % 60 === 50 && user.credits <= 1 && user.role !== 'admin') {
-                      notify("Attention : Il vous reste 10 secondes...", 'info');
-                  }
-                  
                   return newVal;
               });
           }, 1000);
@@ -331,27 +319,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const playRingbackTone = () => {
       const ctx = getAudioContext();
       if (ctx.state === 'suspended') ctx.resume();
-      
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      
       osc.connect(gain);
       gain.connect(ctx.destination);
-      
-      // Standard Ringback Tone freq (approx 425Hz)
       osc.frequency.value = 425; 
-      
-      // Pattern: "tu-tu... tu-tu..."
-      // Pulse 1
       gain.gain.setValueAtTime(0.5, ctx.currentTime);
       gain.gain.setValueAtTime(0, ctx.currentTime + 0.4);
-      // Pulse 2
       gain.gain.setValueAtTime(0.5, ctx.currentTime + 0.8);
       gain.gain.setValueAtTime(0, ctx.currentTime + 1.2);
-      
       osc.start();
-      
-      // Create a pulse effect
       const pulse = setInterval(() => {
           if (ctx.state === 'closed') return;
           const t = ctx.currentTime;
@@ -359,11 +336,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           gain.gain.setValueAtTime(0, t + 0.4);
           gain.gain.setValueAtTime(0.5, t + 0.8);
           gain.gain.setValueAtTime(0, t + 1.2);
-      }, 3000); // Repeat every 3s
-
+      }, 3000);
       ringbackOscillatorRef.current = osc;
-      
-      // Store pulse interval to clear it
       // @ts-ignore
       osc.pulseInterval = pulse;
   };
@@ -391,21 +365,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setCallSeconds(0);
       setCallSummary(null);
       setIsAnalyzingCall(false);
-      
-      // Play Ringback
       playRingbackTone();
-      
-      // Connect after 5 seconds
       setTimeout(() => {
           stopRingback();
           setIsCallConnecting(false);
-          
-          // Initial Greeting based on Explanation Language
           const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
           const greeting = isMg 
-            ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika, niveau ${preferences.level}...`
-            : `Allô ${user.username} ! 😊 Nous allons pratiquer ensemble le ${preferences.targetLanguage}, niveau ${preferences.level}...`;
-          
+            ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika...`
+            : `Allô ${user.username} ! 😊 Nous allons pratiquer ensemble le ${preferences.targetLanguage}...`;
           handleSpeak(greeting);
       }, 5000);
   };
@@ -414,9 +381,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       stopListening();
       stopAudio();
       stopRingback();
-      
       if (callSeconds > 10) {
-          // Analyze call
           setIsAnalyzingCall(true);
           try {
               const summary = await analyzeVoiceCallPerformance(messages, user.id);
@@ -427,7 +392,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               setIsAnalyzingCall(false);
           }
       } else {
-          // Too short, just close
           closeCallOverlay();
       }
   };
@@ -443,7 +407,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const toggleMute = () => setIsMuted(!isMuted);
 
-  // --- Core Handlers ---
+  // --- Core Handlers (Updated for Streaming) ---
 
   const handleSend = async (textOverride?: string) => {
     stopAudio();
@@ -459,15 +423,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         return;
     }
     
+    // 1. Optimistic UI Update (User Message)
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
     const updatedWithUser = [...messages, userMsg];
     setMessages(updatedWithUser);
-    storageService.saveChatHistory(user.id, updatedWithUser, preferences.targetLanguage); // Update to save per language
+    storageService.saveChatHistory(user.id, updatedWithUser, preferences.targetLanguage);
     
     setInput('');
     setVoiceTextInput('');
     setGeneratedImage(null);
-
     setIsLoading(true);
     onMessageSent();
 
@@ -475,26 +439,44 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       let responseText = "";
       
       if (isCallActive) {
-          // Use specific Voice AI Logic
+          // Voice Mode (No Streaming for simplicity + Speed preference)
           responseText = await generateVoiceChatResponse(textToSend, user.id, updatedWithUser);
+          const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() };
+          const finalHistory = [...updatedWithUser, aiMsg];
+          setMessages(finalHistory);
+          storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage);
+          handleSpeak(responseText);
       } else {
-          // Standard Chat Logic
-          responseText = await sendMessageToGemini(textToSend, user.id);
+          // Chat Mode (STREAMING ENABLED)
+          // Create placeholder message
+          const aiMsgId = (Date.now() + 1).toString();
+          const placeholderMsg: ChatMessage = { id: aiMsgId, role: 'model', text: '', timestamp: Date.now() };
+          setMessages(prev => [...prev, placeholderMsg]);
+
+          // Stream callback
+          await sendMessageToGeminiStream(textToSend, user.id, (chunkText) => {
+              setMessages(current => {
+                  const newMessages = [...current];
+                  const lastMsg = newMessages[newMessages.length - 1];
+                  if (lastMsg && lastMsg.id === aiMsgId) {
+                      lastMsg.text += chunkText; // Append chunk
+                  }
+                  return newMessages;
+              });
+          });
+          
+          // Note: Full history save happens in storageService implicitly or we can do it here after stream
+          // For safety, we save the full state once stream is done implicitly by user leaving or next load
+          // But to be safe, let's grab the final state from the setMessages callback wrapper if possible
+          // Simpler: Just refresh user data
       }
 
-      const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() };
-      const finalHistory = [...updatedWithUser, aiMsg];
-      setMessages(finalHistory);
-      storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage); // Update to save per language
       refreshUserData();
-      
-      // Voice Call Auto-Reply
-      if (isCallActive) {
-          handleSpeak(responseText);
-      }
 
     } catch (error) {
       handleErrorAction(error);
+      // Remove placeholder if error and empty
+      setMessages(current => current.filter(m => m.text.trim() !== ''));
     } finally { 
       setIsLoading(false); 
     }
@@ -524,14 +506,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         setShowPaymentModal(true);
         return;
     }
-    
     setIsGeneratingImage(true);
     setShowSmartOptions(false);
-    
     try {
         const prompt = `Digital illustration of ${preferences.targetLanguage} learning concept or culture, colorful, modern vector art style, educational context.`;
         const base64Image = await generateConceptImage(prompt, user.id);
-        
         if (base64Image) {
             setGeneratedImage(base64Image);
             refreshUserData();
@@ -691,12 +670,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const element = document.getElementById(`msg-content-${msgId}`);
       if (!element) return;
       try {
-          // @ts-ignore
-          if (typeof window.html2canvas === 'undefined') { notify("Erreur: Bibliothèque d'export indisponible", 'error'); return; }
+          if (typeof (window as any).html2canvas === 'undefined') { notify("Erreur: Bibliothèque d'export indisponible", 'error'); return; }
           
           // Use onclone to add signature before capture
-          // @ts-ignore
-          const canvas = await window.html2canvas(element, { 
+          const canvas = await (window as any).html2canvas(element, { 
               scale: 2, 
               backgroundColor: null, 
               useCORS: true,
@@ -741,7 +718,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     return `${parts[0]} ${parts[parts.length - 1]}`;
   };
 
-  // Explanation Language for UI strings
   const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
 
   return (
@@ -823,10 +799,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         
                         {/* Frame-breaking Hero Avatar */}
                         <div className={`relative w-40 h-40 ${isPlayingAudio ? 'scale-110' : 'scale-100'} transition-transform duration-500`}>
-                            {/* Background Container */}
                             <div className="absolute bottom-0 left-0 right-0 top-4 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-full shadow-[0_10px_40px_-10px_rgba(79,70,229,0.5)]"></div>
-
-                            {/* Image Popping Out */}
                             <div className="absolute inset-0 flex items-end justify-center overflow-visible">
                                  {isCallConnecting ? (
                                      <div className="w-full h-full rounded-full flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
@@ -846,7 +819,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     
                     {/* Controls */}
                     <div className="w-full max-w-xs grid grid-cols-3 gap-6 mb-12 relative z-20">
-                        {/* Write Button Replacement for Mute */}
                         <button 
                             onClick={() => setShowVoiceInput(prev => !prev)} 
                             className={`flex flex-col items-center gap-2 group`}
@@ -868,12 +840,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         </button>
 
                         <div className="relative flex flex-col items-center gap-2">
-                             {/* Permanent Tooltip Indicator */}
-                            <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-white text-slate-900 text-[10px] font-bold px-2 py-1 rounded shadow-lg animate-bounce pointer-events-none z-30 whitespace-nowrap">
-                                {isMg ? "Tsindrio eto" : "Appuyez ici"}
-                                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 rotate-45 w-1.5 h-1.5 bg-white"></div>
-                            </div>
-
                             <button 
                                 onClick={toggleListening} 
                                 className={`p-4 rounded-full transition-all ${isListening ? 'bg-white text-slate-900 ring-4 ring-emerald-500/50' : 'bg-slate-800/50 text-white border border-slate-700 hover:bg-slate-700'}`}

@@ -1,8 +1,9 @@
 
 import React, { useMemo, useState } from 'react';
-import { UserProfile, ChatMessage } from '../types';
-import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown, Trash2, Shield, AlertTriangle } from 'lucide-react';
+import { UserProfile, ChatMessage, VocabularyItem } from '../types';
+import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown, Trash2, Shield, AlertTriangle, Plus, Sparkles, Loader2, Volume2 } from 'lucide-react';
 import { storageService } from '../services/storageService';
+import { generateVocabularyFromHistory, generateSpeech } from '../services/geminiService';
 import { CREDIT_PRICE_ARIARY, ADMIN_CONTACTS } from '../constants';
 
 interface SmartDashboardProps {
@@ -33,13 +34,18 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
   notify
 }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'hub' | 'stats' | 'lessons'>('hub');
+  const [activeTab, setActiveTab] = useState<'hub' | 'stats' | 'lessons' | 'vocab'>('hub');
   const [editForm, setEditForm] = useState({
       username: user.username,
       email: user.email || '',
       password: user.password || ''
   });
   
+  // Vocab State
+  const [isGeneratingVocab, setIsGeneratingVocab] = useState(false);
+  const [newWordForm, setNewWordForm] = useState({ word: '', translation: '', context: '' });
+  const [isAddingWord, setIsAddingWord] = useState(false);
+
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const [copied, setCopied] = useState(false);
@@ -67,11 +73,8 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
     };
   }, [user]);
 
-  // PROGRESSION INTELLIGENTE PAR NIVEAU
   const currentLevelCode = user.preferences?.level || 'A1';
-  // Si la structure progressByLevel n'existe pas encore, on prend 0
   const specificLevelProgress = user.stats.progressByLevel?.[currentLevelCode] || 0;
-  // Limiter à 100% visuellement
   const displayProgress = Math.min(specificLevelProgress, 100);
 
   const completedLessons = useMemo(() => {
@@ -105,15 +108,76 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
       await storageService.clearChatHistory(user.id, user.preferences?.targetLanguage);
       notify("Historique effacé. Redémarrez l'app si nécessaire.", 'success');
       setShowClearConfirm(false);
-      onClose(); // Force reload usually triggered by parent, or user can assume cleared
-      window.location.reload(); // Simple refresh to clear memory state
+      onClose(); 
+      window.location.reload(); 
   };
 
-  // Redirection Admin
   const handleAdminAccess = () => {
-      // Pour simuler la navigation, on recharge l'app. 
-      // Comme user.role = admin, App.tsx affichera l'AdminDashboard au mount.
       window.location.reload(); 
+  };
+
+  // VOCAB HANDLERS
+  const handleGenerateVocab = async () => {
+      setIsGeneratingVocab(true);
+      try {
+          const newWords = await generateVocabularyFromHistory(user.id, messages);
+          if (newWords.length > 0) {
+              const currentVocab = user.vocabulary || [];
+              const updatedUser = { ...user, vocabulary: [...newWords, ...currentVocab] };
+              onUpdateUser(updatedUser);
+              notify(`${newWords.length} mots ajoutés à votre boîte !`, 'success');
+          } else {
+              notify("Pas assez de contenu récent pour extraire des mots.", 'info');
+          }
+      } catch (e: any) {
+          if(e.message === 'INSUFFICIENT_CREDITS') notify("Crédits insuffisants.", 'error');
+          else notify("Erreur lors de la génération.", 'error');
+      } finally {
+          setIsGeneratingVocab(false);
+      }
+  };
+
+  const handleAddManualWord = () => {
+      if (!newWordForm.word || !newWordForm.translation) return;
+      const newWord: VocabularyItem = {
+          id: `manual_${Date.now()}`,
+          word: newWordForm.word,
+          translation: newWordForm.translation,
+          context: newWordForm.context,
+          mastered: false,
+          addedAt: Date.now()
+      };
+      const updatedUser = { ...user, vocabulary: [newWord, ...(user.vocabulary || [])] };
+      onUpdateUser(updatedUser);
+      setNewWordForm({ word: '', translation: '', context: '' });
+      setIsAddingWord(false);
+      notify("Mot ajouté !", 'success');
+  };
+
+  const toggleWordMastery = (wordId: string) => {
+      const updatedVocab = (user.vocabulary || []).map(w => 
+          w.id === wordId ? { ...w, mastered: !w.mastered } : w
+      );
+      onUpdateUser({ ...user, vocabulary: updatedVocab });
+  };
+
+  const deleteWord = (wordId: string) => {
+      const updatedVocab = (user.vocabulary || []).filter(w => w.id !== wordId);
+      onUpdateUser({ ...user, vocabulary: updatedVocab });
+  };
+
+  const playWordAudio = async (text: string) => {
+      try {
+          const audioBuffer = await generateSpeech(text, user.id);
+          if (audioBuffer) {
+              const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const decoded = await ctx.decodeAudioData(audioBuffer);
+              const source = ctx.createBufferSource();
+              source.buffer = decoded;
+              source.connect(ctx.destination);
+              source.start(0);
+          }
+      } catch(e) { console.error(e); }
   };
 
   return (
@@ -158,10 +222,11 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
 
         {/* Tabs - Pills Design */}
         <div className="px-6 py-4 bg-white dark:bg-[#131825]">
-            <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+            <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-x-auto scrollbar-hide">
                 <TabButton active={activeTab === 'hub'} onClick={() => setActiveTab('hub')} icon={<Target className="w-4 h-4"/>} label="Hub" />
+                <TabButton active={activeTab === 'vocab'} onClick={() => setActiveTab('vocab')} icon={<BookOpen className="w-4 h-4"/>} label="Mots" />
                 <TabButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} icon={<PieChart className="w-4 h-4"/>} label="Stats" />
-                <TabButton active={activeTab === 'lessons'} onClick={() => setActiveTab('lessons')} icon={<BookOpen className="w-4 h-4"/>} label="Leçons" />
+                <TabButton active={activeTab === 'lessons'} onClick={() => setActiveTab('lessons')} icon={<Calendar className="w-4 h-4"/>} label="Leçons" />
             </div>
         </div>
 
@@ -295,6 +360,74 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                 </div>
             )}
 
+            {/* === TAB: VOCABULAIRE === */}
+            {activeTab === 'vocab' && (
+                <div className="space-y-4 animate-fade-in">
+                    
+                    <div className="flex gap-2 mb-4">
+                        <button 
+                            onClick={handleGenerateVocab} 
+                            disabled={isGeneratingVocab}
+                            className="flex-1 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition-all"
+                        >
+                            {isGeneratingVocab ? <Loader2 className="w-4 h-4 animate-spin"/> : <Sparkles className="w-4 h-4"/>} 
+                            Générer via IA
+                        </button>
+                        <button 
+                            onClick={() => setIsAddingWord(!isAddingWord)} 
+                            className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                        >
+                            <Plus className="w-5 h-5"/>
+                        </button>
+                    </div>
+
+                    {isAddingWord && (
+                        <div className="bg-white dark:bg-[#1A2030] p-4 rounded-2xl border border-slate-100 dark:border-white/5 animate-slide-up">
+                            <h4 className="text-sm font-bold text-slate-800 dark:text-white mb-3">Ajouter un mot</h4>
+                            <div className="space-y-2">
+                                <input type="text" placeholder="Mot (Langue cible)" value={newWordForm.word} onChange={e => setNewWordForm({...newWordForm, word: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-sm border border-slate-200 dark:border-slate-700 outline-none" />
+                                <input type="text" placeholder="Traduction" value={newWordForm.translation} onChange={e => setNewWordForm({...newWordForm, translation: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-sm border border-slate-200 dark:border-slate-700 outline-none" />
+                                <input type="text" placeholder="Contexte (Exemple)" value={newWordForm.context} onChange={e => setNewWordForm({...newWordForm, context: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-sm border border-slate-200 dark:border-slate-700 outline-none" />
+                                <button onClick={handleAddManualWord} className="w-full py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold mt-2">Confirmer</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {!user.vocabulary || user.vocabulary.length === 0 ? (
+                        <div className="text-center py-10 text-slate-400">
+                            <BookOpen className="w-12 h-12 mx-auto mb-2 opacity-30"/>
+                            <p className="text-sm">Votre boîte à mots est vide.</p>
+                            <p className="text-xs">Utilisez l'IA pour extraire les mots importants de vos conversations.</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 gap-3">
+                            {user.vocabulary.map((item) => (
+                                <div key={item.id} className={`p-4 rounded-xl border transition-all hover:shadow-md ${item.mastered ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-900' : 'bg-white dark:bg-[#1A2030] border-slate-100 dark:border-white/5'}`}>
+                                    <div className="flex justify-between items-start mb-1">
+                                        <h4 className="font-bold text-slate-800 dark:text-white text-lg flex items-center gap-2">
+                                            {item.word}
+                                            <button onClick={() => playWordAudio(item.word)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400 hover:text-indigo-500">
+                                                <Volume2 className="w-4 h-4"/>
+                                            </button>
+                                        </h4>
+                                        <button onClick={() => deleteWord(item.id)} className="text-slate-300 hover:text-red-500"><X className="w-4 h-4"/></button>
+                                    </div>
+                                    <p className="text-sm text-indigo-600 dark:text-indigo-400 font-medium mb-2">{item.translation}</p>
+                                    {item.context && <p className="text-xs text-slate-500 dark:text-slate-400 italic mb-3">"{item.context}"</p>}
+                                    
+                                    <button 
+                                        onClick={() => toggleWordMastery(item.id)} 
+                                        className={`w-full py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors ${item.mastered ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 hover:text-emerald-600'}`}
+                                    >
+                                        {item.mastered ? <><Check className="w-3 h-3"/> Maîtrisé</> : "Marquer comme maîtrisé"}
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* === TAB: STATS === */}
             {activeTab === 'stats' && (
                 <div className="space-y-6 animate-fade-in">
@@ -396,7 +529,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
 const TabButton = ({ active, onClick, icon, label }: any) => (
     <button 
         onClick={onClick}
-        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${active ? 'bg-white dark:bg-[#0F1422] text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+        className={`flex-1 min-w-[80px] flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${active ? 'bg-white dark:bg-[#0F1422] text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
     >
         {icon} {label}
     </button>

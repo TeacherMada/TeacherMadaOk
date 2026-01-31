@@ -13,7 +13,8 @@ const DEFAULT_SETTINGS: SystemSettings = {
     airtel: "033 38 784 20",
     orange: "032 69 790 17"
   },
-  creditPrice: 50
+  creditPrice: 50,
+  customLanguages: []
 };
 
 // --- Helper: Timezone Management ---
@@ -33,13 +34,11 @@ export const storageService = {
   login: async (identifier: string, password?: string): Promise<{ success: boolean, user?: UserProfile, error?: string }> => {
     if (!identifier) return { success: false, error: "Identifiant requis." };
     
-    // 1. Vérification Configuration
     if (!isSupabaseConfigured()) {
         return { success: false, error: "Erreur config: Serveur non connecté." };
     }
 
     try {
-        // 2. Appel Supabase Direct
         const { data, error } = await supabase
             .from('profiles')
             .select('*')
@@ -56,7 +55,6 @@ export const storageService = {
             return { success: false, error: "Utilisateur introuvable." };
         }
 
-        // 3. Vérification Mot de passe
         if (password && data.password !== password) {
             return { success: false, error: "Mot de passe incorrect." };
         }
@@ -65,7 +63,6 @@ export const storageService = {
             return { success: false, error: "Compte suspendu. Contactez l'admin." };
         }
 
-        // 4. Mapping des données
         const user: UserProfile = {
             id: data.id,
             username: data.username,
@@ -77,6 +74,7 @@ export const storageService = {
             stats: data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, levelProgress: 0, progressByLevel: {} },
             preferences: data.preferences,
             skills: data.skills || { vocabulary: 10, grammar: 5, pronunciation: 5, listening: 5 },
+            vocabulary: data.vocabulary || [], // Load Vocab
             aiMemory: data.ai_memory || "Nouvel utilisateur.",
             isPremium: false,
             hasSeenTutorial: data.has_seen_tutorial || false,
@@ -84,10 +82,8 @@ export const storageService = {
             freeUsage: data.free_usage || { lastResetWeek: getMadagascarCurrentWeek(), count: 0 }
         };
 
-        // Ensure stats structure (migration)
         if (!user.stats.progressByLevel) {
             user.stats.progressByLevel = {};
-            // Init with old levelProgress if available
             if (user.preferences?.level) {
                 user.stats.progressByLevel[user.preferences.level] = user.stats.levelProgress || 0;
             }
@@ -137,10 +133,11 @@ export const storageService = {
             preferences: null,
             stats: { xp: 0, streak: 1, lessonsCompleted: 0, levelProgress: 0, progressByLevel: {} },
             skills: { vocabulary: 10, grammar: 5, pronunciation: 5, listening: 5 },
+            vocabulary: [],
             aiMemory: "Nouvel utilisateur.",
             isPremium: false,
             hasSeenTutorial: false,
-            credits: 3, // CHANGE: 3 Credits Gratuits à l'inscription
+            credits: 3, 
             freeUsage: {
                 lastResetWeek: getMadagascarCurrentWeek(),
                 count: 0
@@ -157,6 +154,7 @@ export const storageService = {
             credits: newUser.credits,
             stats: newUser.stats,
             preferences: newUser.preferences,
+            vocabulary: newUser.vocabulary,
             free_usage: newUser.freeUsage,
             created_at: newUser.createdAt
         });
@@ -204,7 +202,6 @@ export const storageService = {
       if (data) {
           const local = storageService.getUserById(userId) || {} as UserProfile;
           
-          // Ensure structure integrity on sync
           const stats = data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, levelProgress: 0, progressByLevel: {} };
           if (!stats.progressByLevel) stats.progressByLevel = {};
 
@@ -215,6 +212,7 @@ export const storageService = {
               isSuspended: data.is_suspended,
               freeUsage: data.free_usage,
               username: data.username,
+              vocabulary: data.vocabulary || [], // Sync Vocab
               stats: stats
           };
           localStorage.setItem(`user_data_${userId}`, JSON.stringify(merged));
@@ -231,7 +229,6 @@ export const storageService = {
     
     if (user.role === 'admin') return { allowed: true, reason: 'credits' }; 
 
-    // Limite gratuite augmentée à 3
     if (user.freeUsage.count < 3) {
         return { allowed: true, reason: 'free_tier' };
     }
@@ -248,7 +245,6 @@ export const storageService = {
       if (!user) return null;
       if (user.role === 'admin') return user;
 
-      // Limite gratuite augmentée à 3
       if (user.freeUsage.count < 3) {
           user.freeUsage.count += 1;
       } else if (user.credits > 0) {
@@ -273,11 +269,9 @@ export const storageService = {
   // --- Chat History (CLOUD SYNCED) ---
 
   saveChatHistory: async (userId: string, messages: ChatMessage[], language?: string) => {
-    // 1. Local Save (Instant)
     const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
     localStorage.setItem(`chat_history_${userId}_${langKey}`, JSON.stringify(messages));
 
-    // 2. Cloud Save (Dernier message seulement pour économiser la bande passante)
     if (isSupabaseConfigured() && messages.length > 0) {
         const lastMsg = messages[messages.length - 1];
         
@@ -293,7 +287,6 @@ export const storageService = {
     }
   },
 
-  // Charge l'historique complet depuis le Cloud
   loadChatHistoryFromCloud: async (userId: string, language?: string): Promise<ChatMessage[]> => {
       if (!isSupabaseConfigured()) return [];
       
@@ -304,7 +297,7 @@ export const storageService = {
         .select('*')
         .eq('user_id', userId)
         .eq('language', langKey)
-        .order('timestamp', { ascending: true }); // Important: Chronologique
+        .order('timestamp', { ascending: true }); 
 
       if (error) {
           console.error("Error fetching chat history", error);
@@ -313,13 +306,12 @@ export const storageService = {
 
       if (data && data.length > 0) {
           const formatted: ChatMessage[] = data.map(row => ({
-              id: row.id, // Use UUID from DB
+              id: row.id, 
               role: row.role as 'user' | 'model',
               text: row.text,
               timestamp: row.timestamp
           }));
           
-          // Mise à jour du cache local
           localStorage.setItem(`chat_history_${userId}_${langKey}`, JSON.stringify(formatted));
           return formatted;
       }
@@ -327,7 +319,6 @@ export const storageService = {
       return [];
   },
 
-  // Récupération synchrone (Cache local) pour l'affichage immédiat
   getChatHistory: (userId: string, language?: string): ChatMessage[] => {
     const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
     const data = localStorage.getItem(`chat_history_${userId}_${langKey}`);
@@ -336,17 +327,13 @@ export const storageService = {
   
   clearChatHistory: async (userId: string, language?: string) => {
       const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
-      
-      // 1. Delete Local
       localStorage.removeItem(`chat_history_${userId}_${langKey}`);
       
-      // 2. Delete Cloud
       if (isSupabaseConfigured()) {
           try {
               if (language) {
                   await supabase.from('chat_history').delete().eq('user_id', userId).eq('language', langKey);
               } else {
-                  // If no language specified, clear all for user
                   await supabase.from('chat_history').delete().eq('user_id', userId);
               }
           } catch (e) {
@@ -400,6 +387,7 @@ export const storageService = {
               phoneNumber: u.phone_number,
               freeUsage: u.free_usage,
               isSuspended: u.is_suspended,
+              vocabulary: u.vocabulary || [],
               createdAt: u.created_at
           }));
       }
@@ -446,6 +434,7 @@ export const storageService = {
               credits: user.credits,
               stats: user.stats,
               preferences: user.preferences,
+              vocabulary: user.vocabulary, // Sync Vocab
               free_usage: user.freeUsage,
               is_suspended: user.isSuspended,
               ai_memory: user.aiMemory,
@@ -473,12 +462,10 @@ export const storageService = {
   },
 
   seedAdmin: async () => {
-    // Cette fonction tente de créer l'admin s'il n'existe pas dans la DB
     if (!isSupabaseConfigured()) return;
 
     const adminId = 'admin_0349310268';
     
-    // On check si l'admin existe
     const { data } = await supabase.from('profiles').select('id').eq('id', adminId).maybeSingle();
     
     if (!data) {
@@ -501,13 +488,9 @@ export const storageService = {
   },
   
   updateSystemSettings: async (settings: SystemSettings) => {
-      // 1. Local Update
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
       
-      // 2. Cloud Update (Si admin)
       if (isSupabaseConfigured()) {
-          // Utilise une table 'system_settings' (à créer si non existante)
-          // On assume une ligne unique avec id='global'
           await supabase.from('system_settings').upsert({ 
               id: 'global', 
               config: settings 
