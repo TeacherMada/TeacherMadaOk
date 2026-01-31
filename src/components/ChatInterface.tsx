@@ -131,13 +131,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   useEffect(() => {
       let timer1: any, timer2: any;
       if (isLoading && isCallActive) {
-          setLoadingText("Réflexion...");
+          setLoadingText("...");
           timer1 = setTimeout(() => {
-              setLoadingText("Andraso kely fa ratsiratsy ny réseau...");
+              setLoadingText("Réseau lent...");
           }, 3500);
           timer2 = setTimeout(() => {
-              setLoadingText("Eo am-panoratana ny valiny...");
-          }, 8000);
+              setLoadingText("Calcul...");
+          }, 7000);
       } else {
           setLoadingText("Réflexion...");
       }
@@ -280,14 +280,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const handleErrorAction = (err: any) => {
-     console.error(err);
+     console.error("Chat Error Handled:", err);
      setIsLoading(false);
-     if (err.message === 'INSUFFICIENT_CREDITS') {
+     
+     if (err.message.includes('INSUFFICIENT_CREDITS')) {
          setShowPaymentModal(true);
          notify("Crédits insuffisants. Rechargez pour continuer.", 'error');
          if (isCallActive) handleEndCall();
+     } else if (err.message.includes('OVERLOAD')) {
+         notify("Serveurs surchargés. Réessayez dans 30s.", 'error');
      } else {
-         notify("Une erreur est survenue.", 'error');
+         notify(err.message || "Une erreur technique est survenue.", 'error');
      }
   };
 
