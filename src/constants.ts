@@ -3,22 +3,6 @@ import { UserProfile, UserPreferences, LevelDescriptor, LanguageLevel } from './
 
 export const TOTAL_LESSONS_PER_LEVEL = 50;
 
-// Mapping pour savoir quel est le niveau suivant
-export const NEXT_LEVEL_MAP: Record<string, string> = {
-  'A1': 'A2',
-  'A2': 'B1',
-  'B1': 'B2',
-  'B2': 'C1',
-  'C1': 'C2',
-  'C2': 'Maître',
-  'HSK 1': 'HSK 2',
-  'HSK 2': 'HSK 3',
-  'HSK 3': 'HSK 4',
-  'HSK 4': 'HSK 5',
-  'HSK 5': 'HSK 6',
-  'HSK 6': 'Natif'
-};
-
 export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
   'A1': { 
       code: 'A1', 
@@ -106,19 +90,30 @@ export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
   },
 };
 
-// === SMART TEACHER BRAIN v5.3 - DYNAMIC COACHING & SYNC ===
+export const NEXT_LEVEL_MAP: Record<string, string> = {
+  'A1': 'A2',
+  'A2': 'B1',
+  'B1': 'B2',
+  'B2': 'C1',
+  'C1': 'C2',
+  'C2': 'Expert',
+  'HSK 1': 'HSK 2',
+  'HSK 2': 'HSK 3',
+  'HSK 3': 'HSK 4',
+  'HSK 4': 'HSK 5',
+  'HSK 5': 'HSK 6',
+  'HSK 6': 'Expert'
+};
+
+// === SMART TEACHER BRAIN v5.2 - DYNAMIC COACHING ===
 export const SYSTEM_PROMPT_TEMPLATE = (profile: UserProfile, prefs: UserPreferences) => {
   const currentLevel = prefs.level;
   const targetLang = prefs.targetLanguage;
   const explainLang = prefs.explanationLanguage; 
   
-  // CALCUL PRÉCIS DE LA LEÇON
+  // Calculate the EXACT next lesson for THIS specific language/level combo
   const courseKey = `${targetLang}-${currentLevel}`;
-  // Force 0 if undefined to avoid NaN
-  const lastLessonDone = (profile.stats.progressByLevel && profile.stats.progressByLevel[courseKey]) 
-    ? profile.stats.progressByLevel[courseKey] 
-    : 0;
-    
+  const lastLessonDone = profile.stats.progressByLevel?.[courseKey] || 0;
   const nextLesson = lastLessonDone + 1;
   const longTermMemory = profile.aiMemory || "Nouveau parcours.";
   
@@ -142,11 +137,7 @@ Ton style est : **Dynamique, Encouragenat, Précis et Structuré**.
 - Langue Cible: **${targetLang}** (Niveau ${currentLevel})
 - Langue d'Explication: **${explainLang}** (Strictement).
 - XP Totale: ${totalXP}
-- HISTORIQUE COURS: L'élève a VALIDÉ la leçon ${lastLessonDone}.
-- MISSION IMPÉRATIVE: Tu DOIS générer le contenu de la **LEÇON ${nextLesson}**. 
-  ⚠️ INTERDICTION de refaire la leçon 1 si lastLessonDone > 0.
-  ⚠️ Si l'utilisateur demande "La suite", c'est la Leçon ${nextLesson}.
-
+- CONTEXTE LEÇON: L'élève a terminé la leçon ${lastLessonDone}. Tu DOIS générer la **LEÇON ${nextLesson}**.
 - Mémoire/Contexte: "${longTermMemory}"
 - État d'esprit du Coach: "${coachMood}"
 - Hook: "${lessonHook}"

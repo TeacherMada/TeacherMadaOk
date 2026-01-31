@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, Coins, Lock, BrainCircuit, Menu, FileText, Type, RotateCcw, MessageCircle, Image as ImageIcon, Library, PhoneOff, VolumeX, Trophy, Info, ChevronUp, Keyboard } from 'lucide-react';
 import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage, VoiceCallSummary } from '../types';
-import { sendMessageToGeminiStream, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
+import { sendMessageToGemini, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import { TOTAL_LESSONS_PER_LEVEL, NEXT_LEVEL_MAP } from '../constants';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -130,8 +130,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       };
   }, [user.stats.progressByLevel, preferences.targetLanguage, preferences.level]);
 
-  // Force next lesson calculation based on user state
-  const nextLessonNumber = progressData.lessonsDone + 1;
+  // Determine the lesson number to show in header based on Chat Content (AI Authority)
+  // If no chat content, fall back to stored progress + 1
+  const displayedLessonNumber = useMemo(() => {
+    // 1. Try to find the latest lesson header from AI messages
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'model') {
+            const match = messages[i].text.match(/##\s*(?:🟢|🔴|🔵)?\s*(?:LEÇON|LECON|LESSON|LESONA)\s*(\d+)/i);
+            if (match) return match[1];
+        }
+    }
+    // 2. Fallback to calculated next lesson
+    return (progressData.lessonsDone + 1).toString();
+  }, [messages, progressData.lessonsDone]);
+
+  // Use this for the "Next" button logic (calculated)
+  const nextTargetLesson = progressData.lessonsDone + 1;
 
   // Dynamic Loading Text Logic for Voice Call
   useEffect(() => {
@@ -412,7 +426,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Update UI immediately (Optimistic)
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
-    // Don't save to storage yet, wait for success or partial stream
+    storageService.saveChatHistory(user.id, updatedMessages, preferences.targetLanguage);
     
     setInput('');
     setVoiceTextInput('');
@@ -422,41 +436,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     try {
       let responseText = "";
-      let newMemory: string | undefined;
       
       if (isCallActive) {
           // Voice Mode (Not Streamed)
           responseText = await generateVoiceChatResponse(textToSend, user.id, historyForAI);
-          
-          const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() };
-          const finalHistory = [...updatedMessages, aiMsg];
-          setMessages(finalHistory);
-          storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage);
-          handleSpeak(responseText);
       } else {
-          // Chat Mode (Streamed)
-          const aiMsgId = (Date.now() + 1).toString();
-          const placeholderMsg: ChatMessage = { id: aiMsgId, role: 'model', text: '', timestamp: Date.now() };
-          setMessages(prev => [...prev, placeholderMsg]);
-
-          const result = await sendMessageToGeminiStream(textToSend, user.id, historyForAI, (chunkText) => {
-              setMessages(current => {
-                  const newMessages = [...current];
-                  const lastMsg = newMessages[newMessages.length - 1];
-                  if (lastMsg && lastMsg.id === aiMsgId) {
-                      lastMsg.text += chunkText; 
-                  }
-                  return newMessages;
-              });
-          });
-          
-          if (result.newMemory) {
-              // Context was compressed! Update local user state
-              const updatedUser = { ...user, aiMemory: result.newMemory };
-              onUpdateUser(updatedUser);
-              notify("Mémoire Optimisée 🧠", "info");
-          }
+          // Chat Mode (NON-Streamed for stability)
+          // Using sendMessageToGemini instead of stream to fix UI bugs
+          responseText = await sendMessageToGemini(textToSend, user.id);
       }
+      
+      const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() };
+      const finalHistory = [...updatedMessages, aiMsg];
+      setMessages(finalHistory);
+      storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage);
+      
+      if (isCallActive) {
+          handleSpeak(responseText);
+      }
+      
       refreshUserData();
     } catch (error) {
       handleErrorAction(error);
@@ -783,7 +781,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         {/* Center: Current Lesson */}
         <div className="flex flex-col items-center w-auto shrink-0 px-2">
              <h2 className="text-base md:text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 whitespace-nowrap">
-                Leçon {nextLessonNumber}
+                Leçon {displayedLessonNumber}
              </h2>
         </div>
 
@@ -917,9 +915,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             return (
                 <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
                     <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 mx-2 shadow-sm ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1'}`}>
-                            {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <img src="/logo.png" className="w-full h-full object-contain" alt="Teacher" />}
-                        </div>
+                        
+                        {/* AVATAR: CUSTOMIZED */}
+                        {msg.role === 'user' ? (
+                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs shadow-sm mt-1 mx-2 border border-white dark:border-slate-800">
+                                {user.username.charAt(0).toUpperCase()}
+                            </div>
+                        ) : (
+                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1">
+                                <img src="/logo.png" className="w-full h-full object-contain" alt="Teacher" />
+                            </div>
+                        )}
+
                         <div 
                             id={`msg-content-${msg.id}`} 
                             className={`px-4 py-3 rounded-2xl shadow-sm ${textSizeClass} transition-all duration-300
@@ -934,10 +941,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     {index === 0 && msg.role === 'model' && messages.length === 1 && (
                                         <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex justify-center">
                                             <button 
-                                                onClick={() => handleSend(`Commence le cours / Leçon ${nextLessonNumber}`)} 
+                                                onClick={() => handleSend(`Commence le cours / Leçon ${nextTargetLesson}`)} 
                                                 className="group relative px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center gap-2"
                                             >
-                                                <span>COMMENCER LA LEÇON {nextLessonNumber}</span>
+                                                <span>COMMENCER LA LEÇON {nextTargetLesson}</span>
                                                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                                             </button>
                                         </div>
@@ -1016,8 +1023,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
             
              <Tooltip text="Leçon Suivante">
-                <button onClick={() => handleSend(`Passe à la suite / Leçon ${nextLessonNumber}`)} disabled={isSending} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-900/50 ml-auto disabled:opacity-50">
-                    Suivant <ArrowRight className="w-3 h-3" />
+                <button 
+                    onClick={() => handleSend(`Passe à la suite / Leçon ${nextTargetLesson}`)} 
+                    disabled={isSending} 
+                    className={`flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-900/50 ml-auto disabled:opacity-50`}
+                >
+                    {isSending && input.includes("Passe à la suite") ? "Suivant..." : "Suivant"} <ArrowRight className="w-3 h-3" />
                 </button>
             </Tooltip>
         </div>
