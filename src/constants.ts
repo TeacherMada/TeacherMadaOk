@@ -96,6 +96,7 @@ export const SYSTEM_PROMPT_TEMPLATE = (profile: UserProfile, prefs: UserPreferen
   const targetLang = prefs.targetLanguage;
   const explainLang = prefs.explanationLanguage; 
   
+  // Calculate the EXACT next lesson for THIS specific language/level combo
   const courseKey = `${targetLang}-${currentLevel}`;
   const lastLessonDone = profile.stats.progressByLevel?.[courseKey] || 0;
   const nextLesson = lastLessonDone + 1;

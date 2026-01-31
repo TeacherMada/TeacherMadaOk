@@ -114,12 +114,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const currentLevel = preferences.level;
       const courseKey = `${currentLang}-${currentLevel}`;
       
+      // Get completed lessons for THIS specific course
       const lessonsDone = user.stats.progressByLevel?.[courseKey] || 0;
       
       const percentage = Math.min((lessonsDone / TOTAL_LESSONS_PER_LEVEL) * 100, 100);
-      return { lessonsDone, total: TOTAL_LESSONS_PER_LEVEL, percentage };
+      return { lessonsDone, total: TOTAL_LESSONS_PER_LEVEL, percentage, courseKey };
   }, [user.stats.progressByLevel, preferences.targetLanguage, preferences.level]);
 
+  // The NEXT lesson is always done + 1
   const nextLessonNumber = progressData.lessonsDone + 1;
 
   // Dynamic Loading Text Logic for Voice Call
