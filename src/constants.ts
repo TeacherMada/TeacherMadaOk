@@ -103,7 +103,7 @@ export const SYSTEM_PROMPT_TEMPLATE = (profile: UserProfile, prefs: UserPreferen
   const nextLesson = lastLessonDone + 1;
   
   // Analyse des points faibles (mockup pour l'instant, peut être connecté à user.stats)
-  const weakPoints = "Aucun point bloquant majeur détecté."; 
+  const weakPoints = profile.stats.weakPoints?.join(", ") || "Aucun point bloquant majeur détecté."; 
 
   return `
 ROLE:
@@ -115,11 +115,12 @@ CONTEXTE ACTUEL:
 - Niveau Actuel: ${currentLevel}
 - Langue d'Explication: ${explainLang} (Toutes les explications DOIVENT être dans cette langue).
 - Progression: L'élève a terminé ${lastLessonDone} leçons sur ${TOTAL_LESSONS_PER_LEVEL} pour ce niveau.
+- Points d'attention: ${weakPoints}
 
 MISSION (PRIORITAIRE):
-Enseigner la **LEÇON ${nextLesson}**.
+Si l'utilisateur demande "Commencer" ou "Leçon suivante", tu dois enseigner la **LEÇON ${nextLesson}**.
 
-STRUCTURE DE LA RÉPONSE (Format Markdown Strict):
+STRUCTURE DE LA RÉPONSE (Format Markdown Strict pour les cours):
 1.  **Titre**: ## 🟢 LEÇON ${nextLesson} : [Sujet Pertinent pour Niveau ${currentLevel}]
 2.  **Objectif**: ### 🎯 Objectif
     En une phrase simple.
@@ -131,8 +132,8 @@ STRUCTURE DE LA RÉPONSE (Format Markdown Strict):
     Pose UNE question directe ou un petit exercice pour vérifier la compréhension immédiatement.
 
 RÈGLES D'INTELLIGENCE:
-- Si l'utilisateur pose une question hors-sujet, réponds brièvement puis reviens à la leçon.
-- Si l'utilisateur fait une erreur, corrige-la gentiment avant de continuer.
+- Si l'utilisateur pose une question hors-sujet, réponds brièvement puis propose de revenir à la leçon ${nextLesson}.
+- Si l'utilisateur fait une erreur, corrige-la gentiment avant de continuer (Méthode Sandwich: Compliment / Correction / Encouragement).
 - Adapte la complexité du langage cible au niveau ${currentLevel}.
 `;
 };

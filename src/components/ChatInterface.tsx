@@ -106,17 +106,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const recognitionRef = useRef<any>(null);
   const preferences = user.preferences!;
 
-  // --- SMART PROGRESS CALCULATION ---
+  // --- SMART PROGRESS CALCULATION (Per Language) ---
   const progressData = useMemo(() => {
       const currentLang = preferences.targetLanguage;
       const currentLevel = preferences.level;
       const courseKey = `${currentLang}-${currentLevel}`;
+      
+      // Get the lesson progress specific to this language+level
       const lessonsDone = user.stats.progressByLevel?.[courseKey] || 0;
+      
       const percentage = Math.min((lessonsDone / TOTAL_LESSONS_PER_LEVEL) * 100, 100);
       return { lessonsDone, total: TOTAL_LESSONS_PER_LEVEL, percentage };
   }, [user.stats.progressByLevel, preferences.targetLanguage, preferences.level]);
 
-  const currentLessonNumber = progressData.lessonsDone + 1;
+  const nextLessonNumber = progressData.lessonsDone + 1;
 
   // Dynamic Loading Text Logic for Voice Call
   useEffect(() => {
@@ -734,7 +737,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         {/* Center: Current Lesson */}
         <div className="flex flex-col items-center w-auto shrink-0 px-2">
              <h2 className="text-base md:text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 whitespace-nowrap">
-                Leçon {currentLessonNumber}
+                Leçon {nextLessonNumber}
              </h2>
         </div>
 
@@ -881,7 +884,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     {index === 0 && msg.role === 'model' && messages.length === 1 && (
                                         <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex justify-center">
                                             <button 
-                                                onClick={() => handleSend(`Commence le cours / Leçon ${currentLessonNumber}`)} 
+                                                onClick={() => handleSend(`Commence le cours / Leçon ${nextLessonNumber}`)} 
                                                 className="group relative px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center gap-2"
                                             >
                                                 <span>COMMENCER</span>
