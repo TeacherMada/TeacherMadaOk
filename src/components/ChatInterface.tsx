@@ -116,7 +116,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       return { lessonsDone, total: TOTAL_LESSONS_PER_LEVEL, percentage };
   }, [user.stats.progressByLevel, preferences.targetLanguage, preferences.level]);
 
-  const nextLessonNumber = progressData.lessonsDone + 1;
+  const currentLessonNumber = progressData.lessonsDone + 1;
 
   // Dynamic Loading Text Logic for Voice Call
   useEffect(() => {
@@ -151,14 +151,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const handleNextMatch = () => { if (matchingMessages.length > 0) setCurrentMatchIndex(prev => (prev + 1) % matchingMessages.length); };
   const handlePrevMatch = () => { if (matchingMessages.length > 0) setCurrentMatchIndex(prev => (prev - 1 + matchingMessages.length) % matchingMessages.length); };
-
-  const displayedLessonNumber = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-        const match = messages[i].text.match(/##\s*(?:🟢|🔴|🔵)?\s*(?:LEÇON|LECON|LESSON|LESONA)\s*(\d+)/i);
-        if (match) return match[1];
-    }
-    return '-';
-  }, [messages]);
 
   const getTextSizeClass = () => {
       switch (fontSize) {
@@ -232,7 +224,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   }, []);
 
   const isFreeTier = user.role !== 'admin' && user.credits <= 0;
-  const freeUsageLeft = isFreeTier ? Math.max(0, 2 - user.freeUsage.count) : 0;
+  const freeUsageLeft = isFreeTier ? Math.max(0, 3 - user.freeUsage.count) : 0;
   const canSend = storageService.canPerformRequest(user.id).allowed;
   
   const refreshUserData = () => {
@@ -440,27 +432,116 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   };
 
-  // ... (Rest of the component remains similar: render logic, buttons, etc.)
+  const handleTranslateInput = async () => {
+    if (!input.trim()) return;
+    setIsTranslating(true);
+    try {
+        const translation = await translateText(input, preferences.targetLanguage, user.id);
+        setInput(translation);
+    } catch (e: any) {
+        if(e.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true);
+    } finally { setIsTranslating(false); }
+  };
   
-  // (Assuming standard imports and helper functions are present)
-  // ...
+  const handleGenerateImage = async () => {
+    setIsGeneratingImage(true); setShowSmartOptions(false);
+    try {
+        const prompt = `Digital illustration of ${preferences.targetLanguage} culture or concept: ${input}`;
+        const base64 = await generateConceptImage(prompt, user.id);
+        if (base64) setGeneratedImage(base64);
+    } catch (e: any) {
+        if(e.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true);
+    } finally { setIsGeneratingImage(false); }
+  };
 
-  const handleTranslateInput = async () => { /* ... existing ... */ };
-  const handleGenerateImage = async () => { /* ... existing ... */ };
-  const handleValidateSummary = async () => { /* ... existing ... */ };
-  const handleSpeak = async (text: string, msgId?: string) => { /* ... existing ... */ };
-  const handleStartTraining = async () => { /* ... existing ... */ };
+  const handleValidateSummary = async () => {
+      const num = parseInt(summaryInputVal);
+      if (isNaN(num) || num < 1) return;
+      setIsGeneratingSummary(true); setShowSummaryResultModal(true); setShowMenu(false);
+      try {
+        const summary = await getLessonSummary(num, "Résumé leçon", user.id);
+        setSummaryContent(summary);
+      } catch(e: any) {
+        if(e.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true);
+      } finally { setIsGeneratingSummary(false); }
+  };
+
+  const handleSpeak = async (text: string, msgId?: string) => {
+    stopAudio();
+    if (msgId) lastSpokenMessageId.current = msgId;
+    setIsPlayingAudio(true);
+    const cleanText = text.replace(/[*#_`~]/g, '');
+    try {
+        const rawAudioBuffer = await generateSpeech(cleanText, user.id);
+        if (rawAudioBuffer) {
+            const ctx = getAudioContext();
+            if (ctx.state === 'suspended') await ctx.resume();
+            const decoded = await ctx.decodeAudioData(rawAudioBuffer);
+            const source = ctx.createBufferSource();
+            source.buffer = decoded;
+            source.connect(ctx.destination);
+            activeSourceRef.current = source;
+            source.onended = () => setIsPlayingAudio(false);
+            source.start(0);
+        } else { setIsPlayingAudio(false); }
+    } catch (error: any) { 
+        setIsPlayingAudio(false);
+        if(error.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true);
+    }
+  };
+
+  const handleStartTraining = async () => {
+      setShowSmartOptions(false);
+      setIsTrainingMode(true);
+      setExercises([]);
+      try {
+          setIsLoadingExercises(true);
+          const gen = await generatePracticalExercises(user, messages);
+          setExercises(gen);
+      } catch(e: any) {
+          setExerciseError(true);
+          if(e.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true);
+      } finally { setIsLoadingExercises(false); }
+  };
+
   const handleQuitTraining = () => { setIsTrainingMode(false); setExercises([]); };
-  const handleToggleExplanationLang = () => { /* ... existing ... */ };
-  const handleFontSizeChange = (size: any) => { /* ... existing ... */ };
-  const handleTutorialComplete = () => { setShowTutorial(false); };
-  const handleExerciseComplete = (score: number, total: number) => { /* ... existing ... */ };
+  
+  const handleToggleExplanationLang = () => {
+      const newLang = preferences.explanationLanguage === ExplanationLanguage.French ? ExplanationLanguage.Malagasy : ExplanationLanguage.French;
+      const updatedPrefs = { ...preferences, explanationLanguage: newLang };
+      const updatedUser = { ...user, preferences: updatedPrefs };
+      storageService.updatePreferences(user.id, updatedPrefs);
+      onUpdateUser(updatedUser);
+      notify(`Langue: ${newLang.split(' ')[0]}`, 'success');
+  };
+
+  const handleFontSizeChange = (size: 'small' | 'normal' | 'large' | 'xl') => {
+    const updatedUser = { ...user, preferences: { ...user.preferences!, fontSize: size } };
+    onUpdateUser(updatedUser);
+    storageService.updatePreferences(user.id, updatedUser.preferences!);
+  };
+  
+  const handleTutorialComplete = () => { setShowTutorial(false); storageService.markTutorialSeen(user.id); onUpdateUser({ ...user, hasSeenTutorial: true }); };
+  const handleExerciseComplete = (score: number, total: number) => { 
+      setIsTrainingMode(false); 
+      const resultMsg: ChatMessage = { id: Date.now().toString(), role: 'model', text: `🎯 **Résultat Exercice**\nScore: **${score}/${total}**`, timestamp: Date.now() }; 
+      setMessages([...messages, resultMsg]); 
+      storageService.saveChatHistory(user.id, [...messages, resultMsg], preferences.targetLanguage);
+  };
+
   const stopAudio = () => { if (activeSourceRef.current) try { activeSourceRef.current.stop(); } catch(e){} activeSourceRef.current = null; setIsPlayingAudio(false); };
-  const handleCopy = async (text: string, id: string) => { /* ... existing ... */ };
-  const handleExportPDF = (text: string) => { /* ... existing ... */ };
-  const handleExportImage = (msgId: string) => { /* ... existing ... */ };
+  const handleCopy = async (text: string, id: string) => { try { await navigator.clipboard.writeText(text); setCopiedId(id); setTimeout(() => setCopiedId(null), 2000); } catch (err) {} };
+  
+  const handleExportPDF = (text: string) => {
+     const doc = new jsPDF();
+     doc.setFontSize(10);
+     doc.text(text.replace(/[*#]/g, ''), 10, 10);
+     doc.save(`lecon_${Date.now()}.pdf`);
+  };
+  
+  const handleExportImage = (msgId: string) => { /* Placeholder for html2canvas logic if needed */ };
   const getAudioContext = () => { const AC = window.AudioContext || (window as any).webkitAudioContext; if (!audioContextRef.current || audioContextRef.current.state === 'closed') audioContextRef.current = new AC(); return audioContextRef.current; };
-  const handleValidateJump = () => { /* ... existing ... */ };
+  const handleValidateJump = () => { const num = parseInt(jumpInputVal); setShowMenu(false); handleSend(`Aller à la leçon ${num}`); };
   const getLanguageDisplay = () => { const lang = preferences.targetLanguage; if (lang.includes("Chinois")) return "Chinois 🇨🇳"; const parts = lang.split(' '); return `${parts[0]} ${parts[parts.length - 1]}`; };
   const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
 
@@ -561,41 +642,319 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </div>
       )}
 
-      {/* ... Rest of Main UI (Headers, Chat Feed, Input) ... */}
-      {/* Kept as standard Chat UI */}
+      {/* Training Mode Overlay */}
+      {isTrainingMode && (
+          <div className="fixed inset-0 z-50 bg-white dark:bg-slate-950 flex flex-col">
+              {isLoadingExercises ? (
+                  <div className="flex-1 flex flex-col items-center justify-center space-y-4">
+                      <div className="relative">
+                          <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+                          <BrainCircuit className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 text-indigo-600" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800 dark:text-white">Génération des exercices...</h3>
+                      <p className="text-slate-500">TeacherMada analyse vos progrès.</p>
+                  </div>
+              ) : exerciseError ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                      <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
+                      <h3 className="text-xl font-bold mb-2">Erreur de génération</h3>
+                      <button onClick={handleStartTraining} className="px-6 py-2 bg-indigo-600 text-white rounded-lg">Réessayer</button>
+                      <button onClick={handleQuitTraining} className="mt-4 text-slate-500">Annuler</button>
+                  </div>
+              ) : (
+                  <ExerciseSession exercises={exercises} onClose={handleQuitTraining} onComplete={handleExerciseComplete} />
+              )}
+          </div>
+      )}
+
+      {showSummaryResultModal && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-lg p-6 shadow-xl border border-slate-100 max-h-[80vh] flex flex-col">
+                <div className="flex justify-between items-center mb-4 pb-2 border-b">
+                    <h3 className="font-bold flex items-center gap-2 text-slate-800 dark:text-white"><BookOpen className="text-indigo-500"/> Résumé</h3>
+                    <button onClick={() => setShowSummaryResultModal(false)}><X className="text-slate-500"/></button>
+                </div>
+                <div className="flex-1 overflow-y-auto scrollbar-hide">
+                    {isGeneratingSummary ? <div className="text-center py-10"><Loader2 className="animate-spin mx-auto text-indigo-500 mb-2"/>Génération...</div> : <MarkdownRenderer content={summaryContent}/>}
+                </div>
+            </div>
+        </div>
+      )}
+
       {/* HEADER */}
       <header className="fixed top-0 left-0 right-0 z-40 bg-white/90 dark:bg-slate-900/95 backdrop-blur-md shadow-sm h-14 md:h-16 px-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
-          {/* Controls... */}
-          <div className="flex-1 flex items-center gap-2">
-             <button onClick={() => { stopAudio(); onChangeMode(); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"><ArrowLeft className="w-5 h-5 text-slate-500 dark:text-slate-400"/></button>
-             {/* ... */}
-          </div>
-          {/* ... */}
-      </header>
+        
+        {/* Left: Back + Smart Target Language */}
+        <div className="flex-1 flex items-center gap-2 relative">
+          <button onClick={() => { stopAudio(); onChangeMode(); }} disabled={isAnalyzing} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all group disabled:opacity-50 shrink-0">
+             {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin text-indigo-600" /> : <ArrowLeft className="w-5 h-5 text-slate-500 dark:text-slate-400 group-hover:text-indigo-600" />}
+          </button>
+          
+          <button 
+             onClick={() => setShowSmartOptions(!showSmartOptions)}
+             className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-800 dark:text-indigo-300 rounded-full border border-indigo-100 dark:border-indigo-900/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors max-w-full overflow-hidden"
+          >
+             <Globe className="w-4 h-4 shrink-0" />
+             <span className="text-xs font-bold whitespace-nowrap truncate">{getLanguageDisplay()}</span>
+             <ChevronDown className={`w-3 h-3 transition-transform shrink-0 ${showSmartOptions ? 'rotate-180' : ''}`} />
+          </button>
 
-      <div id="chat-feed" className="flex-1 overflow-y-auto p-3 md:p-4 space-y-4 md:space-y-6 pt-20 pb-4 scrollbar-hide">
-          {messages.map((msg, idx) => (
-              <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
-                  <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                      <div className={`px-4 py-3 rounded-2xl shadow-sm ${textSizeClass} ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-slate-200 border border-slate-100 dark:border-slate-700 rounded-tl-none'}`}>
-                          {msg.role === 'user' ? msg.text : <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} highlight={searchQuery} />}
-                      </div>
+          {showSmartOptions && (
+              <div className="absolute top-12 left-0 md:left-10 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-2 animate-fade-in z-50">
+                  <div className="p-2 border-b border-slate-100 dark:border-slate-800 mb-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      Options Smart
+                  </div>
+                  <div className="space-y-1">
+                      <button onClick={handleStartTraining} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors">
+                          <BrainCircuit className="w-4 h-4 text-orange-500"/>
+                          <span className="text-slate-700 dark:text-slate-300">Exercice Pratique</span>
+                      </button>
+                      <button onClick={handleStartCall} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors">
+                          <Phone className="w-4 h-4 text-purple-500"/>
+                          <span className="text-slate-700 dark:text-slate-300">Appel Vocal</span>
+                      </button>
+                      <button onClick={() => { setShowSmartOptions(false); setInput("Peux-tu traduire ceci : "); textareaRef.current?.focus(); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors">
+                          <Languages className="w-4 h-4 text-blue-500"/>
+                          <span className="text-slate-700 dark:text-slate-300">Traduction</span>
+                      </button>
+                      <button onClick={() => { setShowSmartOptions(false); setIsDialogueActive(true); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors">
+                          <MessageCircle className="w-4 h-4 text-emerald-500"/>
+                          <span className="text-slate-700 dark:text-slate-300">Dialogues</span>
+                      </button>
+                       <div className="my-1 border-t border-slate-100 dark:border-slate-800"></div>
+                       <button onClick={() => { setShowSmartOptions(false); onChangeMode(); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors group">
+                          <Library className="w-4 h-4 text-indigo-500"/>
+                          <span className="text-slate-700 dark:text-slate-300">Autres Cours</span>
+                      </button>
                   </div>
               </div>
-          ))}
-          {(isLoading || isAnalyzing) && (
+          )}
+        </div>
+
+        {/* Center: Current Lesson */}
+        <div className="flex flex-col items-center w-auto shrink-0 px-2">
+             <h2 className="text-base md:text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 whitespace-nowrap">
+                Leçon {currentLessonNumber}
+             </h2>
+        </div>
+
+        {/* Right: Credits, Menu, Avatar */}
+        <div className="flex-1 flex items-center justify-end gap-2">
+             <button onClick={() => setShowPaymentModal(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group ${!canSend ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-900 animate-pulse' : 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/40'}`}>
+                  {isFreeTier ? (
+                      <>
+                        <div className={`w-2 h-2 rounded-full ${canSend ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse`}></div>
+                        <span className={`text-xs font-bold ${canSend ? 'text-indigo-700 dark:text-indigo-300' : 'text-red-600 dark:text-red-400'}`}>{freeUsageLeft}/3</span>
+                      </>
+                  ) : (
+                      <>
+                        <Coins className={`w-3.5 h-3.5 ${canSend ? 'text-amber-500' : 'text-red-500'} group-hover:rotate-12 transition-transform`} />
+                        <span className={`text-xs font-bold ${canSend ? 'text-indigo-900 dark:text-indigo-100' : 'text-red-600 dark:text-red-300'} hidden sm:inline`}>{user.role === 'admin' ? '∞' : user.credits}</span>
+                        <span className="text-xs font-bold sm:hidden">{user.role === 'admin' ? '∞' : user.credits}</span>
+                      </>
+                  )}
+             </button>
+
+             <div className="relative">
+                 <button 
+                    onClick={() => setShowMenu(!showMenu)} 
+                    className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                 >
+                    <Menu className="w-5 h-5" />
+                 </button>
+                 
+                 {/* MENU DROPDOWN */}
+                 {showMenu && (
+                     <div className="absolute top-12 right-0 w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-3 animate-fade-in z-50">
+                         {/* Enhanced Search */}
+                         <div className="p-2 border-b border-slate-100 dark:border-slate-800 mb-2">
+                             <div className="relative flex items-center">
+                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"/>
+                                 <input 
+                                    type="text" 
+                                    placeholder="Rechercher..." 
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full bg-slate-50 dark:bg-black/20 text-sm py-2 pl-9 pr-16 rounded-lg border-none outline-none focus:ring-1 focus:ring-indigo-500"
+                                 />
+                                 {searchQuery && matchingMessages.length > 0 && (
+                                     <div className="absolute right-1 flex items-center gap-1">
+                                         <span className="text-[10px] text-slate-400 font-bold mr-1">{currentMatchIndex + 1}/{matchingMessages.length}</span>
+                                         <button onClick={handlePrevMatch} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><ChevronUp className="w-3 h-3 text-slate-500"/></button>
+                                         <button onClick={handleNextMatch} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><ChevronDown className="w-3 h-3 text-slate-500"/></button>
+                                     </div>
+                                 )}
+                             </div>
+                         </div>
+                        
+                         {/* Lesson Controls Grid */}
+                         <div className="grid grid-cols-2 gap-2 mb-2">
+                             <button onClick={() => { setShowSummaryResultModal(false); setShowMenu(true); }} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                                 <div className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <BookOpen className="w-5 h-5 text-indigo-500"/>
+                                 </div>
+                                 <div className="w-full">
+                                    <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Résumé</span>
+                                    <div className="flex items-center justify-center gap-1 mt-1">
+                                        <input type="number" placeholder="#" value={summaryInputVal} onChange={e => setSummaryInputVal(e.target.value)} onClick={e => e.stopPropagation()} className="w-8 text-center bg-transparent border-b border-slate-300 dark:border-slate-600 text-xs focus:border-indigo-500 outline-none"/>
+                                        <div onClick={(e) => { e.stopPropagation(); handleValidateSummary(); }} className="text-[10px] font-black text-indigo-600 cursor-pointer">GO</div>
+                                    </div>
+                                 </div>
+                             </button>
+
+                             <button className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                                 <div className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <RotateCcw className="w-5 h-5 text-emerald-500"/>
+                                 </div>
+                                 <div className="w-full">
+                                    <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Aller à</span>
+                                    <div className="flex items-center justify-center gap-1 mt-1">
+                                        <input type="number" placeholder="#" value={jumpInputVal} onChange={e => setJumpInputVal(e.target.value)} onClick={e => e.stopPropagation()} className="w-8 text-center bg-transparent border-b border-slate-300 dark:border-slate-600 text-xs focus:border-emerald-500 outline-none"/>
+                                        <div onClick={(e) => { e.stopPropagation(); handleValidateJump(); }} className="text-[10px] font-black text-emerald-600 cursor-pointer">GO</div>
+                                    </div>
+                                 </div>
+                             </button>
+                         </div>
+
+                         <div className="grid grid-cols-2 gap-2 mb-2 border-t border-slate-100 dark:border-slate-800 pt-2">
+                             <button onClick={toggleTheme} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                 {isDarkMode ? <Sun className="w-4 h-4 text-amber-500"/> : <Moon className="w-4 h-4 text-indigo-500"/>}
+                                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Thème</span>
+                             </button>
+                             <button onClick={handleToggleExplanationLang} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                 <Languages className="w-4 h-4 text-purple-500"/>
+                                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{preferences.explanationLanguage.split(' ')[0]}</span>
+                             </button>
+                         </div>
+
+                         <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                            <div className="flex items-center gap-2 text-xs font-bold mb-2 text-slate-500 dark:text-slate-400 uppercase">
+                                <Type className="w-3 h-3"/> Taille Texte
+                            </div>
+                            <div className="flex bg-white dark:bg-slate-700 rounded-lg p-1 gap-1">
+                                {(['small', 'normal', 'large', 'xl'] as const).map(s => (
+                                    <button key={s} onClick={() => handleFontSizeChange(s)} className={`flex-1 text-[10px] py-1.5 rounded-md font-bold transition-all ${fontSize === s ? 'bg-indigo-600 shadow text-white' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-600'}`}>
+                                        {s === 'small' ? 'A' : s === 'normal' ? 'A+' : 'A++'}
+                                    </button>
+                                ))}
+                            </div>
+                         </div>
+                     </div>
+                 )}
+             </div>
+             
+             {/* Enhanced Avatar with Mobile Fix */}
+             <button onClick={onShowProfile} className="relative w-9 h-9 ml-1 group shrink-0">
+                <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-full opacity-70 blur-sm group-hover:opacity-100 transition-opacity duration-500"></div>
+                <div className="relative w-full h-full rounded-full bg-slate-900 text-white font-bold flex items-center justify-center border-2 border-white dark:border-slate-800 z-10 overflow-hidden">
+                    <span className="z-10">{user.username.substring(0, 2).toUpperCase()}</span>
+                    <div className="absolute inset-0 bg-gradient-to-tr from-indigo-600 to-violet-600 opacity-80"></div>
+                </div>
+                <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full z-20"></div>
+             </button>
+        </div>
+      </header>
+      
+      {/* Chat Area */}
+      <div id="chat-feed" className={`flex-1 overflow-y-auto p-3 md:p-4 space-y-4 md:space-y-6 pt-20 pb-4 scrollbar-hide`}>
+        {messages.filter(msg => !searchQuery || msg.text.toLowerCase().includes(searchQuery.toLowerCase())).map((msg, index) => {
+            const isMatch = searchQuery && msg.text.toLowerCase().includes(searchQuery.toLowerCase());
+            const isCurrentMatch = matchingMessages[currentMatchIndex]?.id === msg.id;
+
+            return (
+                <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+                    <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 mx-2 shadow-sm ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1'}`}>
+                            {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <img src="/logo.png" className="w-full h-full object-contain" alt="Teacher" />}
+                        </div>
+                        <div 
+                            id={`msg-content-${msg.id}`} 
+                            className={`px-4 py-3 rounded-2xl shadow-sm ${textSizeClass} transition-all duration-300
+                            ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-slate-200 text-slate-800 rounded-tl-none border border-slate-100 dark:border-slate-700'} 
+                            ${isCurrentMatch ? 'ring-4 ring-yellow-400/50 shadow-yellow-200 dark:shadow-none' : isMatch ? 'ring-2 ring-yellow-200/50' : ''}`}
+                        >
+                             {msg.role === 'user' ? <p className="whitespace-pre-wrap">{msg.text}</p> : (
+                                <>
+                                    <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} highlight={searchQuery} />
+                                    
+                                    {/* Start Button on First Message */}
+                                    {index === 0 && msg.role === 'model' && messages.length === 1 && (
+                                        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex justify-center">
+                                            <button 
+                                                onClick={() => handleSend(`Commence le cours / Leçon ${currentLessonNumber}`)} 
+                                                className="group relative px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center gap-2"
+                                            >
+                                                <span>COMMENCER</span>
+                                                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50" data-html2canvas-ignore>
+                                        <button onClick={() => handleSpeak(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Écouter"><Volume2 className="w-4 h-4 text-slate-400 hover:text-indigo-500"/></button>
+                                        <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Copier">{copiedId === msg.id ? <Check className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4 text-slate-400"/>}</button>
+                                        <button onClick={() => handleExportPDF(msg.text)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Télécharger PDF"><FileText className="w-4 h-4 text-slate-400 hover:text-red-500"/></button>
+                                        <button onClick={() => handleExportImage(msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Exporter Image"><ImageIcon className="w-4 h-4 text-slate-400 hover:text-purple-500"/></button>
+                                    </div>
+                                </>
+                             )}
+                        </div>
+                    </div>
+                </div>
+            );
+        })}
+        {(isLoading || isAnalyzing) && (
              <div className="flex justify-start animate-fade-in">
+                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1"><img src="/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
                  <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border shadow-sm flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin text-indigo-500"/> <span className="text-sm text-slate-500">TeacherMada écrit...</span>
                  </div>
              </div>
-          )}
-          <div ref={messagesEndRef} />
+        )}
+        <div ref={messagesEndRef} />
       </div>
 
+      {/* Input Area */}
       <div id="input-area" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 p-3 md:p-4 sticky bottom-0">
-          {/* Toolbar & Input ... */}
-          <div className="max-w-4xl mx-auto relative flex items-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-[26px] border border-slate-200 dark:border-slate-700 p-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/50">
+        
+        {/* Generated Image Display */}
+        {(isGeneratingImage || generatedImage) && (
+            <div className="max-w-md mx-auto mb-4 relative animate-fade-in-up">
+                {isGeneratingImage ? (
+                    <div className="h-48 w-full bg-slate-100 dark:bg-slate-800 rounded-2xl flex flex-col items-center justify-center border border-slate-200 dark:border-slate-700">
+                        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-2" />
+                        <span className="text-xs font-bold text-slate-500">Création artistique en cours...</span>
+                    </div>
+                ) : (
+                    <div className="relative group">
+                         <img src={generatedImage!} alt="Concept" className="w-full h-48 object-cover rounded-2xl shadow-lg border border-white/20" />
+                         <button 
+                            onClick={() => setGeneratedImage(null)}
+                            className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-full backdrop-blur-sm transition-colors"
+                         >
+                            <X className="w-4 h-4" />
+                         </button>
+                    </div>
+                )}
+            </div>
+        )}
+
+        {/* Quick Actions Toolbar */}
+        <div className="max-w-4xl mx-auto mb-2 flex items-center gap-2 px-2 overflow-x-auto scrollbar-hide">
+            <Tooltip text="Appel Vocal">
+                <button onClick={handleStartCall} className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded-full shadow-sm border border-purple-100 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors">
+                    <Phone className="w-4 h-4" />
+                </button>
+            </Tooltip>
+            
+             <Tooltip text="Leçon Suivante">
+                <button onClick={() => handleSend("Passe à la suite / Leçon suivante")} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-900/50 ml-auto">
+                    Suivant <ArrowRight className="w-3 h-3" />
+                </button>
+            </Tooltip>
+        </div>
+
+        <div className="max-w-4xl mx-auto relative flex items-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-[26px] border border-slate-200 dark:border-slate-700 p-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/50">
             <textarea
                 ref={textareaRef}
                 value={input}
@@ -606,13 +965,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 className="w-full bg-transparent text-slate-800 dark:text-white rounded-xl pl-4 py-3 text-base focus:outline-none resize-none max-h-32 scrollbar-hide self-center disabled:opacity-50"
             />
             <div className="flex items-center gap-1 pb-1 pr-1">
+                 <button onClick={handleTranslateInput} disabled={!input.trim() || isTranslating} className="p-2 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50">
+                    {isTranslating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Languages className={`w-5 h-5 ${isTranslating ? 'animate-spin text-indigo-600' : ''}`} />}
+                 </button>
                  <button onClick={toggleListening} className={`p-2 rounded-full ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-200'}`}>
                     {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                  </button>
-                 <button onClick={() => handleSend()} disabled={!input.trim() || isLoading} className={`p-2.5 rounded-full text-white transition-all shadow-md transform hover:scale-105 active:scale-95 flex items-center justify-center ${canSend ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-slate-400 cursor-not-allowed'}`}>
+                 <button 
+                    onClick={() => handleSend()} 
+                    disabled={!input.trim() || isLoading || isAnalyzing} 
+                    className={`p-2.5 rounded-full text-white transition-all shadow-md transform hover:scale-105 active:scale-95 flex items-center justify-center
+                        ${canSend ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-slate-400 cursor-not-allowed'}
+                    `}
+                 >
                     {canSend ? <Send className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
                 </button>
             </div>
+        </div>
+        <div className="text-center mt-1">
+             <span className="text-[10px] text-slate-400">1 Leçon = 1 Crédit (50 Ar) • Gratuit: 3/semaines.</span>
         </div>
       </div>
     </div>

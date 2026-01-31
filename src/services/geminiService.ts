@@ -8,7 +8,6 @@ let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
-// Flash est prioritaire pour la vitesse perçue
 const PRIMARY_MODEL = 'gemini-1.5-flash'; 
 
 const FALLBACK_CHAIN = [
@@ -51,7 +50,6 @@ const getActiveModelName = () => {
 
 // === ROBUST HISTORY SANITIZER ===
 // Ensures strict User -> Model -> User alternation.
-// Merges consecutive messages of the same role.
 const sanitizeHistory = (history: ChatMessage[]): Content[] => {
     const validHistory: Content[] = [];
     if (!history || history.length === 0) return [];
@@ -59,11 +57,10 @@ const sanitizeHistory = (history: ChatMessage[]): Content[] => {
     let lastRole = '';
 
     for (const msg of history) {
-        // Filter invalid roles
         if (msg.role !== 'user' && msg.role !== 'model') continue;
 
         if (msg.role === lastRole) {
-            // MERGE strategy: If user sends 2 msgs, combine them into one turn
+            // MERGE strategy
             const lastEntry = validHistory[validHistory.length - 1];
             if (lastEntry && lastEntry.parts) {
                 // @ts-ignore
@@ -79,9 +76,7 @@ const sanitizeHistory = (history: ChatMessage[]): Content[] => {
         }
     }
     
-    // CRITICAL: The history passed to 'chats.create' establishes CONTEXT.
-    // If the last message in history is 'user', we must pop it because 'sendMessage' will add the new user message.
-    // Gemini expects History to end with Model if we are about to send User.
+    // Gemini API requires the history to end with 'model' if we are about to send a 'user' message.
     if (validHistory.length > 0 && validHistory[validHistory.length - 1].role === 'user') {
         validHistory.pop();
     }
@@ -104,9 +99,8 @@ const executeWithRetry = async <T>(
     } catch (error: any) {
         const errorMsg = error.message?.toLowerCase() || '';
         
-        // AUTO-HEAL: If conversation history is corrupt (400), log it.
         if (errorMsg.includes('turn') || errorMsg.includes('conversation') || errorMsg.includes('400')) {
-             console.warn("⚠️ History Sync Error. Logic should handle retry with empty history.");
+             console.warn("⚠️ History Sync Error. Retrying operation without history context.");
         }
 
         const isQuotaError = errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('resource_exhausted');
@@ -114,7 +108,6 @@ const executeWithRetry = async <T>(
         const keys = getAvailableKeys();
 
         if (isQuotaError || isServerBusy) {
-            console.warn(`⚠️ Retry strategy active. Attempt: ${attempt}`);
             if (attempt < keys.length - 1) {
                 initializeGenAI(true); 
                 return executeWithRetry(operation, userId, attempt + 1, fallbackIndex);
@@ -151,7 +144,6 @@ export const sendMessageToGeminiStream = async (
 ): Promise<string> => {
     checkCreditsBeforeAction(userId);
 
-    // WRAPPER for Auto-Healing History
     const runStream = async (historyToUse: ChatMessage[]) => {
         return executeWithRetry(async (modelName) => {
             if (!aiClient) initializeGenAI();
@@ -161,14 +153,14 @@ export const sendMessageToGeminiStream = async (
             if (!user || !user.preferences) throw new Error("User data missing");
             
             const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
-            const historyPayload = sanitizeHistory(historyToUse).slice(-10); // Keep context small
+            const historyPayload = sanitizeHistory(historyToUse).slice(-12); // Context window
 
             const chat = aiClient.chats.create({
                 model: modelName,
                 config: {
                     systemInstruction: systemInstruction,
                     temperature: 0.7, 
-                    maxOutputTokens: 1000,
+                    maxOutputTokens: 1500,
                 },
                 history: historyPayload,
             });
@@ -192,7 +184,6 @@ export const sendMessageToGeminiStream = async (
         storageService.deductCreditOrUsage(userId);
         return text;
     } catch (e: any) {
-        // Fallback: If history causes error, try with EMPTY history to save the user interaction
         if (e.message?.includes('turn') || e.message?.includes('conversation')) {
             console.log("🔄 Auto-recovering chat with empty context...");
             const text = await runStream([]);
@@ -241,7 +232,7 @@ export const generateVoiceChatResponse = async (message: string, userId: string,
                 config: {
                     systemInstruction: systemInstruction,
                     temperature: 0.6, 
-                    maxOutputTokens: 50, // Extreme limit for speed
+                    maxOutputTokens: 50, 
                 },
                 history: historyPayload,
             });
@@ -270,7 +261,7 @@ export const generateSpeech = async (text: string, userId: string, voiceName: st
         if (!aiClient) return null;
 
         if (!text || !text.trim()) return null;
-        const safeText = text.replace(/[*#_`~]/g, '').substring(0, 500); // Limit chars for TTS speed
+        const safeText = text.replace(/[*#_`~]/g, '').substring(0, 500);
 
         const response = await aiClient.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
