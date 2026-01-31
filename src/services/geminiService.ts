@@ -228,14 +228,18 @@ export const getLessonSummary = async (num: number, ctx: string, userId: string)
 export const generateConceptImage = async (prompt: string, userId: string) => { 
     return executeWithRetry(async () => {
         if (!aiClient) initializeGenAI();
+        
+        // Define config as 'any' to bypass TS check for imageConfig which is present in API but missing in SDK types
+        const modelConfig: any = {
+            imageConfig: { aspectRatio: "16:9" }
+        };
+
         const response = await aiClient!.models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: { parts: [{ text: prompt }] },
-            // @ts-ignore - imageConfig is valid for this model but missing in current type definition
-            config: { 
-                imageConfig: { aspectRatio: "16:9" } 
-            }
+            config: modelConfig
         });
+        
         storageService.deductCreditOrUsage(userId);
         if (response.candidates?.[0]?.content?.parts) {
             for (const part of response.candidates[0].content.parts) {
