@@ -49,10 +49,22 @@ const sanitizeUser = (data: any): UserProfile => {
     
     // Ensure progressByLevel exists specifically
     if (!mergedStats.progressByLevel) mergedStats.progressByLevel = {};
+    
+    // MIGRATION: Handle Language Name Change (Chinois (Mandarin) -> Chinois)
+    // We check for keys containing the old name and migrate them to the new one
+    const migratedProgress: Record<string, number> = {};
+    Object.entries(mergedStats.progressByLevel).forEach(([key, val]) => {
+        const newKey = key.replace('Chinois (Mandarin)', 'Chinois');
+        migratedProgress[newKey] = val as number;
+    });
+    mergedStats.progressByLevel = migratedProgress;
+
     // Backward compatibility: If levelProgress exists but map doesn't
     if (data.preferences?.level && data.preferences?.targetLanguage && mergedStats.levelProgress && Object.keys(mergedStats.progressByLevel).length === 0) {
         const key = `${data.preferences.targetLanguage}-${data.preferences.level}`;
-        mergedStats.progressByLevel[key] = mergedStats.levelProgress;
+        // Apply migration here too just in case
+        const safeKey = key.replace('Chinois (Mandarin)', 'Chinois');
+        mergedStats.progressByLevel[safeKey] = mergedStats.levelProgress;
     }
 
     // 2. Ensure Arrays exist

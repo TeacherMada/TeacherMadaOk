@@ -3,7 +3,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { TargetLanguage, ExplanationLanguage, LearningMode, UserPreferences, LanguageLevel, LevelDescriptor } from '../types';
 import { LEVEL_DEFINITIONS } from '../constants';
 import { storageService } from '../services/storageService';
-import { BookOpen, Languages, GraduationCap, Sun, Moon, ArrowLeft, CheckCircle2, Info, HelpCircle, Loader2 } from 'lucide-react';
+import { generateLevelExample } from '../services/geminiService';
+import { BookOpen, Languages, GraduationCap, Sun, Moon, ArrowLeft, CheckCircle2, Info, HelpCircle, Loader2, RefreshCw } from 'lucide-react';
 
 interface OnboardingProps {
   onComplete: (prefs: UserPreferences) => void;
@@ -17,6 +18,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   const [selectedLevelDesc, setSelectedLevelDesc] = useState<LevelDescriptor | null>(null);
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [customLangs, setCustomLangs] = useState<any[]>([]);
+  const [isGeneratingExample, setIsGeneratingExample] = useState(false);
 
   // Fetch Admin languages on mount
   useEffect(() => {
@@ -56,8 +58,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
     setStep(2);
   };
 
-  // Fix: Cast levelCode to LanguageLevel
-  const handleLevelSelect = (levelCode: string) => {
+  const handleLevelSelect = async (levelCode: string) => {
       const desc = LEVEL_DEFINITIONS[levelCode] || { 
           code: levelCode as LanguageLevel, 
           title: levelCode, 
@@ -66,6 +67,21 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
           example: "" 
       };
       setSelectedLevelDesc(desc);
+      
+      // Dynamic Example Generation
+      if (prefs.targetLanguage) {
+          setIsGeneratingExample(true);
+          try {
+              const example = await generateLevelExample(prefs.targetLanguage, levelCode);
+              if (example) {
+                  setSelectedLevelDesc(prev => prev ? ({ ...prev, example }) : null);
+              }
+          } catch (e) {
+              console.warn("Failed to generate dynamic example", e);
+          } finally {
+              setIsGeneratingExample(false);
+          }
+      }
   };
 
   const confirmLevel = () => {
@@ -207,9 +223,15 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
                         ))}
                     </ul>
                     
-                    <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border-l-4 border-indigo-500 shadow-sm">
+                    <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border-l-4 border-indigo-500 shadow-sm relative overflow-hidden">
                         <span className="text-xs font-bold text-indigo-500 block mb-1">EXEMPLE CONCRET</span>
-                        <p className="text-slate-800 dark:text-slate-100 font-medium">"{selectedLevelDesc.example}"</p>
+                        {isGeneratingExample ? (
+                            <div className="flex items-center gap-2 text-slate-500 text-sm">
+                                <RefreshCw className="w-4 h-4 animate-spin"/> Génération par IA...
+                            </div>
+                        ) : (
+                            <p className="text-slate-800 dark:text-slate-100 font-medium">"{selectedLevelDesc.example}"</p>
+                        )}
                     </div>
                 </div>
 

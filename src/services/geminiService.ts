@@ -393,6 +393,19 @@ export const generateLanguageFlag = async (languageName: string) => {
     }, 'system');
 };
 
+export const generateLevelExample = async (language: string, level: string): Promise<string | null> => {
+    return executeWithRetry(async (modelName) => {
+        if (!aiClient) initializeGenAI();
+        const prompt = `Génère une phrase d'exemple simple, courte et intéressante en ${language} pour le niveau ${level}, avec sa traduction entre parenthèses. Pas de markdown.`;
+        const response = await aiClient!.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: { temperature: 0.7, maxOutputTokens: 60 }
+        });
+        return response.text?.trim() || null;
+    }, 'system');
+};
+
 export const getLessonSummary = async (lessonNumber: number, context: string, userId: string) => {
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();

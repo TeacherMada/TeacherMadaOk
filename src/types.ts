@@ -2,7 +2,7 @@
 export enum TargetLanguage {
   English = 'Anglais 🇬🇧',
   French = 'Français 🇫🇷',
-  Chinese = 'Chinois (Mandarin) 🇨🇳',
+  Chinese = 'Chinois 🇨🇳',
   Spanish = 'Espagnol 🇪🇸',
   German = 'Allemand 🇩🇪'
 }
