@@ -4,7 +4,7 @@ import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, 
 import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage, VoiceCallSummary } from '../types';
 import { sendMessageToGeminiStream, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
 import { storageService } from '../services/storageService';
-import { TOTAL_LESSONS_PER_LEVEL } from '../constants';
+import { TOTAL_LESSONS_PER_LEVEL, NEXT_LEVEL_MAP } from '../constants';
 import MarkdownRenderer from './MarkdownRenderer';
 import ExerciseSession from './ExerciseSession';
 import DialogueSession from './DialogueSession';
@@ -114,14 +114,23 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const currentLevel = preferences.level;
       const courseKey = `${currentLang}-${currentLevel}`;
       
-      // Get completed lessons for THIS specific course
       const lessonsDone = user.stats.progressByLevel?.[courseKey] || 0;
       
       const percentage = Math.min((lessonsDone / TOTAL_LESSONS_PER_LEVEL) * 100, 100);
-      return { lessonsDone, total: TOTAL_LESSONS_PER_LEVEL, percentage, courseKey };
+      
+      // Determine target level label
+      const nextLevelLabel = NEXT_LEVEL_MAP[currentLevel] || 'Expert';
+
+      return { 
+          lessonsDone, 
+          total: TOTAL_LESSONS_PER_LEVEL, 
+          percentage, 
+          courseKey,
+          nextLevelLabel
+      };
   }, [user.stats.progressByLevel, preferences.targetLanguage, preferences.level]);
 
-  // The NEXT lesson is always done + 1
+  // Force next lesson calculation based on user state
   const nextLessonNumber = progressData.lessonsDone + 1;
 
   // Dynamic Loading Text Logic for Voice Call
@@ -928,7 +937,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                                 onClick={() => handleSend(`Commence le cours / Leçon ${nextLessonNumber}`)} 
                                                 className="group relative px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center gap-2"
                                             >
-                                                <span>COMMENCER</span>
+                                                <span>COMMENCER LA LEÇON {nextLessonNumber}</span>
                                                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                                             </button>
                                         </div>
@@ -991,12 +1000,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 </button>
             </Tooltip>
             
-            {/* Smart Level Progress Bar */}
+            {/* Smart Level Progress Bar (Fix: Shows Next Target Level) */}
             <div className="flex-1 mx-3 flex flex-col justify-center">
                 <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 px-1">
                     <span className="text-indigo-500 dark:text-indigo-400">{preferences.level}</span>
                     <span className="text-slate-300 dark:text-slate-600">{Math.round(progressData.percentage)}%</span>
-                    <span>Suivant 🚀</span>
+                    <span className="text-slate-600 dark:text-slate-300">{progressData.nextLevelLabel} 🚀</span>
                 </div>
                 <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative shadow-inner">
                     <div 
@@ -1007,7 +1016,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
             
              <Tooltip text="Leçon Suivante">
-                <button onClick={() => handleSend("Passe à la suite / Leçon suivante")} disabled={isSending} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-900/50 ml-auto disabled:opacity-50">
+                <button onClick={() => handleSend(`Passe à la suite / Leçon ${nextLessonNumber}`)} disabled={isSending} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-900/50 ml-auto disabled:opacity-50">
                     Suivant <ArrowRight className="w-3 h-3" />
                 </button>
             </Tooltip>
