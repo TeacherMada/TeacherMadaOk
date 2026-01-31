@@ -73,7 +73,7 @@ export const storageService = {
             password: data.password,
             role: data.role,
             credits: data.credits,
-            stats: data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {} },
+            stats: data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {}, weakPoints: [], interests: [] },
             preferences: data.preferences,
             skills: data.skills || { vocabulary: 10, grammar: 5, pronunciation: 5, listening: 5 },
             vocabulary: data.vocabulary || [], // Load Vocab
@@ -135,7 +135,14 @@ export const storageService = {
             role: 'user',
             createdAt: Date.now(),
             preferences: null,
-            stats: { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {} },
+            stats: { 
+                xp: 0, 
+                streak: 1, 
+                lessonsCompleted: 0, 
+                progressByLevel: {},
+                weakPoints: [],
+                interests: [] 
+            },
             skills: { vocabulary: 10, grammar: 5, pronunciation: 5, listening: 5 },
             vocabulary: [],
             aiMemory: "Nouvel utilisateur.",
@@ -206,7 +213,7 @@ export const storageService = {
       if (data) {
           const local = storageService.getUserById(userId) || {} as UserProfile;
           
-          const stats = data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {} };
+          const stats = data.stats || { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {}, weakPoints: [], interests: [] };
           if (!stats.progressByLevel) stats.progressByLevel = {};
 
           const merged: UserProfile = { 
