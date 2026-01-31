@@ -385,9 +385,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // 1. Prepare UI Update
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
     
-    // IMPORTANT: We grab the CURRENT state of messages to pass to the service
-    // We do NOT rely on the service reading the DB/Storage, we pass it the truth.
-    const historyForService = [...messages]; 
+    // IMPORTANT: Grab current history BEFORE adding the new user message
+    // This is crucial for the sanitizer to work (it expects History + New Message separate)
+    const historyForAI = [...messages]; 
 
     // Update UI immediately (Optimistic)
     const updatedMessages = [...messages, userMsg];
@@ -405,10 +405,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       
       if (isCallActive) {
           // Voice Mode (Not Streamed for latency)
-          // Note: we pass 'historyForService' which DOES NOT contain the new userMsg yet (it serves as context)
-          // The service will append the new 'textToSend' to the prompt.
-          // This avoids the User -> User conflict perfectly.
-          responseText = await generateVoiceChatResponse(textToSend, user.id, updatedMessages);
+          // We pass 'historyForAI' (clean history) to the service
+          // The service will append 'textToSend' internally or handle it via chat.sendMessage
+          responseText = await generateVoiceChatResponse(textToSend, user.id, historyForAI);
           
           const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() };
           const finalHistory = [...updatedMessages, aiMsg];
@@ -421,7 +420,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           const placeholderMsg: ChatMessage = { id: aiMsgId, role: 'model', text: '', timestamp: Date.now() };
           setMessages(prev => [...prev, placeholderMsg]);
 
-          await sendMessageToGeminiStream(textToSend, user.id, updatedMessages, (chunkText) => {
+          // We pass 'historyForAI' here too
+          await sendMessageToGeminiStream(textToSend, user.id, historyForAI, (chunkText) => {
               setMessages(current => {
                   const newMessages = [...current];
                   const lastMsg = newMessages[newMessages.length - 1];
