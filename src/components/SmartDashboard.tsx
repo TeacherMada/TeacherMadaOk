@@ -1,7 +1,6 @@
-
 import React, { useMemo, useState } from 'react';
 import { UserProfile, ChatMessage, VocabularyItem } from '../types';
-import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown, Trash2, Shield, AlertTriangle, Plus, Sparkles, Loader2, Volume2, Globe, GraduationCap } from 'lucide-react';
+import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown, Trash2, Shield, AlertTriangle, Plus, Sparkles, Loader2, Volume2, Globe, GraduationCap, Map as MapIcon, Lock, Zap, Award, ArrowLeft } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { generateVocabularyFromHistory, generateSpeech } from '../services/geminiService';
 import { CREDIT_PRICE_ARIARY, ADMIN_CONTACTS, TOTAL_LESSONS_PER_LEVEL } from '../constants';
@@ -34,7 +33,9 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
   notify
 }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'hub' | 'stats' | 'lessons' | 'vocab'>('hub');
+  const [activeTab, setActiveTab] = useState<'hub' | 'parcours' | 'lessons' | 'vocab'>('hub');
+  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  
   const [editForm, setEditForm] = useState({
       username: user.username,
       email: user.email || '',
@@ -60,20 +61,6 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
   
   // --- Derived Stats & Logic ---
 
-  const skills = useMemo(() => {
-    const baseVocab = user.skills?.vocabulary || 10;
-    const baseGrammar = user.skills?.grammar || 5;
-    const bonus = Math.min(user.stats.xp / 100, 50); 
-    
-    return {
-        vocabulary: Math.min(baseVocab + bonus, 100),
-        grammar: Math.min(baseGrammar + (bonus * 0.8), 100),
-        pronunciation: Math.min((user.skills?.pronunciation || 5) + (bonus * 0.5), 100),
-        listening: Math.min((user.skills?.listening || 5) + (bonus * 0.6), 100),
-    };
-  }, [user]);
-
-  // Extract all active courses from progressByLevel
   const activeCourses = useMemo(() => {
       if (!user.stats.progressByLevel) return [];
       return Object.entries(user.stats.progressByLevel).map(([key, lessonCount]) => {
@@ -92,6 +79,32 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
       }).sort((a, b) => b.progress - a.progress);
   }, [user.stats.progressByLevel]);
 
+  // Selected Course Data for Roadmap
+  const currentCourse = useMemo(() => {
+      if (!selectedCourseId) return null;
+      return activeCourses.find(c => c.id === selectedCourseId) || null;
+  }, [selectedCourseId, activeCourses]);
+
+  const skills = useMemo(() => {
+    const baseVocab = user.skills?.vocabulary || 10;
+    const baseGrammar = user.skills?.grammar || 5;
+    
+    // Skill bonus relative to selected course progress
+    let bonus = 0;
+    if (currentCourse) {
+        bonus = (currentCourse.progress / 100) * 40; // Max 40 bonus from course
+    } else {
+        bonus = Math.min(user.stats.xp / 200, 20); // General bonus
+    }
+    
+    return {
+        vocabulary: Math.min(baseVocab + bonus + 10, 100),
+        grammar: Math.min(baseGrammar + (bonus * 0.8) + 5, 100),
+        pronunciation: Math.min((user.skills?.pronunciation || 5) + (bonus * 0.6), 100),
+        listening: Math.min((user.skills?.listening || 5) + (bonus * 0.7), 100),
+    };
+  }, [user, currentCourse]);
+
   const completedLessons = useMemo(() => {
     const lessons: {num: number, title: string, date: number}[] = [];
     const regex = /##\s*(?:🟢|🔴|🔵)?\s*(?:LEÇON|LECON|LESSON|LESONA)\s*(\d+)\s*[:|-]?\s*(.*)/i;
@@ -106,7 +119,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
         }
     });
     
-    const uniqueLessons = new Map();
+    const uniqueLessons = new Map<number, {num: number, title: string, date: number}>();
     lessons.forEach(l => uniqueLessons.set(l.num, l));
     return Array.from(uniqueLessons.values()).sort((a, b) => b.num - a.num);
   }, [messages]);
@@ -204,7 +217,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
       ></div>
 
       {/* Sidebar Panel - Modern Glassmorphism */}
-      <div className="relative w-full md:w-[480px] h-full bg-white/90 dark:bg-[#0F1422]/95 backdrop-blur-xl shadow-2xl flex flex-col border-l border-white/20 dark:border-white/5 overflow-hidden animate-slide-in-right">
+      <div className="relative w-full md:w-[480px] h-full bg-white/95 dark:bg-[#0F1422]/95 backdrop-blur-xl shadow-2xl flex flex-col border-l border-white/20 dark:border-white/5 overflow-hidden animate-slide-in-right">
         
         {/* Header - Profile Summary */}
         <div className="relative bg-white dark:bg-[#131825] p-6 border-b border-slate-100 dark:border-white/5">
@@ -225,11 +238,11 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                      <h2 className="text-xl font-bold text-slate-900 dark:text-white">{user.username}</h2>
                      <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wide">
-                            {user.preferences?.targetLanguage.split(' ')[0] || "Langue"}
+                            {user.preferences?.targetLanguage.split(' ')[0] || "Apprenant"}
                         </span>
-                        {user.preferences?.level && (
-                            <span className="text-xs font-black text-indigo-500 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800">
-                                {user.preferences?.level.split(' ')[0]}
+                        {user.role === 'admin' && (
+                            <span className="text-xs font-black text-red-500 px-2 py-0.5 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900">
+                                ADMIN
                             </span>
                         )}
                      </div>
@@ -241,9 +254,9 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
         <div className="px-6 py-4 bg-white dark:bg-[#131825]">
             <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-x-auto scrollbar-hide">
                 <TabButton active={activeTab === 'hub'} onClick={() => setActiveTab('hub')} icon={<Target className="w-4 h-4"/>} label="Hub" />
+                <TabButton active={activeTab === 'parcours'} onClick={() => setActiveTab('parcours')} icon={<MapIcon className="w-4 h-4"/>} label="Parcours" />
                 <TabButton active={activeTab === 'vocab'} onClick={() => setActiveTab('vocab')} icon={<BookOpen className="w-4 h-4"/>} label="Mots" />
-                <TabButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} icon={<PieChart className="w-4 h-4"/>} label="Parcours" />
-                <TabButton active={activeTab === 'lessons'} onClick={() => setActiveTab('lessons')} icon={<Calendar className="w-4 h-4"/>} label="Leçons" />
+                <TabButton active={activeTab === 'lessons'} onClick={() => setActiveTab('lessons')} icon={<Calendar className="w-4 h-4"/>} label="Historique" />
             </div>
         </div>
 
@@ -254,7 +267,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
             {activeTab === 'hub' && (
                 <div className="space-y-6 animate-fade-in">
                     
-                    {/* Admin Access Button (Only for Admins) */}
+                    {/* Admin Access Button */}
                     {user.role === 'admin' && (
                         <button 
                             onClick={handleAdminAccess}
@@ -445,69 +458,177 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                 </div>
             )}
 
-            {/* === TAB: PARCOURS (STATS MULTI-LANGUES) === */}
-            {activeTab === 'stats' && (
-                <div className="space-y-6 animate-fade-in">
+            {/* === TAB: PARCOURS (Interactive Roadmap) === */}
+            {activeTab === 'parcours' && (
+                <div className="animate-fade-in h-full flex flex-col">
                     
-                    <h3 className="font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
-                        <GraduationCap className="w-5 h-5 text-indigo-500" /> Mes Parcours Actifs
-                    </h3>
+                    {!selectedCourseId ? (
+                        /* VIEW 1: COURSE LIST */
+                        <div className="space-y-6">
+                            <h3 className="font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
+                                <GraduationCap className="w-5 h-5 text-indigo-500" /> Mes Parcours Actifs
+                            </h3>
 
-                    {activeCourses.length === 0 ? (
-                        <div className="bg-slate-100 dark:bg-slate-800/50 p-6 rounded-2xl text-center text-slate-500">
-                            <p className="text-sm">Aucun cours commencé.</p>
+                            {activeCourses.length === 0 ? (
+                                <div className="bg-slate-100 dark:bg-slate-800/50 p-8 rounded-2xl text-center text-slate-500 border-2 border-dashed border-slate-200 dark:border-slate-700">
+                                    <MapIcon className="w-12 h-12 mx-auto mb-3 opacity-30"/>
+                                    <p className="text-sm font-bold">Aucun voyage commencé.</p>
+                                    <p className="text-xs mt-1 opacity-70">Lancez une leçon pour activer votre carte.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {activeCourses.map((course) => (
+                                        <div 
+                                            key={course.id} 
+                                            onClick={() => setSelectedCourseId(course.id)}
+                                            className="cursor-pointer bg-gradient-to-br from-white to-slate-50 dark:from-[#1A2030] dark:to-[#151a27] p-5 rounded-2xl border border-slate-100 dark:border-white/5 shadow-sm relative overflow-hidden group hover:shadow-lg transition-all hover:-translate-y-1"
+                                        >
+                                            <div className="flex justify-between items-start mb-3 relative z-10">
+                                                <div>
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <Globe className="w-4 h-4 text-slate-400" />
+                                                        <h4 className="font-black text-slate-800 dark:text-white text-lg">{course.language}</h4>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-800">
+                                                        Niveau {course.level}
+                                                    </span>
+                                                </div>
+                                                <div className="text-right">
+                                                    <span className="block text-2xl font-black text-slate-900 dark:text-white">{course.lessonCount}</span>
+                                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Leçons</span>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="relative z-10">
+                                                <div className="flex justify-between text-xs font-bold text-slate-400 mb-1">
+                                                    <span>Progression</span>
+                                                    <span>{Math.round(course.progress)}%</span>
+                                                </div>
+                                                <div className="h-2.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
+                                                    <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 shadow-[0_0_10px_rgba(99,102,241,0.5)] transition-all duration-1000 ease-out group-hover:bg-gradient-to-r group-hover:from-indigo-400 group-hover:to-purple-400" style={{ width: `${course.progress}%` }}></div>
+                                                </div>
+                                            </div>
+
+                                            {/* Decorative Background */}
+                                            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                                                <TrendingUp className="w-20 h-20 text-indigo-500" />
+                                            </div>
+                                            <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <ChevronRight className="w-5 h-5 text-indigo-500" />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Global Skills Radar (Only visible on main list) */}
+                            <div className="bg-white dark:bg-[#1A2030] p-6 rounded-[2rem] border border-slate-100 dark:border-white/5 shadow-sm mt-6">
+                                <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
+                                    <Brain className="w-5 h-5 text-indigo-500" /> Compétences Globales
+                                </h3>
+                                <div className="space-y-5">
+                                    <SkillBar label="Vocabulaire" value={skills.vocabulary} color="bg-emerald-500" icon="📖" />
+                                    <SkillBar label="Grammaire" value={skills.grammar} color="bg-blue-500" icon="📐" />
+                                    <SkillBar label="Prononciation" value={skills.pronunciation} color="bg-purple-500" icon="🎤" />
+                                    <SkillBar label="Compréhension" value={skills.listening} color="bg-orange-500" icon="👂" />
+                                </div>
+                            </div>
                         </div>
                     ) : (
-                        <div className="space-y-4">
-                            {activeCourses.map((course) => (
-                                <div key={course.id} className="bg-gradient-to-br from-white to-slate-50 dark:from-[#1A2030] dark:to-[#151a27] p-5 rounded-2xl border border-slate-100 dark:border-white/5 shadow-sm relative overflow-hidden group">
-                                    <div className="flex justify-between items-start mb-3 relative z-10">
-                                        <div>
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <Globe className="w-4 h-4 text-slate-400" />
-                                                <h4 className="font-black text-slate-800 dark:text-white text-lg">{course.language}</h4>
-                                            </div>
-                                            <span className="text-xs font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-800">
-                                                Niveau {course.level}
-                                            </span>
+                        /* VIEW 2: DETAILED ROADMAP */
+                        <div className="flex flex-col h-full">
+                            <button 
+                                onClick={() => setSelectedCourseId(null)}
+                                className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-indigo-600 mb-4 transition-colors"
+                            >
+                                <ArrowLeft className="w-4 h-4"/> Retour aux cours
+                            </button>
+
+                            {currentCourse && (
+                                <>
+                                    <div className="text-center mb-6">
+                                        <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">{currentCourse.language}</h2>
+                                        <div className="inline-block px-3 py-1 bg-indigo-100 dark:bg-indigo-900/30 rounded-full text-indigo-700 dark:text-indigo-300 text-xs font-bold mt-1 border border-indigo-200 dark:border-indigo-800">
+                                            Niveau {currentCourse.level}
                                         </div>
-                                        <div className="text-right">
-                                            <span className="block text-2xl font-black text-slate-900 dark:text-white">{course.lessonCount}</span>
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Leçons</span>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="relative z-10">
-                                        <div className="flex justify-between text-xs font-bold text-slate-400 mb-1">
-                                            <span>Progression</span>
-                                            <span>{Math.round(course.progress)}%</span>
-                                        </div>
-                                        <div className="h-2.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
-                                            <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 shadow-[0_0_10px_rgba(99,102,241,0.5)] transition-all duration-1000 ease-out group-hover:bg-gradient-to-r group-hover:from-indigo-400 group-hover:to-purple-400" style={{ width: `${course.progress}%` }}></div>
-                                        </div>
+                                        <p className="text-xs text-slate-400 mt-2 font-medium">
+                                            {TOTAL_LESSONS_PER_LEVEL - currentCourse.lessonCount} leçons avant le niveau suivant.
+                                        </p>
                                     </div>
 
-                                    {/* Decorative Background */}
-                                    <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                                        <TrendingUp className="w-20 h-20 text-indigo-500" />
+                                    <div className="flex-1 overflow-y-auto px-4 pb-20 scrollbar-hide relative">
+                                        {/* Vertical Timeline Line */}
+                                        <div className="absolute left-1/2 top-4 bottom-4 w-1 bg-slate-200 dark:bg-slate-800 -translate-x-1/2 rounded-full"></div>
+
+                                        {Array.from({ length: TOTAL_LESSONS_PER_LEVEL }).map((_, idx) => {
+                                            const lessonNum = idx + 1;
+                                            const isCompleted = lessonNum <= currentCourse.lessonCount;
+                                            const isCurrent = lessonNum === currentCourse.lessonCount + 1;
+                                            const isMilestone = lessonNum % 10 === 0;
+                                            
+                                            // Determine Position (Zig Zag)
+                                            const isLeft = idx % 2 === 0;
+
+                                            return (
+                                                <div key={idx} className={`relative flex items-center justify-between mb-8 ${isLeft ? 'flex-row' : 'flex-row-reverse'}`}>
+                                                    
+                                                    {/* The Node */}
+                                                    <div className={`
+                                                        relative z-10 w-16 h-16 rounded-full flex items-center justify-center border-4 transition-all duration-500
+                                                        ${isCompleted 
+                                                            ? 'bg-emerald-500 border-emerald-200 dark:border-emerald-900 text-white shadow-lg shadow-emerald-500/30' 
+                                                            : isCurrent 
+                                                                ? 'bg-white dark:bg-slate-900 border-indigo-500 text-indigo-600 scale-110 shadow-xl shadow-indigo-500/40 animate-pulse-slow' 
+                                                                : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 grayscale'}
+                                                    `}>
+                                                        {isMilestone ? (
+                                                            <Trophy className={`w-8 h-8 ${isCompleted ? 'text-white' : isCurrent ? 'text-indigo-500' : 'text-slate-400'}`} />
+                                                        ) : isCompleted ? (
+                                                            <Check className="w-8 h-8" />
+                                                        ) : isCurrent ? (
+                                                            <Zap className="w-8 h-8 fill-current" />
+                                                        ) : (
+                                                            <Lock className="w-6 h-6" />
+                                                        )}
+                                                        
+                                                        {/* Lesson Number Badge */}
+                                                        <div className={`absolute -bottom-2 bg-slate-900 text-white text-[10px] font-bold px-2 py-0.5 rounded-full border border-white dark:border-slate-700`}>
+                                                            L{lessonNum}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* The Content Label (Opposite Side) */}
+                                                    <div className={`w-[40%] ${isLeft ? 'text-right pr-4' : 'text-left pl-4'}`}>
+                                                        {isCurrent && (
+                                                            <div className="inline-block bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-lg shadow-md animate-bounce">
+                                                                En cours
+                                                            </div>
+                                                        )}
+                                                        {isMilestone && (
+                                                            <div className={`font-bold text-xs uppercase tracking-widest mt-1 ${isCompleted ? 'text-emerald-500' : 'text-slate-400'}`}>
+                                                                Jalon {lessonNum}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {/* Spacer for the other side */}
+                                                    <div className="w-[40%]"></div>
+                                                </div>
+                                            );
+                                        })}
+                                        
+                                        {/* Final Trophy */}
+                                        <div className="flex justify-center mt-8 mb-12 relative z-10">
+                                            <div className="w-32 h-32 bg-gradient-to-br from-amber-300 to-orange-500 rounded-full flex flex-col items-center justify-center shadow-2xl border-4 border-white dark:border-slate-800 text-white p-4 text-center transform hover:scale-110 transition-transform cursor-default">
+                                                <Award className="w-12 h-12 mb-1" />
+                                                <span className="text-xs font-black uppercase leading-tight">Certificat {currentCourse.level}</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                </>
+                            )}
                         </div>
                     )}
-
-                    {/* Global Skills Radar (Simulated with Bars) */}
-                    <div className="bg-white dark:bg-[#1A2030] p-6 rounded-[2rem] border border-slate-100 dark:border-white/5 shadow-sm mt-6">
-                        <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
-                            <Brain className="w-5 h-5 text-indigo-500" /> Compétences Globales
-                        </h3>
-                        <div className="space-y-5">
-                            <SkillBar label="Vocabulaire" value={skills.vocabulary} color="bg-emerald-500" icon="📖" />
-                            <SkillBar label="Grammaire" value={skills.grammar} color="bg-blue-500" icon="📐" />
-                            <SkillBar label="Prononciation" value={skills.pronunciation} color="bg-purple-500" icon="🎤" />
-                            <SkillBar label="Compréhension" value={skills.listening} color="bg-orange-500" icon="👂" />
-                        </div>
-                    </div>
                 </div>
             )}
 
