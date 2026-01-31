@@ -4,7 +4,7 @@ import { TargetLanguage, ExplanationLanguage, LearningMode, UserPreferences, Lan
 import { LEVEL_DEFINITIONS } from '../constants';
 import { storageService } from '../services/storageService';
 import { generateLevelExample } from '../services/geminiService';
-import { BookOpen, Languages, GraduationCap, Sun, Moon, ArrowLeft, CheckCircle2, Info, HelpCircle, Loader2, RefreshCw } from 'lucide-react';
+import { BookOpen, Languages, GraduationCap, Sun, Moon, ArrowLeft, CheckCircle2, Info, HelpCircle, Loader2, RefreshCw, PenTool } from 'lucide-react';
 
 interface OnboardingProps {
   onComplete: (prefs: UserPreferences) => void;
@@ -66,12 +66,15 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
           skills: [], 
           example: "" 
       };
+      
+      // 1. Set static descriptor first
       setSelectedLevelDesc(desc);
       
-      // Dynamic Example Generation
+      // 2. Dynamic Example Generation based on selected language
       if (prefs.targetLanguage) {
           setIsGeneratingExample(true);
           try {
+              // Pass the specific target language (e.g. "Allemand 🇩🇪") to the AI
               const example = await generateLevelExample(prefs.targetLanguage, levelCode);
               if (example) {
                   setSelectedLevelDesc(prev => prev ? ({ ...prev, example }) : null);
@@ -227,7 +230,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
                         <span className="text-xs font-bold text-indigo-500 block mb-1">EXEMPLE CONCRET</span>
                         {isGeneratingExample ? (
                             <div className="flex items-center gap-2 text-slate-500 text-sm">
-                                <RefreshCw className="w-4 h-4 animate-spin"/> Génération par IA...
+                                <PenTool className="w-4 h-4 animate-pulse text-indigo-500"/> TeacherMada écrit...
                             </div>
                         ) : (
                             <p className="text-slate-800 dark:text-slate-100 font-medium">"{selectedLevelDesc.example}"</p>
