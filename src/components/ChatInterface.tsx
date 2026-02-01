@@ -111,7 +111,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       return () => cancelAnimationFrame(animationId);
   }, [isCallActive, isListening, isPlayingAudio, isLoading]);
 
-  // Timer & Crédits Appel
   useEffect(() => {
       let interval: any;
       if (isCallActive && !isCallConnecting) {
@@ -207,8 +206,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           setIsCallConnecting(false);
           const isMg = preferences.explanationLanguage.includes('Mada');
           const greeting = isMg 
-            ? `Salama ${user.username} ! Manao ahoana ? Vonona hiresaka amin'ny ${preferences.targetLanguage} ve ianao ?`
-            : `Allô ${user.username} ! Prêt pour notre pratique en ${preferences.targetLanguage} ? Je vous écoute.`;
+            ? `Salama ${user.username} ! Vonona hiresaka ve ianao ? Inona no ho resahintsika ?`
+            : `Allô ${user.username} ! Je suis là pour pratiquer. De quoi voulez-vous discuter ?`;
           handleSpeak(greeting);
       }, 1500);
   };
@@ -345,7 +344,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                       {interimTranscript ? (
                           <p className="text-xl font-bold text-indigo-300 animate-fade-in line-clamp-2 italic">"{interimTranscript}"</p>
                       ) : isPlayingAudio ? (
-                          <p className="text-sm font-black text-slate-500 uppercase tracking-widest animate-pulse">TeacherMada répond...</p>
+                          <div className="flex flex-col items-center gap-2">
+                              <p className="text-sm font-black text-slate-500 uppercase tracking-widest animate-pulse">L'IA répond...</p>
+                              {aiLastReply && <p className="text-xs text-indigo-400 opacity-60 line-clamp-2 italic">"{aiLastReply}"</p>}
+                          </div>
                       ) : !isLoading ? (
                           <p className="text-xs font-bold text-slate-700 uppercase tracking-[0.2em] border border-white/5 px-4 py-1.5 rounded-full">Dites quelque chose...</p>
                       ) : null}
@@ -410,7 +412,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             <>
                                 <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} />
                                 <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
-                                    <button onClick={() => handleSpeak(msg.text)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><Volume2 className="w-4 h-4 text-slate-400"/></button>
+                                    <button onClick={() => handleSpeak(msg.text)} className={`p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors ${isPlayingAudio ? 'text-indigo-600 animate-pulse' : 'text-slate-400'}`}><Volume2 className="w-4 h-4"/></button>
                                 </div>
                             </>
                          )}
