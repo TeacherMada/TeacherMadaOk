@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, Coins, Lock, BrainCircuit, Menu, FileText, Type, RotateCcw, MessageCircle, Image as ImageIcon, Library, PhoneOff, VolumeX, Trophy, Info, ChevronUp, Keyboard, Star } from 'lucide-react';
 import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage, VoiceCallSummary } from '../types';
-import { sendMessageToGeminiStream, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
+import { sendMessageToGemini, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import { TOTAL_LESSONS_PER_LEVEL, NEXT_LEVEL_MAP } from '../constants';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -249,10 +249,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     
     setIsSending(true);
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
-    const tempAiId = (Date.now() + 1).toString();
-    const historyForAI = [...messages];
+    const historyForAI = [...messages, userMsg];
 
-    setMessages(prev => [...prev, userMsg, { id: tempAiId, role: 'model', text: '', timestamp: Date.now() }]);
+    setMessages(prev => [...prev, userMsg]);
     storageService.saveChatHistory(user.id, [...messages, userMsg], preferences.targetLanguage);
     
     setInput('');
@@ -269,27 +268,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       
       if (isCallActive) {
           finalResponseText = await generateVoiceChatResponse(textToSend, user.id, historyForAI);
-          setMessages(prev => prev.map(m => m.id === tempAiId ? { ...m, text: finalResponseText } : m));
       } else {
-          // Streaming Logic
-          const res = await sendMessageToGeminiStream(textToSend, user.id, historyForAI, (chunk) => {
-              setMessages(currentMsgs => {
-                  const msgs = [...currentMsgs];
-                  const lastMsgIndex = msgs.findIndex(m => m.id === tempAiId);
-                  if (lastMsgIndex !== -1) {
-                      msgs[lastMsgIndex] = { ...msgs[lastMsgIndex], text: msgs[lastMsgIndex].text + chunk };
-                  }
-                  return msgs;
-              });
-              // Only remove loading on first chunk
-              setIsLoading(false); 
-              // Smart scroll on chunk
-              scrollToBottom(false);
-          });
-          finalResponseText = res.fullText;
+          // Utilisation STANDARD (Pas de Stream) pour stabilité
+          finalResponseText = await sendMessageToGemini(textToSend, user.id);
       }
       
-      const finalHistory = [...messages, userMsg, { id: tempAiId, role: 'model', text: finalResponseText, timestamp: Date.now() }];
+      const finalHistory = [...messages, userMsg, { id: (Date.now() + 1).toString(), role: 'model', text: finalResponseText, timestamp: Date.now() }];
+      setMessages(finalHistory as ChatMessage[]);
       storageService.saveChatHistory(user.id, finalHistory as ChatMessage[], preferences.targetLanguage);
       
       if (isCallActive) handleSpeak(finalResponseText);
@@ -297,7 +282,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       if(updated) onUpdateUser(updated);
 
     } catch (error: any) {
-      setMessages(prev => prev.filter(m => m.id !== tempAiId));
       if (error.message.includes('INSUFFICIENT_CREDITS')) {
          setShowPaymentModal(true);
          notify("Crédits insuffisants.", 'error');

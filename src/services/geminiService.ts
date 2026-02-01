@@ -9,7 +9,6 @@ let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
 // Primary Model: gemini-2.0-flash is currently the fastest and most stable free-tier model.
-// Avoid 'gemini-3-flash-preview' which is often unstable (404/503).
 const PRIMARY_MODEL = 'gemini-2.0-flash'; 
 
 const FALLBACK_CHAIN = [
@@ -55,7 +54,6 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
 
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
-    // FORCE SAFE FALLBACK: If unsafe model is active, switch to stable
     if (settings.activeModel === 'gemini-3-flash-preview') return PRIMARY_MODEL;
     return settings.activeModel || PRIMARY_MODEL;
 };
@@ -64,14 +62,10 @@ const getActiveModelName = () => {
 const safeJsonParse = (text: string | undefined, fallback: any) => {
     if (!text) return fallback;
     try {
-        // 1. Try direct parse
         return JSON.parse(text);
     } catch (e) {
         try {
-            // 2. Extract from markdown code blocks
             let clean = text.replace(/```json/g, '').replace(/```/g, '');
-            
-            // 3. Find first '{' or '[' and last '}' or ']'
             const firstOpen = clean.indexOf('{');
             const firstArray = clean.indexOf('[');
             const start = (firstOpen !== -1 && (firstArray === -1 || firstOpen < firstArray)) ? firstOpen : firstArray;
@@ -135,7 +129,6 @@ const checkCreditsBeforeAction = (userId: string) => {
 
 const sanitizeHistory = (history: ChatMessage[]) => {
     const cleanHistory = [...history];
-    // Gemini 1.5/2.0 requires strictly alternating user/model or starting with user.
     while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
         cleanHistory.shift();
     }
@@ -148,13 +141,8 @@ export const startChatSession = async (profile: UserProfile, prefs: UserPreferen
   return null; 
 };
 
-// === STREAMING CHAT ===
-export const sendMessageToGeminiStream = async (
-    message: string, 
-    userId: string,
-    previousHistory: ChatMessage[], 
-    onChunk: (text: string) => void
-): Promise<{ fullText: string }> => {
+// === STANDARD CHAT (NO STREAMING) ===
+export const sendMessageToGemini = async (message: string, userId: string): Promise<string> => {
     checkCreditsBeforeAction(userId);
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
@@ -162,7 +150,7 @@ export const sendMessageToGeminiStream = async (
         if (!user || !user.preferences) throw new Error("User data missing");
         
         const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
-        const historyPayload = sanitizeHistory(previousHistory);
+        const historyPayload = sanitizeHistory(storageService.getChatHistory(userId, user.preferences.targetLanguage));
 
         const chat = aiClient!.chats.create({
             model: modelName,
@@ -174,25 +162,12 @@ export const sendMessageToGeminiStream = async (
             history: historyPayload,
         });
 
-        const result = await chat.sendMessageStream({ message });
-        let fullText = '';
-        for await (const chunk of result) {
-            const text = chunk.text;
-            if (text) {
-                fullText += text;
-                onChunk(text);
-            }
-        }
+        // Utilisation standard de sendMessage (pas de stream) pour plus de stabilité
+        const result = await chat.sendMessage({ message });
         storageService.deductCreditOrUsage(userId);
-        return { fullText };
+        
+        return result.text || "Désolé, je n'ai pas pu générer de réponse.";
     }, userId);
-};
-
-export const sendMessageToGemini = async (message: string, userId: string): Promise<string> => {
-  let fullText = '';
-  // @ts-ignore
-  await sendMessageToGeminiStream(message, userId, [], (chunk) => fullText += chunk);
-  return fullText;
 };
 
 export const generateVoiceChatResponse = async (
@@ -293,7 +268,6 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
         });
         storageService.deductCreditOrUsage(userId);
         
-        // FIX: TS18048 - Robust check using optional chaining
         const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
         if (part?.inlineData?.data) {
              return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
@@ -383,8 +357,6 @@ export const generateVocabularyFromHistory = async (userId: string, history: Cha
         if (!aiClient) initializeGenAI();
         const user = storageService.getUserById(userId);
         const explanationLang = user?.preferences?.explanationLanguage || "Français";
-
-        const recentHistory = history.slice(-20).map(m => m.text).join("\n");
 
         const prompt = `
             Analyze conversation. Extract 5 key vocabulary words used.
