@@ -1,176 +1,161 @@
 
-import { UserProfile, UserPreferences, LevelDescriptor, LanguageLevel } from './types';
+import { UserProfile, UserPreferences, LevelDescriptor } from './types';
 
-export const TOTAL_LESSONS_PER_LEVEL = 50;
-
+// Add LEVEL_DEFINITIONS to fix import error in src/components/Onboarding.tsx
 export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
-  'A1': { 
-      code: 'A1', 
-      title: 'Débutant / Bases', 
-      description: "Vous comprenez et utilisez des expressions familières et quotidiennes.", 
-      skills: ["Se présenter", "Poser des questions simples", "Comprendre des mots familiers"], 
-      example: "Hello, my name is Rindra. I live in Antananarivo." 
+  'A1': {
+    code: 'A1',
+    title: 'Débutant / Introductif',
+    description: 'Peut comprendre et utiliser des expressions familières et quotidiennes.',
+    skills: [
+      'Se présenter ou présenter quelqu\'un',
+      'Poser des questions simples sur l\'habitat, les relations, etc.',
+      'Communiquer de façon simple si l\'interlocuteur parle lentement'
+    ],
+    example: 'Ex: "Bonjour, je m\'appelle Jean."'
   },
-  'A2': { 
-      code: 'A2', 
-      title: 'Élémentaire / Survie', 
-      description: "Vous pouvez communiquer lors de tâches simples et habituelles.", 
-      skills: ["Décrire votre environnement", "Parler de votre famille", "Faire des achats simples"], 
-      example: "I would like to buy two tickets for the concert, please." 
+  'A2': {
+    code: 'A2',
+    title: 'Élémentaire / Intermédiaire',
+    description: 'Peut comprendre des phrases isolées et des expressions fréquemment utilisées.',
+    skills: [
+      'Échanger des informations simples sur des sujets familiers',
+      'Décrire avec des moyens simples sa formation, son environnement'
+    ],
+    example: 'Ex: "Je voudrais un café s\'il vous plaît."'
   },
-  'B1': { 
-      code: 'B1', 
-      title: 'Intermédiaire / Indépendant', 
-      description: "Vous êtes autonome dans la plupart des situations de voyage.", 
-      skills: ["Raconter un événement", "Exprimer une opinion", "Comprendre les points essentiels"], 
-      example: "I think this movie is interesting because it shows the reality of life." 
+  'B1': {
+    code: 'B1',
+    title: 'Indépendant / Seuil',
+    description: 'Peut comprendre les points essentiels quand un langage clair et standard est utilisé.',
+    skills: [
+      'Se débrouiller dans la plupart des situations rencontrées en voyage',
+      'Raconter un événement, une expérience ou un rêve'
+    ],
+    example: 'Ex: "Je pense que ce film était très intéressant parce que..." '
   },
-  'B2': { 
-      code: 'B2', 
-      title: 'Avancé / Fluide', 
-      description: "Vous communiquez avec spontanéité et aisance.", 
-      skills: ["Argumenter avec logique", "Comprendre des sujets complexes", "Parler sans trop chercher ses mots"], 
-      example: "Whatever the outcome, we must ensure the sustainability of this project." 
+  'B2': {
+    code: 'B2',
+    title: 'Indépendant / Avancé',
+    description: 'Peut comprendre le contenu essentiel de sujets concrets ou abstraits.',
+    skills: [
+      'Communiquer avec un degré de spontanéité et d\'aisance',
+      'S\'exprimer de façon claire et détaillée sur une grande gamme de sujets'
+    ],
+    example: 'Ex: "Bien que je comprenne votre point de vue, je ne suis pas d\'accord..." '
   },
-  'C1': { 
-      code: 'C1', 
-      title: 'Expert / Autonome', 
-      description: "Vous vous exprimez couramment et de façon structurée.", 
-      skills: ["Utiliser la langue de façon souple", "Comprendre des textes longs", "Maîtriser les nuances"], 
-      example: "Ideally, we should scrutinize the underlying implications of this policy." 
+  'C1': {
+    code: 'C1',
+    title: 'Autonome',
+    description: 'Peut comprendre une grande gamme de textes longs et exigeants.',
+    skills: [
+      'S\'exprimer spontanément et couramment sans trop apparemment chercher ses mots',
+      'Utiliser la langue de façon efficace et souple dans sa vie sociale ou pro'
+    ],
+    example: 'Ex: "Il est impératif de souligner l\'importance de..." '
   },
-  'C2': { 
-      code: 'C2', 
-      title: 'Maîtrise / Bilingue', 
-      description: "Vous comprenez sans effort pratiquement tout ce que vous lisez ou entendez.", 
-      skills: ["Nuances très fines de sens", "Reconstruire des faits et arguments", "Style précis et adapté"], 
-      example: "The subtle irony in his speech was lost on the audience." 
+  'C2': {
+    code: 'C2',
+    title: 'Maîtrise',
+    description: 'Peut comprendre sans effort pratiquement tout ce qu\'il/elle lit ou entend.',
+    skills: [
+      'Restituer faits et arguments de diverses sources écrites et orales en les résumant',
+      'S\'exprimer très couramment et de façon précise'
+    ],
+    example: 'Ex: "Nonobstant les aléas de la conjoncture actuelle..." '
   },
-  'HSK 1': { 
-      code: 'HSK 1', 
-      title: 'HSK 1 (Chinois)', 
-      description: "Maîtrise de 150 mots de base. Compréhension de phrases très simples.", 
-      skills: ["Saluer", "Se présenter", "Compter"], 
-      example: "你好 (Nǐ hǎo) - Bonjour." 
+  'HSK 1': {
+    code: 'HSK 1',
+    title: 'HSK 1 / Débutant',
+    description: 'Peut comprendre et utiliser des mots et phrases très simples en chinois.',
+    skills: [
+      'Connaître environ 150 mots courants',
+      'Répondre à des questions basiques sur soi-même'
+    ],
+    example: 'Ex: "你好 (Nǐ hǎo)"'
   },
-  'HSK 2': { 
-      code: 'HSK 2', 
-      title: 'HSK 2 (Chinois)', 
-      description: "Maîtrise de 300 mots. Échanges simples et directs sur le quotidien.", 
-      skills: ["Commander à manger", "Demander son chemin", "Parler de l'heure"], 
-      example: "我要喝咖啡 (Wǒ yào hē kāfēi) - Je veux boire du café." 
+  'HSK 2': {
+    code: 'HSK 2',
+    title: 'HSK 2 / Élémentaire',
+    description: 'Peut communiquer sur des sujets familiers et simples en chinois.',
+    skills: [
+      'Connaître environ 300 mots',
+      'Utiliser la langue pour des besoins quotidiens basiques'
+    ],
+    example: 'Ex: "这个多少钱? (Zhège duōshǎo qián?)"'
   },
-  'HSK 3': { 
-      code: 'HSK 3', 
-      title: 'HSK 3 (Chinois)', 
-      description: "Maîtrise de 600 mots. Communication basique dans la vie courante.", 
-      skills: ["Parler de ses loisirs", "Décrire une situation", "Voyager en Chine"], 
-      example: "我昨天买了一本书 (Wǒ zuótiān mǎi le yī běn shū)." 
+  'HSK 3': {
+    code: 'HSK 3',
+    title: 'HSK 3 / Intermédiaire',
+    description: 'Peut communiquer sur des sujets de la vie courante, des études et du travail.',
+    skills: [
+      'Connaître environ 600 mots',
+      'Voyager en Chine et faire face à la plupart des situations de communication'
+    ],
+    example: 'Ex: "虽然中文很难，但是我喜欢学习。"'
   },
-  'HSK 4': { 
-      code: 'HSK 4', 
-      title: 'HSK 4 (Chinois)', 
-      description: "Maîtrise de 1200 mots. Discussion sur des sujets variés.", 
-      skills: ["Discuter de sujets abstraits", "Lire des articles simples", "Exprimer des sentiments"], 
-      example: "这个计划看起来不错 (Zhège jìhuà kàn qǐlái bùcuò)." 
+  'HSK 4': {
+    code: 'HSK 4',
+    title: 'HSK 4 / Avancé',
+    description: 'Peut discuter de sujets variés et s\'exprimer couramment en chinois.',
+    skills: [
+      'Connaître environ 1200 mots',
+      'Converser avec des locuteurs natifs sur divers sujets'
+    ],
+    example: 'Ex: "为了提高口语水平，我每天练习听力。"'
   },
-  'HSK 5': { 
-      code: 'HSK 5', 
-      title: 'HSK 5 (Chinois)', 
-      description: "2500 mots. Lecture de journaux et films.", 
-      skills: ["Discours complet", "Lire la presse", "Regarder la TV"], 
-      example: "随着经济的发展... (Suízhe jīngjì de fāzhǎn...)" 
+  'HSK 5': {
+    code: 'HSK 5',
+    title: 'HSK 5 / Supérieur',
+    description: 'Peut lire des journaux et magazines chinois et comprendre des films.',
+    skills: [
+      'Connaître environ 2500 mots',
+      'Donner un discours complet en chinois'
+    ],
+    example: 'Ex: "我认为环境保护是当今社会面临的重要挑战之一。"'
   },
-  'HSK 6': { 
-      code: 'HSK 6', 
-      title: 'HSK 6 (Chinois)', 
-      description: "5000+ mots. Compréhension totale.", 
-      skills: ["Expression écrite et orale fluide", "Sujets techniques", "Littérature"], 
-      example: "..." 
-  },
+  'HSK 6': {
+    code: 'HSK 6',
+    title: 'HSK 6 / Expert',
+    description: 'Peut comprendre facilement toute information entendue ou lue en chinois.',
+    skills: [
+      'Connaître plus de 5000 mots',
+      'S\'exprimer couramment et de manière appropriée'
+    ],
+    example: 'Ex: "鉴于目前的发展趋势，我们需要采取更加果断的措施。"'
+  }
 };
 
-export const NEXT_LEVEL_MAP: Record<string, string> = {
-  'A1': 'A2',
-  'A2': 'B1',
-  'B1': 'B2',
-  'B2': 'C1',
-  'C1': 'C2',
-  'C2': 'Expert',
-  'HSK 1': 'HSK 2',
-  'HSK 2': 'HSK 3',
-  'HSK 3': 'HSK 4',
-  'HSK 4': 'HSK 5',
-  'HSK 5': 'HSK 6',
-  'HSK 6': 'Expert'
-};
-
-// === SMART TEACHER BRAIN - VERSION BASE STABLE ===
-export const SYSTEM_PROMPT_TEMPLATE = (profile: UserProfile, prefs: UserPreferences) => {
-  const currentLevel = prefs.level;
-  const targetLang = prefs.targetLanguage;
-  const explainLang = prefs.explanationLanguage; 
-  
-  // Calcul de la leçon suivante théorique
-  const courseKey = `${targetLang}-${currentLevel}`;
-  const lastLessonDone = profile.stats.progressByLevel?.[courseKey] || 0;
-  const nextLesson = lastLessonDone + 1;
-  const longTermMemory = profile.aiMemory || "Nouveau parcours.";
-
-  return `
+export const SYSTEM_PROMPT_TEMPLATE = (profile: UserProfile, prefs: UserPreferences) => `
 ROLE:
-Tu es **TeacherMada**, un professeur de langue expert, pédagogue et encourageant.
-Ton objectif est de faire progresser l'élève leçon par leçon avec clarté.
+Tu es TeacherMada, un professeur de langues d'excellence. 
+Ton but est de faire progresser l'élève avec une pédagogie structurée.
 
-PROFIL ÉLÈVE:
-- Langue Cible: **${targetLang}**
-- Niveau Actuel: **${currentLevel}**
-- Langue d'Explication: **${explainLang}** (Toutes les explications DOIVENT être dans cette langue).
-- Progression Actuelle: Leçon ${lastLessonDone} terminée. La suite logique est la **LEÇON ${nextLesson}**.
-- Mémoire: "${longTermMemory}"
+STRICTE INTERDICTION:
+NE JAMAIS GÉNÉRER DE CODE INFORMATIQUE (HTML, CSS, JS, Python, etc.) ou de blocs de code (triple backticks). 
+Tu es un professeur de LANGUES HUMAINES, pas un assistant de programmation.
 
-RÈGLES PRIORITAIRES (ORDRE DES LEÇONS):
-1. **Respect de la Demande** : Si l'utilisateur demande explicitement "Leçon X" ou clique sur "Suivant" (qui envoie "Génère la LEÇON X"), tu **DOIS** générer cette leçon spécifique, même si l'historique dit autre chose.
-2. **Continuité** : Si l'utilisateur dit juste "Commencer" ou "Suivant" sans numéro, enchaîne logiquement sur la leçon ${nextLesson}.
-3. **Pédagogie** : Adapte ton vocabulaire et ta vitesse au niveau ${currentLevel}.
+CONTEXTE:
+- Élève: ${profile.username}
+- Langue Cible: ${prefs.targetLanguage}
+- Niveau: ${prefs.level}
+- Langue Explication: ${prefs.explanationLanguage}
+- Mode: ${prefs.mode}
 
----
+STRUCTURE DE COURS (Si mode = Cours):
+1. ## 🟢 LEÇON [Numéro] : [Titre]
+2. ### 🎯 OBJECTIF
+3. ### 📖 THÉORIE (Explications en ${prefs.explanationLanguage})
+4. ### 🧾 VOCABULAIRE
+5. ### 📐 GRAMMAIRE
+6. ### 💬 EXEMPLE
+7. ### ✍️ EXERCICE
 
-STRUCTURE OBLIGATOIRE D'UNE LEÇON (Format Markdown):
-
-## 🟢 LEÇON [Numéro] : [Titre Court et Clair]
-
-### 🎯 Objectif
-> *Une phrase simple expliquant ce que l'on va apprendre aujourd'hui.*
-
-### 📚 La Leçon (Théorie)
-Explique le concept grammatical ou thématique clairement. Utilise des exemples concrets.
-*Si niveau débutant : explications simples.*
-*Si niveau avancé : nuances et détails.*
-
-### 🗣️ Vocabulaire Clé
-| Mot (${targetLang}) | Prononciation (Approximative) | Traduction |
-|---|---|---|
-| [Mot 1] | [Son] | [Traduction] |
-| [Mot 2] | [Son] | [Traduction] |
-*(Max 5-7 mots essentiels)*
-
-### 💬 Exemple en Contexte
-Un court dialogue ou des phrases types utilisant la leçon du jour.
-
-### ⚔️ À toi de jouer ! (Exercice)
-Pose une question directe ou demande de traduire une phrase simple pour vérifier la compréhension.
-*Ne donne pas la réponse tout de suite, attends que l'élève réponde.*
-
----
-
-MODE CONVERSATION (HORS LEÇON):
-Si l'utilisateur veut juste discuter, corrige ses fautes en gras et maintiens le dialogue de façon naturelle.
+SOIS ENCOURAGEANT ET CLAIR.
 `;
-};
 
-export const INITIAL_GREETING_FR = "Bonjour ! Je suis TeacherMada. Prêt à propulser ton niveau ? On commence la Leçon 1 ?";
-export const INITIAL_GREETING_MG = "Manao ahoana ! TeacherMada eto. Vonona hampiakatra niveau ve ianao ? Andao atomboka ny Lesona 1 ?";
+export const INITIAL_GREETING_FR = "Bonjour. Je suis TeacherMada. Prêt à commencer votre leçon aujourd'hui ?";
+export const INITIAL_GREETING_MG = "Manao ahoana. TeacherMada eto. Vonona hianatra ve ianao ?";
 
 export const ADMIN_CONTACTS = {
   telma: "034 93 102 68",

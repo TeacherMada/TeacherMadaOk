@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, Coins, Lock, BrainCircuit, Menu, FileText, Type, RotateCcw, MessageCircle, Image as ImageIcon, Library, PhoneOff, VolumeX, Trophy, Info, ChevronUp, Keyboard, Star, Sliders } from 'lucide-react';
 import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage, VoiceCallSummary, VoiceName } from '../types';
-import { sendMessageToGemini, generateSpeech, generatePracticalExercises, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
+import { sendMessageToGemini, generateSpeech, generatePracticalExercises, translateText, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import MarkdownRenderer from './MarkdownRenderer';
 import DialogueSession from './DialogueSession';
@@ -137,13 +137,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       return audioContextRef.current;
   };
 
-  // DÉCODEUR PCM CRITIQUE : Transforme les octets binaires de Gemini en son
   const decodePCM = (data: Uint8Array, ctx: AudioContext): AudioBuffer => {
       const dataInt16 = new Int16Array(data.buffer, data.byteOffset, data.byteLength / 2);
       const audioBuffer = ctx.createBuffer(1, dataInt16.length, 24000);
       const channelData = audioBuffer.getChannelData(0);
       for (let i = 0; i < dataInt16.length; i++) {
-          channelData[i] = dataInt16[i] / 32768.0; // Normalisation Float32
+          channelData[i] = dataInt16[i] / 32768.0; 
       }
       return audioBuffer;
   };
@@ -158,7 +157,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const startListening = () => {
     if (isMuted && isCallActive) return;
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitRecognition;
     if (!SpeechRec) return;
 
     const recognition = new SpeechRec();
@@ -180,7 +179,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   stopListening();
                   handleSend(transcript);
               }
-          }, 1800); 
+          }, 2000); 
       }
     };
     
@@ -199,15 +198,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setInterimTranscript('');
       setAiLastReply('');
       
-      // Activation du moteur audio
       await getAudioContext();
       
       setTimeout(async () => {
           setIsCallConnecting(false);
           const isMg = preferences.explanationLanguage.includes('Mada');
           const greeting = isMg 
-            ? `Salama ${user.username} ! Vonona hiresaka ve ianao ? Inona no ho resahintsika ?`
-            : `Allô ${user.username} ! Je suis là pour pratiquer. De quoi voulez-vous discuter ?`;
+            ? `Salama ! TeacherMada eto. Vonona hiresaka ve ianao ?`
+            : `Allô ! Je suis TeacherMada. Prêt pour notre conversation ?`;
           handleSpeak(greeting);
       }, 1500);
   };
@@ -218,7 +216,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setIsCallActive(false);
       setIsCallConnecting(false);
       setCallSeconds(0);
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
   };
 
   const handleSend = async (textOverride?: string) => {
@@ -229,7 +226,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
     const updatedHistory = [...messages, userMsg];
     setMessages(updatedHistory);
-    storageService.saveChatHistory(user.id, updatedHistory, preferences.targetLanguage);
     
     setInput('');
     setInterimTranscript('');
@@ -245,17 +241,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       }
       
       const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: reply, timestamp: Date.now() };
-      setMessages(prev => [...prev, aiMsg]);
-      storageService.saveChatHistory(user.id, [...updatedHistory, aiMsg], preferences.targetLanguage);
+      const finalHistory = [...updatedHistory, aiMsg];
+      setMessages(finalHistory);
+      storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage);
       
-      if (isCallActive) {
-          setAiLastReply(reply);
-          handleSpeak(reply);
-      }
+      if (isCallActive) setAiLastReply(reply);
+
+      // --- AUTO PLAY IA ---
+      // On lance la voix automatiquement pour chaque réponse de l'IA
+      handleSpeak(reply);
+
       const updated = storageService.getUserById(user.id);
       if(updated) onUpdateUser(updated);
     } catch (error: any) {
-      notify("Problème réseau.", 'error');
+      notify(error.message || "Problème de réseau.", 'error');
     } finally { 
       setIsLoading(false); 
     }
@@ -302,117 +301,115 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   useEffect(() => { if (!isDialogueActive && !showMenu) scrollToBottom(); }, [messages, isDialogueActive, showMenu]);
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 font-sans">
+    <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300 font-sans overflow-hidden">
       {showPaymentModal && <PaymentModal user={user} onClose={() => setShowPaymentModal(false)} />}
       {isDialogueActive && <DialogueSession user={user} onClose={() => setIsDialogueActive(false)} onUpdateUser={onUpdateUser} notify={notify} />}
 
-      {/* Interface d'Appel Premium */}
+      {/* Appel Vocal */}
       {isCallActive && (
           <div className="fixed inset-0 z-[200] bg-slate-950 flex flex-col items-center justify-between p-8 text-white animate-fade-in overflow-hidden">
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[150px] pointer-events-none"></div>
 
               <div className="w-full flex justify-between items-center z-10">
-                  <button onClick={handleEndCall} className="p-2.5 bg-white/5 rounded-full hover:bg-white/10 transition-colors"><ChevronDown className="w-6 h-6 text-slate-400"/></button>
+                  <button onClick={handleEndCall} className="p-3 bg-white/5 rounded-full hover:bg-white/10 transition-colors"><ChevronDown className="w-6 h-6 text-slate-400"/></button>
                   <div className="flex flex-col items-center">
                     <div className="flex items-center gap-2 mb-1">
-                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_#10b981]"></div>
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
                         <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Audio HD</span>
                     </div>
-                    <h2 className="text-sm font-bold text-slate-500">{preferences.targetLanguage}</h2>
+                    <h2 className="text-xs font-bold text-slate-500">{preferences.targetLanguage}</h2>
                   </div>
-                  <div className="w-10"></div>
+                  <div className="w-12"></div>
               </div>
 
               <div className="flex flex-col items-center justify-center w-full z-10 flex-1">
                   <div className="relative mb-10">
-                      <div className={`w-36 h-36 rounded-[3rem] bg-gradient-to-br from-indigo-500 via-purple-500 to-indigo-600 p-1 shadow-2xl transition-all duration-700 ${isPlayingAudio ? 'scale-110 shadow-indigo-500/30' : 'scale-100'}`}>
+                      <div className={`w-32 h-32 md:w-40 md:h-40 rounded-[3rem] bg-gradient-to-br from-indigo-500 to-purple-600 p-1 shadow-2xl transition-all duration-700 ${isPlayingAudio ? 'scale-110 shadow-indigo-500/30' : 'scale-100'}`}>
                           <div className="w-full h-full bg-slate-900 rounded-[2.8rem] flex items-center justify-center overflow-hidden border-4 border-white/5">
-                              <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-24 h-24 object-contain" alt="Tutor" />
+                              <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-20 h-20 md:w-28 md:h-28 object-contain" alt="Tutor" />
                           </div>
                       </div>
-                      {isListening && <div className="absolute -bottom-1 -right-1 bg-emerald-500 text-white p-2 rounded-full shadow-lg animate-bounce ring-4 ring-slate-950"><Mic className="w-4 h-4"/></div>}
+                      {isListening && <div className="absolute -bottom-1 -right-1 bg-emerald-500 text-white p-2.5 rounded-full shadow-lg animate-bounce ring-4 ring-slate-950"><Mic className="w-5 h-5"/></div>}
                   </div>
 
-                  <h3 className="text-2xl font-black mb-1 tracking-tight">TeacherMada</h3>
+                  <h3 className="text-2xl font-black mb-1">TeacherMada</h3>
                   <p className="text-slate-500 font-mono text-lg">{Math.floor(callSeconds / 60)}:{(callSeconds % 60).toString().padStart(2, '0')}</p>
 
-                  <div className="w-full max-w-xs h-32 mt-8">
-                      <canvas ref={canvasRef} width={400} height={160} className="w-full h-full opacity-80" />
+                  <div className="w-full max-w-xs h-24 mt-8">
+                      <canvas ref={canvasRef} width={400} height={160} className="w-full h-full opacity-60" />
                   </div>
 
-                  <div className="mt-8 px-8 text-center h-20 max-w-md flex items-center justify-center">
+                  <div className="mt-8 px-6 text-center h-20 max-w-md flex items-center justify-center">
                       {interimTranscript ? (
-                          <p className="text-xl font-bold text-indigo-300 animate-fade-in line-clamp-2 italic">"{interimTranscript}"</p>
+                          <p className="text-lg font-bold text-indigo-300 animate-fade-in line-clamp-2 italic">"{interimTranscript}"</p>
                       ) : isPlayingAudio ? (
-                          <div className="flex flex-col items-center gap-2">
-                              <p className="text-sm font-black text-slate-500 uppercase tracking-widest animate-pulse">L'IA répond...</p>
-                              {aiLastReply && <p className="text-xs text-indigo-400 opacity-60 line-clamp-2 italic">"{aiLastReply}"</p>}
-                          </div>
+                          <p className="text-xs font-black text-slate-500 uppercase tracking-widest animate-pulse">L'IA répond...</p>
                       ) : !isLoading ? (
-                          <p className="text-xs font-bold text-slate-700 uppercase tracking-[0.2em] border border-white/5 px-4 py-1.5 rounded-full">Dites quelque chose...</p>
+                          <p className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em] border border-white/5 px-4 py-2 rounded-full">En attente...</p>
                       ) : null}
                   </div>
               </div>
 
               <div className="w-full max-w-md grid grid-cols-3 gap-6 pb-12 z-10">
-                  <button onClick={() => setIsMuted(!isMuted)} className="flex flex-col items-center gap-2 group">
-                      <div className={`p-5 rounded-full transition-all duration-300 ${isMuted ? 'bg-white text-slate-900' : 'bg-white/5 text-white border border-white/10 hover:bg-white/15'}`}>
+                  <button onClick={() => setIsMuted(!isMuted)} className={`flex flex-col items-center gap-2 ${isMuted ? 'text-white' : 'text-slate-500'}`}>
+                      <div className={`p-5 rounded-full transition-all ${isMuted ? 'bg-white text-slate-900' : 'bg-white/5 border border-white/10'}`}>
                           {isMuted ? <VolumeX className="w-7 h-7"/> : <Volume2 className="w-7 h-7"/>}
                       </div>
-                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Muet</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest">Muet</span>
                   </button>
                   <button onClick={handleEndCall} className="flex flex-col items-center gap-2">
-                      <div className="p-8 bg-red-500 rounded-full shadow-[0_20px_40px_-5px_rgba(239,68,68,0.5)] hover:bg-red-600 transition-all transform active:scale-90 ring-4 ring-slate-950">
+                      <div className="p-8 bg-red-500 rounded-full shadow-2xl hover:bg-red-600 transition-all transform active:scale-90 ring-4 ring-slate-950">
                           <PhoneOff className="w-9 h-9 fill-current"/>
                       </div>
                       <span className="text-[10px] font-black text-red-500 uppercase tracking-widest mt-1">Fin</span>
                   </button>
-                  <button onClick={() => { if(isListening) stopListening(); else startListening(); }} className="flex flex-col items-center gap-2 group">
-                      <div className={`p-5 rounded-full transition-all duration-300 ${isListening ? 'bg-indigo-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)]' : 'bg-white/5 text-white border border-white/10 hover:bg-white/15'}`}>
+                  <button onClick={() => { if(isListening) stopListening(); else startListening(); }} className={`flex flex-col items-center gap-2 ${isListening ? 'text-indigo-400' : 'text-slate-500'}`}>
+                      <div className={`p-5 rounded-full transition-all ${isListening ? 'bg-indigo-600 text-white shadow-xl' : 'bg-white/5 border border-white/10'}`}>
                           <Mic className="w-7 h-7"/>
                       </div>
-                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Micro</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest">Micro</span>
                   </button>
               </div>
           </div>
       )}
 
-      {/* Header Standard */}
+      {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-40 bg-white/90 dark:bg-slate-900/95 backdrop-blur-md shadow-sm h-14 md:h-16 px-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
         <div className="flex items-center gap-2">
           <button onClick={onChangeMode} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all shrink-0">
              <ArrowLeft className="w-5 h-5 text-slate-500" />
           </button>
           <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-800 dark:text-indigo-300 rounded-full border border-indigo-100 dark:border-indigo-900/50">
-             <Globe className="w-4 h-4" />
-             <span className="text-xs font-bold whitespace-nowrap">{preferences.targetLanguage.split(' ')[0]}</span>
+             <Globe className="w-3.5 h-3.5" />
+             <span className="text-[10px] font-black uppercase whitespace-nowrap tracking-wider">{preferences.targetLanguage.split(' ')[0]}</span>
           </div>
         </div>
         
         <div className="flex items-center gap-2">
-             <button onClick={() => setShowPaymentModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/20 text-indigo-900 dark:text-indigo-100">
+             <button onClick={() => setShowPaymentModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/20 text-indigo-900 dark:text-indigo-100 border border-indigo-100 dark:border-indigo-900/50">
                   <Coins className="w-3.5 h-3.5 text-amber-500" />
                   <span className="text-xs font-bold">{user.role === 'admin' ? '∞' : user.credits}</span>
              </button>
-             <button onClick={onShowProfile} className="w-9 h-9 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center border-2 border-white dark:border-slate-800 shadow-sm">
+             <button onClick={onShowProfile} className="w-9 h-9 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center border-2 border-white dark:border-slate-800 shadow-sm overflow-hidden">
                 {user.username.substring(0, 1).toUpperCase()}
              </button>
         </div>
       </header>
       
-      <div id="chat-feed" ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 md:p-4 space-y-6 pt-20 pb-4 scrollbar-hide">
+      {/* Messages */}
+      <div id="chat-feed" ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 md:p-6 space-y-6 pt-20 pb-4 scrollbar-hide">
         {messages.map((msg) => (
             <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}>
-                <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 mx-2 ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1 shadow-sm'}`}>
-                        {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" />}
+                <div className={`flex max-w-[92%] md:max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                    <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-1 mx-1.5 ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1 shadow-sm'}`}>
+                        {msg.role === 'user' ? <User className="w-3.5 h-3.5 text-indigo-600" /> : <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" />}
                     </div>
-                    <div className={`px-4 py-3 rounded-2xl shadow-sm ${textSizeClass} transition-all duration-300 ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-slate-200 text-slate-800 rounded-tl-none border border-slate-100 dark:border-slate-700'}`}>
+                    <div className={`px-4 py-3 rounded-2xl shadow-sm ${textSizeClass} transition-all duration-300 ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-slate-200 text-slate-800 rounded-tl-none border border-slate-50 dark:border-slate-700'}`}>
                          {msg.role === 'user' ? <p className="whitespace-pre-wrap">{msg.text}</p> : (
                             <>
                                 <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} />
-                                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
-                                    <button onClick={() => handleSpeak(msg.text)} className={`p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors ${isPlayingAudio ? 'text-indigo-600 animate-pulse' : 'text-slate-400'}`}><Volume2 className="w-4 h-4"/></button>
+                                <div className="flex items-center gap-2 mt-2.5 pt-2 border-t border-slate-50 dark:border-slate-700/50">
+                                    <button onClick={() => handleSpeak(msg.text)} className={`p-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-full transition-colors ${isPlayingAudio ? 'text-indigo-600' : 'text-slate-400'}`}><Volume2 className="w-4 h-4"/></button>
                                 </div>
                             </>
                          )}
@@ -422,28 +419,29 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         ))}
         {isLoading && (
              <div className="flex justify-start animate-fade-in">
-                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1"><img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
-                 <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border shadow-sm"><Loader2 className="w-4 h-4 animate-spin text-indigo-500"/></div>
+                 <div className="flex-shrink-0 w-7 h-7 rounded-full bg-white border flex items-center justify-center mt-1 mx-1.5 p-1"><img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
+                 <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border border-slate-50 shadow-sm"><Loader2 className="w-4 h-4 animate-spin text-indigo-500"/></div>
              </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Input */}
       <div id="input-area" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 p-3 md:p-4 sticky bottom-0">
-        <div className="max-w-4xl mx-auto flex items-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-[26px] border border-slate-200 dark:border-slate-700 p-2 shadow-sm">
+        <div className="max-w-4xl mx-auto flex items-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-[26px] border border-slate-200 dark:border-slate-700 p-1.5 shadow-sm">
             <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Votre message ici..."
+                placeholder="Message..."
                 disabled={isLoading}
                 rows={1}
                 className="w-full bg-transparent text-slate-800 dark:text-white rounded-xl pl-4 py-3 text-base focus:outline-none resize-none max-h-32 scrollbar-hide self-center"
                 onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
             />
             <div className="flex items-center gap-1 pb-1 pr-1">
-                 <button onClick={handleStartCall} className="p-2.5 rounded-full text-purple-500 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"><Phone className="w-5.5 h-5.5"/></button>
-                 <button onClick={() => { if(isListening) stopListening(); else startListening(); }} className={`p-2.5 rounded-full transition-all ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:bg-slate-200'}`}><Mic className="w-5.5 h-5.5" /></button>
+                 <button onClick={handleStartCall} className="p-2.5 rounded-full text-purple-500 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"><Phone className="w-5 h-5"/></button>
+                 <button onClick={() => { if(isListening) stopListening(); else startListening(); }} className={`p-2.5 rounded-full transition-all ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:bg-slate-200'}`}><Mic className="w-5 h-5" /></button>
                  <button onClick={() => handleSend()} disabled={!input.trim() || isLoading} className="p-3 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 disabled:opacity-50 transform active:scale-95 transition-all"><Send className="w-4.5 h-4.5" /></button>
             </div>
         </div>
