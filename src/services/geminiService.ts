@@ -9,6 +9,7 @@ let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
 // Primary Model: gemini-2.0-flash is currently the fastest and most stable free-tier model.
+// gemini-3-flash-preview is often unstable (404/503).
 const PRIMARY_MODEL = 'gemini-2.0-flash'; 
 
 const FALLBACK_CHAIN = [
@@ -28,11 +29,14 @@ export interface RoleplayResponse {
 const getAvailableKeys = (): string[] => {
     const settings = storageService.getSystemSettings();
     let keys = settings.apiKeys && settings.apiKeys.length > 0 ? settings.apiKeys : [];
+    
+    // Use import.meta.env for Vite compatibility
     // @ts-ignore
     const envKey = import.meta.env.VITE_GOOGLE_API_KEY;
     if (envKey && !keys.includes(envKey)) {
         keys.push(envKey);
     }
+    
     return Array.from(new Set(keys)).filter(k => k && k.trim().length > 0);
 };
 
@@ -54,6 +58,7 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
 
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
+    // Fallback to PRIMARY_MODEL if the setting is the unstable 3-preview
     if (settings.activeModel === 'gemini-3-flash-preview') return PRIMARY_MODEL;
     return settings.activeModel || PRIMARY_MODEL;
 };
@@ -117,6 +122,7 @@ const executeWithRetry = async <T>(
                 return executeWithRetry(operation, userId, 0, fallbackIndex + 1);
             }
         }
+        console.error("Operation failed after retries:", error);
         throw error;
     }
 };
@@ -137,7 +143,7 @@ const sanitizeHistory = (history: ChatMessage[]) => {
 
 export const startChatSession = async (profile: UserProfile, prefs: UserPreferences, history: ChatMessage[] = []) => {
   initializeGenAI(); 
-  if (!aiClient) throw new Error("AI Client not initialized");
+  if (!aiClient) throw new Error("AI Client not initialized. Check API Key.");
   return null; 
 };
 
@@ -162,7 +168,6 @@ export const sendMessageToGemini = async (message: string, userId: string): Prom
             history: historyPayload,
         });
 
-        // Utilisation standard de sendMessage (pas de stream) pour plus de stabilité
         const result = await chat.sendMessage({ message });
         storageService.deductCreditOrUsage(userId);
         
@@ -202,7 +207,6 @@ export const generateVoiceChatResponse = async (
 export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId: string): Promise<VoiceCallSummary> => {
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
-        const user = storageService.getUserById(userId);
         const conversation = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
         const prompt = `Analyze this conversation. Return JSON: { "score": number(1-10), "feedback": "string", "tip": "string" }`;
         const response = await aiClient!.models.generateContent({
@@ -242,6 +246,7 @@ export const generateSpeech = async (text: string, userId: string, voiceName: st
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI(); 
         if (!text || !text.trim()) return null;
+        // Audio generation is model specific
         const response = await aiClient!.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
             contents: [{ parts: [{ text: `Read: ${text.substring(0, 4000)}` }] }],
@@ -261,6 +266,7 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
     checkCreditsBeforeAction(userId);
     return executeWithRetry(async () => {
         if (!aiClient) initializeGenAI();
+        // Image generation model
         const response = await aiClient!.models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: { parts: [{ text: prompt }] },
