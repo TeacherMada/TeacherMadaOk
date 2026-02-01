@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { UserProfile, UserPreferences, ChatMessage, VoiceName, VoiceCallSummary, ExerciseItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
@@ -10,48 +10,42 @@ const MODEL_POOL = [
 ];
 
 /**
- * Extrait et rotation des clés API depuis process.env.API_KEY
- * Supporte le format "KEY1, KEY2, KEY3"
+ * Récupère toutes les clés API disponibles depuis l'environnement
+ * Gère le format "KEY1,KEY2,KEY3"
  */
-const getApiKey = (): string => {
-    const rawKeys = process.env.API_KEY || "";
-    const keys = rawKeys.split(',')
-        .map((k: string) => k.trim())
-        .filter((k: string) => k.length > 5);
-    
-    if (keys.length === 0) {
-        throw new Error("API_KEY_MISSING: Aucune clé configurée.");
-    }
-    // Rotation aléatoire pour maximiser le quota
-    return keys[Math.floor(Math.random() * keys.length)];
+const getApiKeys = (): string[] => {
+    const raw = process.env.API_KEY || "";
+    return raw.split(',').map(k => k.trim()).filter(k => k.length > 5);
 };
 
 /**
- * Exécute une opération avec fallback automatique sur les modèles et rotation de clés
+ * Exécute une opération avec rotation agressive des clés et des modèles
  */
 async function executeWithFallback<T>(operation: (ai: GoogleGenAI, modelName: string) => Promise<T>): Promise<T> {
+    const keys = getApiKeys();
     let lastError: any;
-    const keys = (process.env.API_KEY || "").split(',').filter(k => k.trim().length > 5);
-    
-    // On tente sur les modèles du pool
+
+    if (keys.length === 0) throw new Error("Aucune clé API configurée.");
+
     for (const model of MODEL_POOL) {
-        // Pour chaque modèle, on peut tenter plusieurs clés si erreur de quota
-        for (let attempt = 0; attempt < Math.min(keys.length, 3); attempt++) {
+        // Pour chaque modèle, on teste chaque clé disponible
+        for (const key of keys) {
             try {
-                const ai = new GoogleGenAI({ apiKey: getApiKey() });
+                const ai = new GoogleGenAI({ apiKey: key });
                 return await operation(ai, model);
             } catch (error: any) {
                 lastError = error;
                 const msg = error.message?.toLowerCase() || "";
-                // Si quota épuisé ou erreur serveur, on change de clé/modèle
+                // Si c'est une erreur de quota ou de réseau, on tente la clé suivante
                 if (msg.includes('429') || msg.includes('quota') || msg.includes('fetch') || msg.includes('network')) {
-                    continue; 
+                    console.warn(`Clé API défaillante ou quota épuisé, tentative avec la suivante...`);
+                    continue;
                 }
-                throw error; // Erreur fatale (ex: auth)
+                throw error; // Erreur fatale (ex: erreur de syntaxe ou auth invalide)
             }
         }
     }
-    throw lastError || new Error("Service IA indisponible après plusieurs tentatives.");
+    throw lastError || new Error("Service indisponible : toutes les clés et modèles ont échoué.");
 }
 
 export const sendMessageToGeminiStream = async (
@@ -71,7 +65,7 @@ export const sendMessageToGeminiStream = async (
                 { role: 'user', parts: [{ text: message }] }
             ],
             config: { 
-                systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!) + "\n\n🚨 INTERDICTION : Ne génère jamais de code. Texte pédagogique uniquement.",
+                systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!) + "\n\nNE GÉNÈRE JAMAIS DE CODE. TEXTE UNIQUEMENT.",
                 temperature: 0.7 
             }
         });
@@ -91,11 +85,12 @@ export const sendMessageToGeminiStream = async (
 
 export const generateSpeech = async (text: string, userId: string, voice?: VoiceName): Promise<Uint8Array | null> => {
     try {
-        const ai = new GoogleGenAI({ apiKey: getApiKey() });
+        const keys = getApiKeys();
+        const ai = new GoogleGenAI({ apiKey: keys[Math.floor(Math.random() * keys.length)] });
         const user = storageService.getUserById(userId);
         const voiceToUse = voice || user?.preferences?.voiceName || 'Kore';
         
-        // Nettoyage Markdown pour éviter que l'IA ne lise les symboles
+        // Nettoyage Markdown pour TTS
         const cleanText = text.replace(/[*#_`~]/g, '').trim().substring(0, 1000);
         if (!cleanText) return null;
 
@@ -127,7 +122,7 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
 
 export const generatePracticalExercises = async (user: UserProfile, history: ChatMessage[]): Promise<ExerciseItem[]> => {
     return executeWithFallback(async (ai, model) => {
-        const prompt = `Génère 5 exercices (${user.preferences?.targetLanguage}, ${user.preferences?.level}) basés sur l'historique récent. JSON array uniquement: [{type: "multiple_choice"|"fill_blank", question, options, correctAnswer, explanation}]`;
+        const prompt = `Génère 5 exercices (${user.preferences?.targetLanguage}, ${user.preferences?.level}) basés sur l'historique récent. JSON array: [{type: "multiple_choice"|"fill_blank", question, options, correctAnswer, explanation}]`;
         const res = await ai.models.generateContent({
             model,
             contents: prompt,
@@ -150,7 +145,7 @@ export const generateVoiceChatResponse = async (message: string, userId: string,
                 { role: 'user', parts: [{ text: message }] }
             ],
             config: {
-                systemInstruction: `Tu es TeacherMada en APPEL VOCAL. Réponses ultra-courtes (max 12 mots). Pas de markdown.`,
+                systemInstruction: `Tu es TeacherMada en APPEL VOCAL. Réponses ultra-courtes. Pas de markdown.`,
                 maxOutputTokens: 100,
                 temperature: 0.5
             }
@@ -180,18 +175,27 @@ export const analyzeVoiceCallPerformance = async (history: ChatMessage[]): Promi
     });
 };
 
-// Fonctions de compatibilité (vides ou simples)
+export const getLessonSummary = async (num: number, context: string, userId: string): Promise<string> => {
+    return executeWithFallback(async (ai, model) => {
+        const res = await ai.models.generateContent({
+            model,
+            contents: `Résumé leçon ${num}. Contexte: ${context}`,
+        });
+        return res.text || "Résumé indisponible.";
+    });
+};
+
 export const startChatSession = async (p: any, pr: any, h: any) => null;
 export const analyzeUserProgress = async (h: any, m: any, id: any) => ({ newMemory: m, xpEarned: 20 });
 export const generateDailyChallenges = async (p: any) => [];
 export const generateConceptImage = async (p: any, id: any) => null;
-export const getLessonSummary = async (n: any, c: any, id: any) => "Résumé de la leçon.";
 export interface RoleplayResponse { aiReply: string; correction?: string; explanation?: string; score?: number; feedback?: string; }
 export const generateRoleplayResponse = async (h: any, s: any, u: any, c?: boolean, init?: boolean): Promise<RoleplayResponse> => {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const keys = getApiKeys();
+    const ai = new GoogleGenAI({ apiKey: keys[0] });
     const res = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Jeu de rôle. Scénario: ${s}. Réponds de façon concise.`,
+        contents: `Jeu de rôle. Scénario: ${s}. Historique: ${JSON.stringify(h)}`,
     });
     return { aiReply: res.text || "À vous." };
 };
