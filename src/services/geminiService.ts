@@ -1,16 +1,19 @@
 import { GoogleGenAI, Modality, Type } from "@google/genai";
-import { UserProfile, UserPreferences, ChatMessage, VoiceName, VoiceCallSummary, ExerciseItem, VocabularyItem } from "../types";
+import { UserProfile, ChatMessage, VoiceName, VoiceCallSummary, ExerciseItem, VocabularyItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
+/**
+ * Pool de modèles pour le fallback automatique
+ */
 const MODEL_POOL = [
     'gemini-3-flash-preview',
-    'gemini-flash-lite-latest',
-    'gemini-flash-latest'
+    'gemini-flash-latest',
+    'gemini-flash-lite-latest'
 ];
 
 /**
- * Parsing ultra-robuste des clés API multiples
+ * Extrait proprement les clés API multiples
  */
 const getApiKeys = (): string[] => {
     const raw = process.env.API_KEY || "";
@@ -18,14 +21,17 @@ const getApiKeys = (): string[] => {
 };
 
 /**
- * Exécuteur avec algorithme de retry et rotation de clés
+ * Exécuteur universel avec rotation de clés et de modèles en cas d'erreur
  */
 async function executeWithFallback<T>(operation: (ai: GoogleGenAI, modelName: string) => Promise<T>): Promise<T> {
     const keys = getApiKeys();
     if (keys.length === 0) throw new Error("API_KEY_MISSING");
 
     let lastError: any;
+    
+    // On essaie chaque modèle du pool
     for (const model of MODEL_POOL) {
+        // Pour chaque modèle, on teste chaque clé disponible
         for (const key of keys) {
             try {
                 const ai = new GoogleGenAI({ apiKey: key });
@@ -33,12 +39,12 @@ async function executeWithFallback<T>(operation: (ai: GoogleGenAI, modelName: st
             } catch (error: any) {
                 lastError = error;
                 const msg = error.message?.toLowerCase() || "";
-                // On ne change de clé/modèle que pour les erreurs de quota ou de réseau
+                // Si quota épuisé, erreur réseau ou timeout, on passe à la suite
                 if (msg.includes('429') || msg.includes('quota') || msg.includes('fetch') || msg.includes('network') || msg.includes('deadline')) {
-                    console.warn(`Rotation API initiée pour le modèle ${model}...`);
+                    console.warn(`Basculement API : Clé suivante pour le modèle ${model}...`);
                     continue;
                 }
-                throw error; // Erreur bloquante (ex: prompt bloqué)
+                throw error; // Erreur fatale de logique (ex: prompt bloqué)
             }
         }
     }
@@ -62,7 +68,7 @@ export const sendMessageToGeminiStream = async (
                 { role: 'user', parts: [{ text: message }] }
             ],
             config: { 
-                systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!) + "\n\nIMPORTANT: Réponds en texte pur. Jamais de code. Jamais de triple backticks.",
+                systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!) + "\n\nNE GÉNÈRE JAMAIS DE CODE. TEXTE UNIQUEMENT.",
                 temperature: 0.7 
             }
         });
@@ -87,7 +93,8 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
         const user = storageService.getUserById(userId);
         const voiceToUse = voice || user?.preferences?.voiceName || 'Kore';
         
-        const cleanText = text.replace(/[*#_`~]/g, '').trim().substring(0, 1500);
+        // Nettoyage Markdown
+        const cleanText = text.replace(/[*#_`~]/g, '').trim().substring(0, 1200);
         if (!cleanText) return null;
 
         const response = await ai.models.generateContent({
@@ -109,15 +116,14 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
         for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
         return bytes;
     } catch (e) {
-        console.error("TTS Failure:", e);
+        console.error("Audio Engine Error:", e);
         return null;
     }
 };
 
 export const generateVocabularyFromHistory = async (history: ChatMessage[], lang: string): Promise<VocabularyItem[]> => {
     return executeWithFallback(async (ai, model) => {
-        const conversation = history.slice(-6).map(m => m.text).join('\n');
-        const prompt = `Extrais 3-5 mots/expressions clés de cette leçon en ${lang}. JSON array: [{word, translation, context, mastered: false}]`;
+        const prompt = `Extrais 3 mots clés de cette leçon en ${lang}. JSON array: [{word, translation, context, mastered: false}]`;
         const res = await ai.models.generateContent({
             model,
             contents: prompt,
@@ -130,7 +136,7 @@ export const generateVocabularyFromHistory = async (history: ChatMessage[], lang
 
 export const generatePracticalExercises = async (user: UserProfile, history: ChatMessage[]): Promise<ExerciseItem[]> => {
     return executeWithFallback(async (ai, model) => {
-        const prompt = `Génère 5 exercices (${user.preferences?.targetLanguage}, ${user.preferences?.level}) basés sur les derniers échanges. JSON array: [{type: "multiple_choice"|"fill_blank", question, options, correctAnswer, explanation}]`;
+        const prompt = `Génère 5 exercices (${user.preferences?.targetLanguage}, ${user.preferences?.level}). JSON array: [{type: "multiple_choice"|"fill_blank", question, options, correctAnswer, explanation}]`;
         const res = await ai.models.generateContent({
             model,
             contents: prompt,
@@ -152,20 +158,19 @@ export const generateVoiceChatResponse = async (message: string, userId: string,
                 { role: 'user', parts: [{ text: message }] }
             ],
             config: {
-                systemInstruction: `Tu es TeacherMada en APPEL VOCAL. Réponds très court (max 15 mots). Jamais de markdown.`,
-                maxOutputTokens: 80,
-                temperature: 0.5
+                systemInstruction: `Tu es TeacherMada en APPEL VOCAL. Réponds très court. Pas de markdown.`,
+                maxOutputTokens: 100
             }
         });
-        return res.text || "Je vous écoute.";
+        return res.text || "D'accord.";
     });
 };
 
 export const translateText = async (text: string, targetLang: string): Promise<string> => {
     return executeWithFallback(async (ai, model) => {
         const res = await ai.models.generateContent({
-            model: 'gemini-flash-lite-latest',
-            contents: `Traduis en ${targetLang}, texte seul : "${text}"`,
+            model,
+            contents: `Traduis en ${targetLang}: "${text}"`,
         });
         return res.text?.trim() || text;
     });
@@ -175,22 +180,21 @@ export const analyzeVoiceCallPerformance = async (history: ChatMessage[]): Promi
     return executeWithFallback(async (ai, model) => {
         const res = await ai.models.generateContent({
             model,
-            contents: `Analyse JSON: {score, feedback, tip}. Conversation: ${JSON.stringify(history.slice(-6))}`,
+            contents: `Analyse conversation JSON: {score, feedback, tip}`,
             config: { responseMimeType: "application/json" }
         });
         return JSON.parse(res.text || '{"score":7, "feedback":"Bien", "tip":"Continuez"}');
     });
 };
 
+// Fonctions de compatibilité
 export const startChatSession = async (p: any, pr: any, h: any) => null;
 export const analyzeUserProgress = async (h: any, m: any, id: any) => ({ newMemory: m, xpEarned: 20 });
 export const generateDailyChallenges = async (p: any) => [];
 export const generateConceptImage = async (p: any, id: any) => null;
-export const getLessonSummary = async (n: any, c: any, id: any) => "Résumé de la leçon.";
 export interface RoleplayResponse { aiReply: string; correction?: string; explanation?: string; score?: number; feedback?: string; }
 export const generateRoleplayResponse = async (h: any, s: any, u: any, c?: boolean, init?: boolean): Promise<RoleplayResponse> => {
-    const keys = getApiKeys();
-    const ai = new GoogleGenAI({ apiKey: keys[0] });
+    const ai = new GoogleGenAI({ apiKey: getApiKeys()[0] });
     const res = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `Jeu de rôle. Contexte: ${s}. Réponds court.`,
