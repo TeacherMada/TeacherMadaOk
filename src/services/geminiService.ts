@@ -60,10 +60,10 @@ export const generateVoiceChatResponse = async (
     if (!user || !user.preferences) throw new Error("USER_DATA_MISSING");
 
     const systemInstruction = `
-        ACT: Personal language tutor on a mobile call. 
+        ACT: A very fast and ultra-natural language tutor on a mobile call. 
         USER: ${user.username}. TARGET: ${user.preferences.targetLanguage}. LEVEL: ${user.preferences.level}.
-        GOAL: Short, ultra-natural conversation. 
-        RULES: Max 2 sentences. No lists. No markdown. Correct mistakes immediately but kindly. Use simple words.
+        GOAL: Short, conversational response (1-2 sentences). 
+        RULES: No markdown. No complex structures. Correct big mistakes naturally. Be very human.
     `;
 
     const response = await ai.models.generateContent({
@@ -84,7 +84,6 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
     const user = storageService.getUserById(userId);
     const voiceToUse = voice || user?.preferences?.voiceName || 'Kore';
     
-    // Remove markdown markers for cleaner audio
     const cleanText = text.replace(/[*#_`~]/g, '').trim();
     if (!cleanText) return null;
 
@@ -112,7 +111,7 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
         }
         return bytes;
     } catch (e) {
-        console.error("TTS Error:", e);
+        console.error("TTS generation failed", e);
         return null;
     }
 };
@@ -121,13 +120,13 @@ export const startChatSession = async (profile: UserProfile, prefs: UserPreferen
 
 export const getLessonSummary = async (lessonNumber: number, context: string, userId: string): Promise<string> => {
     const ai = getAiClient();
-    const prompt = `Génère un résumé concis pour la LEÇON ${lessonNumber}. Contexte: ${context}. Format Markdown strict.`;
+    const prompt = `Génère un résumé pédagogique pour la LEÇON ${lessonNumber}. Contexte : ${context}. Format Markdown.`;
     const response = await ai.models.generateContent({
         model: TEXT_MODEL,
         contents: prompt,
     });
     storageService.deductCreditOrUsage(userId);
-    return response.text || "Impossible de générer le résumé.";
+    return response.text || "Erreur de résumé.";
 };
 
 export const translateText = async (text: string, targetLang: string, userId: string): Promise<string> => {
@@ -142,7 +141,7 @@ export const translateText = async (text: string, targetLang: string, userId: st
 
 export const generatePracticalExercises = async (user: UserProfile, history: ChatMessage[]): Promise<ExerciseItem[]> => {
     const ai = getAiClient();
-    const prompt = `Generate 5 exercises for ${user.preferences?.targetLanguage} level ${user.preferences?.level}. Return JSON array.`;
+    const prompt = `Generate 5 structured exercises for ${user.preferences?.targetLanguage} level ${user.preferences?.level}. Return JSON array.`;
     const response = await ai.models.generateContent({
         model: TEXT_MODEL,
         contents: prompt,
@@ -175,7 +174,7 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
 
 export const analyzeUserProgress = async (history: ChatMessage[], memory: string, userId: string): Promise<{ newMemory: string; xpEarned: number; feedback: string }> => {
     const ai = getAiClient();
-    const prompt = `Analyze progress. Update memory. Current memory: ${memory}. JSON: {newMemory, xpEarned, feedback}`;
+    const prompt = `Analyze progress. Update memory. Current memory: ${memory}. Chat: ${JSON.stringify(sanitizeHistory(history))}. JSON: {newMemory, xpEarned, feedback}`;
     const response = await ai.models.generateContent({
         model: TEXT_MODEL,
         contents: prompt,
@@ -189,7 +188,7 @@ export const analyzeUserProgress = async (history: ChatMessage[], memory: string
             feedback: json.feedback || "Bien joué !"
         };
     } catch {
-        return { newMemory: memory, xpEarned: 10, feedback: "Session terminée." };
+        return { newMemory: memory, xpEarned: 10, feedback: "Session analysée." };
     }
 };
 
@@ -206,10 +205,10 @@ export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId
         return {
             score: Number(json.score) || 7,
             feedback: json.feedback || "Bonne conversation.",
-            tip: json.tip || "Continuez ainsi."
+            tip: json.tip || "Pratiquez plus souvent."
         };
     } catch {
-        return { score: 7, feedback: "Bien joué !", tip: "Pratiquez plus souvent." };
+        return { score: 7, feedback: "Bien joué !", tip: "Pratiquez régulièrement." };
     }
 };
 
@@ -232,7 +231,7 @@ export const generateDailyChallenges = async (prefs: UserPreferences): Promise<D
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: TEXT_MODEL,
-        contents: `Generate 3 short daily challenges. JSON array.`,
+        contents: `Generate 3 short daily challenges for learning ${prefs.targetLanguage}. JSON array.`,
         config: { responseMimeType: "application/json" }
     });
     try {

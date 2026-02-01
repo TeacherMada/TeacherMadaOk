@@ -7,13 +7,11 @@ export enum TargetLanguage {
   German = 'Allemand 🇩🇪'
 }
 
-// Added ExplanationLanguage enum
 export enum ExplanationLanguage {
   French = 'Français 🇫🇷',
   Malagasy = 'Malagasy 🇲🇬'
 }
 
-// Added LearningMode enum
 export enum LearningMode {
   Course = '📘 Cours structuré',
   Chat = '💬 Discussion libre',
@@ -23,7 +21,6 @@ export enum LearningMode {
 
 export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2' | 'HSK 1' | 'HSK 2' | 'HSK 3' | 'HSK 4' | 'HSK 5' | 'HSK 6';
 
-// Added LevelDescriptor interface
 export interface LevelDescriptor {
   code: LanguageLevel;
   title: string;
@@ -109,7 +106,6 @@ export interface UserProfile {
   isSuspended?: boolean;
 }
 
-// Added Transaction interface
 export interface Transaction {
   id: string;
   userId: string;

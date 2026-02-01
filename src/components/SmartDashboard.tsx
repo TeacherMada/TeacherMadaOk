@@ -21,11 +21,12 @@ interface SmartDashboardProps {
 const VOICE_OPTIONS: { id: VoiceName; label: string; desc: string }[] = [
     { id: 'Zephyr', label: 'Zephyr', desc: 'Calme' },
     { id: 'Kore', label: 'Kore', desc: 'Chaleureux' },
-    { id: 'Puck', label: 'Puck', desc: 'Énergique' }
+    { id: 'Puck', label: 'Puck', desc: 'Énergique' },
+    { id: 'Charon', label: 'Charon', desc: 'Profond' }
 ];
 
 const SmartDashboard: React.FC<SmartDashboardProps> = ({ 
-  user, messages, onClose, onUpgrade, onUpdateUser, onLogout, isDarkMode, toggleTheme, fontSize, onFontSizeChange, notify
+  user, onClose, onUpdateUser, onLogout, isDarkMode, toggleTheme, fontSize, onFontSizeChange, notify
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<'hub' | 'lessons'>('hub');
@@ -64,8 +65,8 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
         {/* Tab Switcher */}
         <div className="px-6 py-4">
             <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
-                <button onClick={() => setActiveTab('hub')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'hub' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500'}`}>Profil & Voix</button>
-                <button onClick={() => setActiveTab('lessons')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'lessons' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500'}`}>Leçons</button>
+                <button onClick={() => setActiveTab('hub')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'hub' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500'}`}>Mon Espace</button>
+                <button onClick={() => setActiveTab('lessons')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'lessons' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500'}`}>Historique</button>
             </div>
         </div>
 
@@ -74,50 +75,61 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
             {activeTab === 'hub' && (
                 <div className="space-y-6">
                     {/* Voice Selection */}
-                    <div className="bg-white dark:bg-[#1A2030] rounded-2xl p-5 border border-slate-100 dark:border-white/5 shadow-sm">
-                        <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Sliders className="w-4 h-4"/> Personnalité du Tuteur</h3>
-                        <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-slate-50 dark:bg-[#1A2030] rounded-3xl p-6 border border-slate-100 dark:border-white/5 shadow-sm">
+                        <div className="flex items-center gap-3 mb-6">
+                             <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl text-indigo-600"><Sliders className="w-5 h-5"/></div>
+                             <h3 className="font-black text-slate-800 dark:text-white">Voix du Professeur</h3>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
                             {VOICE_OPTIONS.map(v => (
                                 <button 
                                     key={v.id} 
                                     onClick={() => handleUpdateVoice(v.id)}
-                                    className={`p-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 ${user.preferences?.voiceName === v.id ? 'border-indigo-500 bg-indigo-500/5 text-indigo-600' : 'border-slate-50 dark:border-slate-800 hover:border-indigo-200'}`}
+                                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-1 ${user.preferences?.voiceName === v.id ? 'border-indigo-500 bg-indigo-500/5 text-indigo-600 dark:text-indigo-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-indigo-200'}`}
                                 >
-                                    <div className="text-xs font-black">{v.label}</div>
-                                    <div className="text-[10px] opacity-60">{v.desc}</div>
+                                    <div className="text-sm font-black">{v.label}</div>
+                                    <div className="text-[10px] opacity-60 font-bold uppercase">{v.desc}</div>
                                 </button>
                             ))}
                         </div>
                     </div>
 
-                    {/* Quick Stats */}
+                    {/* Stats */}
                     <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-white dark:bg-[#1A2030] p-4 rounded-2xl text-center border border-slate-100 dark:border-white/5 shadow-sm">
-                            <Trophy className="w-6 h-6 text-amber-500 mx-auto mb-2" />
-                            <div className="text-xl font-black">{user.stats.xp}</div>
-                            <div className="text-[10px] font-bold text-slate-400 uppercase">XP Totale</div>
+                        <div className="bg-white dark:bg-[#1A2030] p-5 rounded-3xl text-center border border-slate-100 dark:border-white/5 shadow-sm">
+                            <Trophy className="w-7 h-7 text-amber-500 mx-auto mb-2" />
+                            <div className="text-2xl font-black">{user.stats.xp}</div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">XP Totale</div>
                         </div>
-                        <div className="bg-white dark:bg-[#1A2030] p-4 rounded-2xl text-center border border-slate-100 dark:border-white/5 shadow-sm">
-                            <Flame className="w-6 h-6 text-orange-500 mx-auto mb-2" />
-                            <div className="text-xl font-black">{user.stats.streak}</div>
-                            <div className="text-[10px] font-bold text-slate-400 uppercase">Jours consécutifs</div>
+                        <div className="bg-white dark:bg-[#1A2030] p-5 rounded-3xl text-center border border-slate-100 dark:border-white/5 shadow-sm">
+                            <Flame className="w-7 h-7 text-orange-500 mx-auto mb-2" />
+                            <div className="text-2xl font-black">{user.stats.streak}</div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Série (Jours)</div>
                         </div>
                     </div>
 
                     {/* Settings UI */}
-                    <div className="bg-white dark:bg-[#1A2030] rounded-2xl border border-slate-100 dark:border-white/5 shadow-sm overflow-hidden">
-                        <div className="p-4 flex items-center justify-between">
+                    <div className="bg-white dark:bg-[#1A2030] rounded-3xl border border-slate-100 dark:border-white/5 shadow-sm overflow-hidden divide-y dark:divide-white/5">
+                        <div className="p-5 flex items-center justify-between">
                             <span className="text-sm font-bold">Mode Sombre</span>
-                            <button onClick={toggleTheme} className={`w-10 h-6 rounded-full p-1 transition-colors ${isDarkMode ? 'bg-indigo-600' : 'bg-slate-200'}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${isDarkMode ? 'translate-x-4' : 'translate-x-0'}`}></div></button>
+                            <button onClick={toggleTheme} className={`w-12 h-7 rounded-full p-1 transition-colors ${isDarkMode ? 'bg-indigo-600' : 'bg-slate-200'}`}><div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${isDarkMode ? 'translate-x-5' : 'translate-x-0'}`}></div></button>
+                        </div>
+                        <div className="p-5 flex items-center justify-between">
+                            <span className="text-sm font-bold">Taille Texte</span>
+                            <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+                                {(['small', 'normal', 'large'] as const).map(s => (
+                                    <button key={s} onClick={() => onFontSizeChange(s)} className={`px-3 py-1 rounded-md text-xs font-black transition-all ${fontSize === s ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-400'}`}>A</button>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
         </div>
 
-        {/* Logout */}
+        {/* Footer Logout */}
         <div className="p-6 border-t border-slate-100 dark:border-white/5">
-            <button onClick={onLogout} className="w-full py-4 bg-red-50 dark:bg-red-900/10 text-red-600 font-bold rounded-xl flex items-center justify-center gap-2 transition-all hover:bg-red-100">
+            <button onClick={onLogout} className="w-full py-4 bg-red-50 dark:bg-red-900/10 text-red-600 font-black rounded-2xl flex items-center justify-center gap-3 transition-all hover:bg-red-100">
                 <LogOut className="w-5 h-5" /> Déconnexion
             </button>
         </div>
