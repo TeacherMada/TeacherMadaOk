@@ -233,8 +233,9 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
                   onClick={() => handleExplanationSelect(lang)}
                   className="p-6 border dark:border-slate-700 rounded-2xl hover:border-indigo-500 dark:hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-all flex flex-col items-center justify-center text-center group"
                 >
-                  <span className="text-4xl mb-4 group-hover:scale-110 transition-transform">{lang.split(' ').pop()}</span>
-                  <span className="font-bold text-slate-700 dark:text-slate-200">{lang.split(' ')[0]}</span>
+                  {/* Cast to string to fix split errors on unknown */}
+                  <span className="text-4xl mb-4 group-hover:scale-110 transition-transform">{(lang as string).split(' ').pop()}</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-200">{(lang as string).split(' ')[0]}</span>
                 </button>
               ))}
             </div>

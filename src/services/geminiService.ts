@@ -1,43 +1,25 @@
+
 import { GoogleGenAI, Modality } from "@google/genai";
-import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, VoiceCallSummary } from "../types";
+import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, VoiceCallSummary, VoiceName } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
-/**
- * Retrieves a valid API Key from environment variables.
- * Prioritizes process.env.API_KEY as per strict requirements.
- * Also checks VITE_GOOGLE_API_KEY as a fallback since the user mentioned it.
- * Supports comma-separated rotation.
- */
 const getApiKey = (): string => {
-    // Attempt to get keys from standard process.env or Vite's import.meta.env
     const rawKey = process.env.API_KEY || (import.meta as any).env?.VITE_GOOGLE_API_KEY || "";
     const keys = rawKey.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 5);
-
-    if (keys.length === 0) {
-        // If we throw an error with "API_KEY", the UI will show "Erreur Configuration API"
-        throw new Error("REQUIRED_CONFIGURATION_MISSING: API_KEY environment variable is empty or invalid.");
-    }
-
-    // Dynamic rotation: pick a random key from the list
+    if (keys.length === 0) throw new Error("REQUIRED_CONFIGURATION_MISSING");
     return keys[Math.floor(Math.random() * keys.length)];
 };
 
-/**
- * Creates a fresh GenAI instance using the required initialization pattern.
- */
-const getAiClient = () => {
-    const apiKey = getApiKey();
-    return new GoogleGenAI({ apiKey });
-};
+const getAiClient = () => new GoogleGenAI({ apiKey: getApiKey() });
 
-// Recommended model names
 const TEXT_MODEL = 'gemini-3-flash-preview';
+const VOICE_FAST_MODEL = 'gemini-flash-lite-latest'; // Ultra fast for calls
 const TTS_MODEL = 'gemini-2.5-flash-preview-tts';
 const IMAGE_MODEL = 'gemini-2.5-flash-image';
 
-const sanitizeHistory = (history: ChatMessage[]) => {
-    return history.slice(-12).map(m => ({
+const sanitizeHistory = (history: ChatMessage[], limit = 12) => {
+    return history.slice(-limit).map(m => ({
         role: m.role,
         parts: [{ text: m.text }]
     }));
@@ -65,7 +47,7 @@ export const sendMessageToGemini = async (
     });
 
     storageService.deductCreditOrUsage(userId);
-    return response.text || "Désolé, je n'ai pas pu générer de réponse.";
+    return response.text || "...";
 };
 
 export const generateVoiceChatResponse = async (
@@ -78,26 +60,30 @@ export const generateVoiceChatResponse = async (
     if (!user || !user.preferences) throw new Error("USER_DATA_MISSING");
 
     const systemInstruction = `
-        ACT: Friendly language tutor on a phone call. 
+        ACT: Personal language tutor on a mobile call. 
         USER: ${user.username}. TARGET: ${user.preferences.targetLanguage}. LEVEL: ${user.preferences.level}.
-        RULES: Short response (max 2 sentences). Natural flow. No markdown. Correct errors softly.
+        GOAL: Short, ultra-natural conversation. 
+        RULES: Max 2 sentences. No lists. No markdown. Correct mistakes immediately but kindly. Use simple words.
     `;
 
     const response = await ai.models.generateContent({
-        model: TEXT_MODEL,
-        contents: [...sanitizeHistory(history), { role: 'user', parts: [{ text: message }] }],
+        model: VOICE_FAST_MODEL, // Lite model for lower latency
+        contents: [...sanitizeHistory(history, 6), { role: 'user', parts: [{ text: message }] }],
         config: {
             systemInstruction,
             temperature: 0.6,
-            maxOutputTokens: 150
+            maxOutputTokens: 120
         }
     });
 
     return response.text || "Je vous écoute.";
 };
 
-export const generateSpeech = async (text: string, userId: string): Promise<ArrayBuffer | null> => {
+export const generateSpeech = async (text: string, userId: string, voice?: VoiceName): Promise<ArrayBuffer | null> => {
     const ai = getAiClient();
+    const user = storageService.getUserById(userId);
+    const voiceToUse = voice || user?.preferences?.voiceName || 'Kore';
+    
     const cleanText = text.replace(/[*#_`~]/g, '').trim();
     if (!cleanText) return null;
 
@@ -108,7 +94,7 @@ export const generateSpeech = async (text: string, userId: string): Promise<Arra
             responseModalities: [Modality.AUDIO],
             speechConfig: {
                 voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: 'Kore' }
+                    prebuiltVoiceConfig: { voiceName: voiceToUse }
                 }
             }
         }
@@ -125,8 +111,19 @@ export const generateSpeech = async (text: string, userId: string): Promise<Arra
     return bytes.buffer;
 };
 
-// Keep existing signature for App.tsx
 export const startChatSession = async (profile: UserProfile, prefs: UserPreferences, history: ChatMessage[]) => null;
+
+// Added getLessonSummary
+export const getLessonSummary = async (lessonNumber: number, context: string, userId: string): Promise<string> => {
+    const ai = getAiClient();
+    const prompt = `Génère un résumé concis pour la LEÇON ${lessonNumber}. Contexte: ${context}. Format Markdown strict.`;
+    const response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: prompt,
+    });
+    storageService.deductCreditOrUsage(userId);
+    return response.text || "Impossible de générer le résumé.";
+};
 
 export const translateText = async (text: string, targetLang: string, userId: string): Promise<string> => {
     const ai = getAiClient();
@@ -153,16 +150,6 @@ export const generatePracticalExercises = async (user: UserProfile, history: Cha
     } catch { return []; }
 };
 
-export const getLessonSummary = async (num: number, context: string, userId: string): Promise<string> => {
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-        model: TEXT_MODEL,
-        contents: `Summarize lesson ${num} based on: ${context}`,
-    });
-    storageService.deductCreditOrUsage(userId);
-    return response.text || "Résumé indisponible.";
-};
-
 export const generateConceptImage = async (prompt: string, userId: string): Promise<string | null> => {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
@@ -174,12 +161,10 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
     
     const parts = response.candidates?.[0]?.content?.parts;
     if (!parts) return null;
-    
     const part = parts.find(p => p.inlineData);
     if (part && part.inlineData) {
         return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
     }
-    
     return null;
 };
 
@@ -199,13 +184,13 @@ export const analyzeUserProgress = async (history: ChatMessage[], memory: string
             feedback: json.feedback || "Bien joué !"
         };
     } catch {
-        return { newMemory: memory, xpEarned: 10, feedback: "Session analysée." };
+        return { newMemory: memory, xpEarned: 10, feedback: "Session terminée." };
     }
 };
 
 export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId: string): Promise<VoiceCallSummary> => {
     const ai = getAiClient();
-    const prompt = `Analyze call performance. JSON: {score, feedback, tip}`;
+    const prompt = `Analyze this call performance. JSON: {score, feedback, tip}`;
     const response = await ai.models.generateContent({
         model: TEXT_MODEL,
         contents: prompt,
@@ -215,11 +200,11 @@ export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId
         const json = JSON.parse(response.text || "{}");
         return {
             score: Number(json.score) || 7,
-            feedback: json.feedback || "Bien joué !",
-            tip: json.tip || "Continuez !"
+            feedback: json.feedback || "Bonne conversation.",
+            tip: json.tip || "Continuez ainsi."
         };
     } catch {
-        return { score: 7, feedback: "Bonne pratique !", tip: "Pratiquez plus souvent." };
+        return { score: 7, feedback: "Bien joué !", tip: "Pratiquez plus souvent." };
     }
 };
 
@@ -227,7 +212,7 @@ export const generateRoleplayResponse = async (history: ChatMessage[], scenario:
     const ai = getAiClient();
     const prompt = closing ? `Analyze session. JSON: {aiReply, score, feedback}` : `Continue roleplay ${scenario}. JSON: {aiReply, correction, explanation}`;
     const response = await ai.models.generateContent({
-        model: TEXT_MODEL,
+        model: VOICE_FAST_MODEL,
         contents: [...sanitizeHistory(history), { role: 'user', parts: [{ text: prompt }] }],
         config: { responseMimeType: "application/json" }
     });
@@ -242,7 +227,7 @@ export const generateDailyChallenges = async (prefs: UserPreferences): Promise<D
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: TEXT_MODEL,
-        contents: `Generate 3 daily challenges for language learning. JSON array.`,
+        contents: `Generate 3 short daily challenges. JSON array.`,
         config: { responseMimeType: "application/json" }
     });
     try {

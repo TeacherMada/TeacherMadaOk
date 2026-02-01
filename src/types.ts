@@ -7,8 +7,23 @@ export enum TargetLanguage {
   German = 'Allemand 🇩🇪'
 }
 
+// Added ExplanationLanguage enum
+export enum ExplanationLanguage {
+  French = 'Français 🇫🇷',
+  Malagasy = 'Malagasy 🇲🇬'
+}
+
+// Added LearningMode enum
+export enum LearningMode {
+  Course = '📘 Cours structuré',
+  Chat = '💬 Discussion libre',
+  Practice = '🧪 Pratique & exercices',
+  Pronunciation = '🎧 Prononciation / Audio'
+}
+
 export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2' | 'HSK 1' | 'HSK 2' | 'HSK 3' | 'HSK 4' | 'HSK 5' | 'HSK 6';
 
+// Added LevelDescriptor interface
 export interface LevelDescriptor {
   code: LanguageLevel;
   title: string;
@@ -17,31 +32,23 @@ export interface LevelDescriptor {
   example: string;
 }
 
-export enum ProficiencyLevel {
-  Beginner = 'Débutant (A1-A2)',
-  Intermediate = 'Intermédiaire (B1-B2)',
-  Advanced = 'Avancé (C1-C3)'
-}
-
-export enum ExplanationLanguage {
-  French = 'Français 🇫🇷',
-  Malagasy = 'Malagasy 🇲🇬'
-}
-
-export enum LearningMode {
-  Course = '📘 Cours structuré',
-  Chat = '💬 Discussion libre',
-  Practice = '🧪 Pratique & exercices',
-  Pronunciation = '🎧 Prononciation / Audio'
-}
+export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
 
 export interface UserPreferences {
   targetLanguage: string;
   level: string;
-  explanationLanguage: ExplanationLanguage;
-  mode: LearningMode;
+  explanationLanguage: string;
+  mode: string;
   fontSize?: 'small' | 'normal' | 'large' | 'xl';
+  voiceName?: VoiceName;
   needsAssessment?: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'model';
+  text: string;
+  timestamp: number;
 }
 
 export interface DailyChallenge {
@@ -102,6 +109,7 @@ export interface UserProfile {
   isSuspended?: boolean;
 }
 
+// Added Transaction interface
 export interface Transaction {
   id: string;
   userId: string;
@@ -109,7 +117,7 @@ export interface Transaction {
   creditsAdded: number;
   date: number;
   status: 'pending' | 'completed' | 'rejected';
-  method: 'Mobile Money' | 'Admin Grant';
+  method: string;
 }
 
 export interface AdminRequest {
@@ -135,18 +143,6 @@ export interface SystemSettings {
   creditPrice: number;
   customLanguages?: { code: string; baseName: string; flag: string; }[];
   validTransactionRefs?: string[];
-}
-
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'model';
-  text: string;
-  timestamp: number;
-}
-
-export interface AppState {
-  user: UserProfile | null;
-  isLoading: boolean;
 }
 
 export type ExerciseType = 'multiple_choice' | 'true_false' | 'fill_blank';
