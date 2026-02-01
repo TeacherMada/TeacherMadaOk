@@ -9,25 +9,6 @@ interface MarkdownRendererProps {
   highlight?: string;
 }
 
-// Helper component to highlight text
-const Highlight: React.FC<{ text: string; query?: string }> = ({ text, query }) => {
-  if (!query || !text) return <>{text}</>;
-  const parts = text.split(new RegExp(`(${query})`, 'gi'));
-  return (
-    <>
-      {parts.map((part, i) => 
-        part.toLowerCase() === query.toLowerCase() ? (
-          <mark key={i} className="bg-yellow-200 text-slate-900 rounded-sm px-0.5 font-medium">
-            {part}
-          </mark>
-        ) : (
-          part
-        )
-      )}
-    </>
-  );
-};
-
 const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onPlayAudio, highlight }) => {
   return (
     <div className="prose prose-indigo dark:prose-invert max-w-none 
@@ -44,11 +25,11 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onPlayAudi
           ol: ({children}) => <ol className="list-decimal list-outside ml-4 space-y-1 mb-3 text-slate-700 dark:text-slate-300">{children}</ol>,
           li: ({children}) => <li className="pl-1 text-sm md:text-base leading-relaxed">{children}</li>,
           blockquote: ({children}) => <blockquote className="border-l-4 border-indigo-200 dark:border-indigo-800 pl-4 py-1 italic bg-indigo-50/50 dark:bg-slate-700/30 rounded-r my-3 text-slate-600 dark:text-slate-400 text-sm">{children}</blockquote>,
-          table: ({children}) => <div className="overflow-x-auto my-3 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm"><table className="min-w-full divide-y divide-slate-100 dark:divide-slate-800">{children}</table></div>,
-          th: ({children}) => <th className="px-3 py-2 bg-slate-50 dark:bg-slate-800 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">{children}</th>,
-          td: ({children}) => <td className="px-3 py-2 text-xs md:text-sm text-slate-600 dark:text-slate-400 border-t border-slate-50 dark:border-slate-800">{children}</td>,
-          code: () => null, // On ignore totalement les blocs de code pour éviter la pollution technique
+          
+          // BLOC DE CODE SUPPRIMÉ (POLUTION TECHNIQUE INTERDITE)
+          code: () => null, 
           pre: () => null,
+          
           p: ({children}) => <p className="text-sm md:text-base mb-2 text-slate-700 dark:text-slate-300 leading-relaxed">{children}</p>,
           strong: ({children}) => {
             const textContent = String(children);

@@ -3,7 +3,7 @@ import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
-// Pool de modèles pour assurer la continuité en cas de quota atteint
+// Pool de modèles pour assurer la continuité
 const MODEL_POOL = [
     'gemini-3-flash-preview',
     'gemini-flash-lite-latest',
@@ -11,22 +11,16 @@ const MODEL_POOL = [
 ];
 
 const getApiKey = (): string => {
-    // Dans Vite, on utilise import.meta.env.VITE_... 
-    // On vérifie plusieurs sources pour être compatible avec Render et le build local
-    // @ts-ignore
-    const viteKey = import.meta.env?.VITE_API_KEY;
-    // @ts-ignore
-    const processKey = typeof process !== 'undefined' ? process.env?.API_KEY : undefined;
-    
-    const rawKeys = viteKey || processKey || "";
-    const keys = rawKeys.split(',').map(k => k.trim()).filter(k => k.length > 5);
+    // Récupération depuis l'environnement (format: "KEY1,KEY2,KEY3")
+    const rawKeys = process.env.API_KEY || "";
+    const keys = rawKeys.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 5);
     
     if (keys.length === 0) {
-        console.error("ERREUR CRITIQUE: API_KEY_MISSING. Vérifiez vos variables d'environnement sur Render (VITE_API_KEY).");
-        throw new Error("API_KEY_MISSING: Aucune clé API trouvée. Contactez l'administrateur.");
+        console.error("CRITICAL: API_KEY_MISSING. Vérifiez les variables d'environnement.");
+        throw new Error("API_KEY_MISSING: Aucune clé valide trouvée.");
     }
     
-    // Rotation aléatoire pour équilibrer la charge entre les clés
+    // Rotation aléatoire
     return keys[Math.floor(Math.random() * keys.length)];
 };
 
@@ -35,23 +29,21 @@ async function executeWithFallback<T>(operation: (ai: GoogleGenAI, modelName: st
     
     for (const model of MODEL_POOL) {
         try {
-            // On crée une nouvelle instance avec une clé (éventuellement différente) à chaque tentative
             const ai = new GoogleGenAI({ apiKey: getApiKey() });
             return await operation(ai, model);
         } catch (error: any) {
             lastError = error;
             const msg = error.message?.toLowerCase() || "";
             
-            // Si erreur de quota (429) ou réseau (fetch failed), on bascule sur la clé/modèle suivant
+            // Fallback si quota ou erreur réseau
             if (msg.includes('429') || msg.includes('quota') || msg.includes('fetch') || msg.includes('network')) {
-                console.warn(`Instabilité sur ${model}, basculement...`);
-                await new Promise(r => setTimeout(r, 500)); // Petit délai de respiration réseau
+                console.warn(`Basculement de modèle/clé car ${model} est instable.`);
                 continue;
             }
             throw error;
         }
     }
-    throw new Error("Connexion impossible après plusieurs tentatives. Vérifiez votre réseau.");
+    throw new Error("Connexion réseau instable. Veuillez réessayer.");
 }
 
 export const sendMessageToGemini = async (message: string, userId: string, history: ChatMessage[]): Promise<string> => {
@@ -67,7 +59,7 @@ export const sendMessageToGemini = async (message: string, userId: string, histo
             ],
             config: { 
                 systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!) + 
-                "\n\n🚨 RÈGLE ABSOLUE : NE JAMAIS ENVOYER DE BLOCS DE CODE (```). Tu es un professeur de langue, pas un programmeur.",
+                "\n\n🚨 INTERDICTION: Ne jamais envoyer de code informatique ou de blocs ```. Réponds exclusivement en texte clair.",
                 temperature: 0.7 
             }
         });
@@ -82,18 +74,18 @@ export const generateVoiceChatResponse = async (message: string, userId: string,
     
     return executeWithFallback(async (ai, model) => {
         const response = await ai.models.generateContent({
-            model: 'gemini-flash-lite-latest', // Plus rapide pour l'audio
+            model: 'gemini-flash-lite-latest',
             contents: [
                 ...history.slice(-4).map(m => ({ role: m.role, parts: [{ text: m.text }] })),
                 { role: 'user', parts: [{ text: message }] }
             ],
             config: {
-                systemInstruction: `Tu es TeacherMada en APPEL VOCAL. Réponds très court (1-2 phrases). Pas de listes. Pas de code. Langue: ${user.preferences?.targetLanguage}.`,
+                systemInstruction: `Tu es TeacherMada. APPEL VOCAL. Réponses ultra-courtes (1 phrase). Pas de markdown. Langue: ${user.preferences?.targetLanguage}.`,
                 maxOutputTokens: 100,
                 temperature: 0.5
             }
         });
-        return response.text || "Je vous écoute.";
+        return response.text || "D'accord.";
     });
 };
 
@@ -103,8 +95,7 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
         const user = storageService.getUserById(userId);
         const voiceToUse = voice || user?.preferences?.voiceName || 'Kore';
         
-        // Nettoyage pour la synthèse
-        const cleanText = text.replace(/[*#_`~]/g, '').trim().substring(0, 1000);
+        const cleanText = text.replace(/[*#_`~]/g, '').trim().substring(0, 800);
         if (!cleanText) return null;
 
         const response = await ai.models.generateContent({
@@ -145,7 +136,7 @@ export const translateText = async (text: string, targetLang: string, userId: st
 
 export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId: string): Promise<VoiceCallSummary> => {
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    const prompt = `Analyse cette conversation orale JSON: {score, feedback, tip}. Conversation: ${JSON.stringify(history.slice(-5))}`;
+    const prompt = `Analyse JSON: {score, feedback, tip}. Conversation: ${JSON.stringify(history.slice(-4))}`;
     const res = await ai.models.generateContent({
         model: 'gemini-1.5-flash',
         contents: prompt,
@@ -154,7 +145,7 @@ export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId
     try {
         return JSON.parse(res.text || '{"score":7, "feedback":"Bien", "tip":"Continuez"}');
     } catch {
-        return { score: 7, feedback: "Bon travail", tip: "Continuez à pratiquer !" };
+        return { score: 7, feedback: "Bon travail", tip: "Continuez !" };
     }
 };
 
