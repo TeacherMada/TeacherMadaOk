@@ -43,12 +43,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isDialogueActive, setIsDialogueActive] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [exercises, setExercises] = useState<ExerciseItem[]>([]);
-  const [isMuted, setIsMuted] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const recognitionRef = useRef<any>(null);
 
   const preferences = user.preferences!;
   const textSizeClass = useMemo(() => {
@@ -90,7 +89,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const handleSend = async (textOverride?: string) => {
-    await initAudio(); // Débloque l'audio sur geste utilisateur
+    await initAudio();
     const textToSend = textOverride || input;
     if (!textToSend.trim() || isLoading) return;
 
@@ -117,27 +116,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setStreamingText('');
       storageService.saveChatHistory(user.id, [...updatedHistory, aiMsg], preferences.targetLanguage);
       
-      handleSpeak(finalReply); // Auto-play
+      handleSpeak(finalReply);
       onUpdateUser(storageService.getUserById(user.id)!);
     } catch (error: any) {
-      notify("Rotation des clés en cours... Réessayez.", 'error');
+      notify("Erreur réseau. Re-tentative...", 'error');
     } finally { setIsLoading(false); }
-  };
-
-  const startListening = () => {
-    const Rec = (window as any).SpeechRecognition || (window as any).webkitRecognition;
-    if (!Rec) return;
-    const rec = new Rec();
-    rec.lang = preferences.targetLanguage.includes('Anglais') ? 'en-US' : 'fr-FR';
-    rec.onstart = () => setIsListening(true);
-    rec.onend = () => setIsListening(false);
-    rec.onresult = (e: any) => {
-        const txt = e.results[0][0].transcript;
-        if(isCallActive) handleSend(txt);
-        else setInput(prev => prev + ' ' + txt);
-    };
-    recognitionRef.current = rec;
-    rec.start();
   };
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, streamingText]);
@@ -160,9 +143,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   <div className="w-full h-full bg-slate-900 rounded-full flex items-center justify-center overflow-hidden"><img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-24 h-24 object-contain" alt="Logo" /></div>
               </div>
               <div className="w-full max-w-xs grid grid-cols-3 gap-6">
-                  <button onClick={() => setIsMuted(!isMuted)} className="p-4 rounded-full bg-slate-800 text-white">{isMuted ? <VolumeX/> : <Volume2/>}</button>
+                  <button onClick={() => setIsPlayingAudio(false)} className="p-4 rounded-full bg-slate-800 text-white"><VolumeX/></button>
                   <button onClick={() => setIsCallActive(false)} className="p-6 bg-red-500 text-white rounded-full shadow-xl"><PhoneOff/></button>
-                  <button onClick={() => isListening ? recognitionRef.current?.stop() : startListening()} className={`p-4 rounded-full transition-all ${isListening ? 'bg-white text-slate-900' : 'bg-slate-800 text-white'}`}><Mic/></button>
+                  <button onClick={() => notify("Micro actif", "info")} className="p-4 rounded-full bg-slate-800 text-white"><Mic/></button>
               </div>
           </div>
       )}
@@ -196,8 +179,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         <input type="text" placeholder="Rechercher..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
                     </div>
                     <div className="grid grid-cols-2 gap-2 border-t pt-3">
-                        <button onClick={toggleTheme} className="flex flex-col items-center p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl">{isDarkMode ? <Sun className="text-amber-500 mb-1"/> : <Moon className="text-indigo-500 mb-1"/><span className="text-[10px] font-black uppercase">Thème</span>}</button>
-                        <button onClick={onShowProfile} className="flex flex-col items-center p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl"><User className="text-indigo-600 mb-1"/><span className="text-[10px] font-black uppercase">Profil</span></button>
+                        <button onClick={toggleTheme} className="flex flex-col items-center p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl">
+                            {isDarkMode ? (
+                                <><Sun className="w-5 h-5 text-amber-500 mb-1"/><span className="text-[10px] font-black uppercase">Clair</span></>
+                            ) : (
+                                <><Moon className="w-5 h-5 text-indigo-500 mb-1"/><span className="text-[10px] font-black uppercase">Sombre</span></>
+                            )}
+                        </button>
+                        <button onClick={onShowProfile} className="flex flex-col items-center p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl"><User className="w-5 h-5 text-indigo-600 mb-1"/><span className="text-[10px] font-black uppercase">Profil</span></button>
                     </div>
                  </div>
              )}
@@ -215,7 +204,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} />
                                 <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-50 dark:border-slate-700/50" data-html2canvas-ignore>
                                     <button onClick={() => handleSpeak(msg.text)} className={`p-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-full transition-colors ${isPlayingAudio ? 'text-indigo-600' : 'text-slate-400'}`}><Volume2 className="w-4 h-4"/></button>
-                                    <button onClick={() => notify("Exporté en PDF", "info")} className="p-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-full text-slate-400"><FileText className="w-4 h-4"/></button>
+                                    <button onClick={() => notify("PDF généré", "info")} className="p-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-full text-slate-400"><FileText className="w-4 h-4"/></button>
                                 </div>
                             </>
                          )}
@@ -239,7 +228,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         <div className="max-w-4xl mx-auto flex items-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 p-1.5 shadow-sm">
             <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Écrire..." disabled={isLoading} rows={1} className="w-full bg-transparent text-slate-800 dark:text-white rounded-xl pl-4 py-3 text-base focus:outline-none resize-none max-h-32 scrollbar-hide self-center" onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }} />
             <div className="flex items-center gap-1 pb-1 pr-1">
-                 <button onClick={() => isListening ? recognitionRef.current?.stop() : startListening()} className={`p-2.5 rounded-full transition-all ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:bg-slate-200'}`}><Mic className="w-5 h-5" /></button>
+                 <button onClick={() => notify("Micro actif", "info")} className="p-2.5 rounded-full text-slate-400 hover:bg-slate-200"><Mic className="w-5 h-5" /></button>
                  <button onClick={() => handleSend()} disabled={!input.trim() || isLoading} className="p-3 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 disabled:opacity-50 transform active:scale-95 transition-all"><Send className="w-4.5 h-4.5" /></button>
             </div>
         </div>

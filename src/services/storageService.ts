@@ -54,7 +54,7 @@ export const storageService = {
     if (password && foundUser.password !== password) return { success: false, error: "Mot de passe incorrect." };
 
     localStorage.setItem(CURRENT_USER_KEY, foundUser.id);
-    return { success: true, user: foundUser };
+    return { success: true, user: storageService.getUserById(foundUser.id)! };
   },
 
   register: async (username: string, password?: string, email?: string, phoneNumber?: string): Promise<{ success: boolean, user?: UserProfile, error?: string }> => {
@@ -74,12 +74,12 @@ export const storageService = {
       preferences: null,
       stats: { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {} },
       skills: { vocabulary: 10, grammar: 5, pronunciation: 5, listening: 5 },
-      aiMemory: "Nouvel utilisateur.",
+      aiMemory: "Nouveau.",
       isPremium: false,
       hasSeenTutorial: false,
-      credits: 5, // Crédits de bienvenue
+      credits: 5, 
       freeUsage: { lastResetWeek: getMadagascarCurrentWeek(), count: 0 },
-      vocabulary: [] // Initialisation cruciale
+      vocabulary: []
     };
     
     storageService.saveUserProfile(newUser);
@@ -101,8 +101,8 @@ export const storageService = {
           let user = JSON.parse(data) as UserProfile;
           const currentWeek = getMadagascarCurrentWeek();
           let needsSave = false;
-          if (!user.vocabulary) { user.vocabulary = []; needsSave = true; } // Correction TS18048
-          if (!user.credits && user.credits !== 0) { user.credits = 0; needsSave = true; }
+          if (!user.vocabulary) { user.vocabulary = []; needsSave = true; }
+          if (user.credits === undefined) { user.credits = 0; needsSave = true; }
           if (user.freeUsage.lastResetWeek !== currentWeek) {
               user.freeUsage = { lastResetWeek: currentWeek, count: 0 };
               needsSave = true;

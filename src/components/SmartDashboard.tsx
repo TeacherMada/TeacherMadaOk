@@ -32,8 +32,8 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
   const [isExtracting, setIsExtracting] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
 
-  // Fix TS18048 : Toujours utiliser un tableau par défaut
-  const vocabulary = user.vocabulary || [];
+  // Utilisation systématique d'une constante pour garantir que l'itérable n'est jamais nul
+  const vocabulary = user.vocabulary ?? [];
 
   const handleExtractVocab = async () => {
     if (!storageService.canPerformRequest(user.id).allowed) { notify("Crédits insuffisants", "error"); return; }
@@ -53,7 +53,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
       const raw = await generateSpeech(text, user.id, user.preferences?.voiceName);
       if (raw) {
           const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-          const audioBuffer = await ctx.createBuffer(1, raw.length, 24000);
+          const audioBuffer = ctx.createBuffer(1, raw.length, 24000);
           const channelData = audioBuffer.getChannelData(0);
           const int16 = new Int16Array(raw.buffer);
           for (let i = 0; i < int16.length; i++) channelData[i] = int16[i] / 32768.0;
@@ -121,15 +121,15 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                         </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-white dark:bg-[#1A2030] p-5 rounded-3xl text-center border border-slate-100 dark:border-white/5">
+                        <div className="bg-white dark:bg-[#1A2030] p-5 rounded-3xl text-center border border-slate-100 dark:border-white/5 shadow-sm">
                             <Trophy className="w-7 h-7 text-amber-500 mx-auto mb-2" />
-                            <div className="text-2xl font-black">{user.stats.xp}</div>
-                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">XP</div>
+                            <div className="text-2xl font-black text-slate-900 dark:text-white">{user.stats.xp}</div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">XP Totale</div>
                         </div>
-                        <div className="bg-white dark:bg-[#1A2030] p-5 rounded-3xl text-center border border-slate-100 dark:border-white/5">
+                        <div className="bg-white dark:bg-[#1A2030] p-5 rounded-3xl text-center border border-slate-100 dark:border-white/5 shadow-sm">
                             <Flame className="w-7 h-7 text-orange-500 mx-auto mb-2" />
-                            <div className="text-2xl font-black">{user.stats.streak}</div>
-                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Série</div>
+                            <div className="text-2xl font-black text-slate-900 dark:text-white">{user.stats.streak}</div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Série (Jours)</div>
                         </div>
                     </div>
                 </div>
@@ -139,11 +139,14 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                 <div className="space-y-6 animate-fade-in">
                     <button onClick={handleExtractVocab} disabled={isExtracting} className="w-full py-4 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-black rounded-2xl shadow-lg flex items-center justify-center gap-3 transition-transform active:scale-95 disabled:opacity-50">
                         {isExtracting ? <Loader2 className="animate-spin w-5 h-5"/> : <BrainCircuit className="w-5 h-5"/>}
-                        EXTRAIRE LES MOTS
+                        EXTRAIRE LES MOTS DU COURS
                     </button>
                     <div className="space-y-3">
                         {vocabulary.length === 0 ? (
-                            <div className="text-center py-20 text-slate-400">Boîte à mots vide.</div>
+                            <div className="text-center py-20 text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl">
+                                <Sparkles className="w-10 h-10 mx-auto mb-3 opacity-20"/>
+                                <p className="text-sm font-bold">Votre boîte à mots est vide.</p>
+                            </div>
                         ) : (
                             vocabulary.slice().reverse().map(word => (
                                 <div key={word.id} className={`p-4 rounded-2xl border transition-all flex items-center justify-between ${word.mastered ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-100' : 'bg-white dark:bg-[#1A2030] border-slate-100 dark:border-white/5'}`}>
@@ -166,10 +169,21 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
             )}
 
             {activeTab === 'lessons' && (
-                <div className="text-center py-20 text-slate-400">Aucun cours dans l'historique.</div>
+                <div className="space-y-4 animate-fade-in">
+                    {user.stats.lessonsCompleted === 0 ? (
+                        <div className="text-center py-20 text-slate-400">Aucun cours terminé.</div>
+                    ) : (
+                        <div className="p-6 bg-indigo-50 dark:bg-indigo-900/10 rounded-3xl text-center border border-indigo-100 dark:border-white/5">
+                            <BookOpen className="w-10 h-10 text-indigo-500 mx-auto mb-3" />
+                            <h4 className="text-3xl font-black text-indigo-700 dark:text-indigo-400">{user.stats.lessonsCompleted}</h4>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Leçons maîtrisées</p>
+                        </div>
+                    )}
+                </div>
             )}
         </div>
 
+        {/* Footer Logout */}
         <div className="p-6 border-t border-slate-100 dark:border-white/5">
             <button onClick={onLogout} className="w-full py-4 bg-red-50 dark:bg-red-900/10 text-red-600 font-black rounded-2xl flex items-center justify-center gap-3 transition-all hover:bg-red-100">
                 <LogOut className="w-5 h-5" /> Déconnexion
