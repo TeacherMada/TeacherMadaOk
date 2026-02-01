@@ -8,7 +8,8 @@ let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
-// Primary Model: Stable production model
+// Primary Model: gemini-2.0-flash is currently the fastest and most stable free-tier model.
+// Avoid 'gemini-3-flash-preview' which is often unstable (404/503).
 const PRIMARY_MODEL = 'gemini-2.0-flash'; 
 
 const FALLBACK_CHAIN = [
@@ -54,7 +55,7 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
 
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
-    // Safety check: if stored model is 3.0 preview (unstable), fallback to PRIMARY
+    // FORCE SAFE FALLBACK: If unsafe model is active, switch to stable
     if (settings.activeModel === 'gemini-3-flash-preview') return PRIMARY_MODEL;
     return settings.activeModel || PRIMARY_MODEL;
 };
@@ -134,7 +135,7 @@ const checkCreditsBeforeAction = (userId: string) => {
 
 const sanitizeHistory = (history: ChatMessage[]) => {
     const cleanHistory = [...history];
-    // Ensure history starts with user
+    // Gemini 1.5/2.0 requires strictly alternating user/model or starting with user.
     while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
         cleanHistory.shift();
     }
@@ -208,22 +209,16 @@ export const generateVoiceChatResponse = async (
         if (!user || !user.preferences) throw new Error("User data missing");
 
         const systemInstruction = `
-            ACT: Friendly language tutor on a phone call.
-            USER: ${user.username}. LEVEL: ${user.preferences.level}. TARGET: ${user.preferences.targetLanguage}.
-            RULES: Keep it short (max 2 sentences). Speak naturally. No markdown formatting.
+            ACT: Friendly language tutor.
+            USER: ${user.username}. TARGET: ${user.preferences.targetLanguage}.
+            RULES: Short spoken response. Natural. Max 2 sentences.
         `;
-
         const historyParts = sanitizeHistory(history.slice(-6));
         const chat = aiClient!.chats.create({
             model: modelName,
-            config: {
-                systemInstruction: systemInstruction,
-                temperature: 0.6, 
-                maxOutputTokens: 150, 
-            },
+            config: { systemInstruction, temperature: 0.6, maxOutputTokens: 150 },
             history: historyParts as Content[],
         });
-
         const result = await chat.sendMessage({ message });
         return result.text || "Je vous écoute.";
     }, userId);
@@ -234,7 +229,7 @@ export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId
         if (!aiClient) initializeGenAI();
         const user = storageService.getUserById(userId);
         const conversation = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
-        const prompt = `Analyze conversation. Return JSON: { "score": number(1-10), "feedback": "string", "tip": "string" }`;
+        const prompt = `Analyze this conversation. Return JSON: { "score": number(1-10), "feedback": "string", "tip": "string" }`;
         const response = await aiClient!.models.generateContent({
             model: modelName,
             contents: prompt,
@@ -298,7 +293,7 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
         });
         storageService.deductCreditOrUsage(userId);
         
-        // FIX: TS18048 - Check for existence safely
+        // FIX: TS18048 - Robust check using optional chaining
         const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
         if (part?.inlineData?.data) {
              return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
