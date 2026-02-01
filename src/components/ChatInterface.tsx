@@ -246,13 +246,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       if (isCallActive) setAiLastReply(safeReply);
 
       // --- AUTO PLAY IA ---
-      // Lancement automatique de l'audio pour chaque réponse de l'IA
+      // On lance la voix automatiquement pour chaque réponse de l'IA
       handleSpeak(safeReply);
 
       const updated = storageService.getUserById(user.id);
       if(updated) onUpdateUser(updated);
     } catch (error: any) {
-      notify(error.message || "Erreur de connexion.", 'error');
+      notify(error.message || "Erreur de réseau.", 'error');
     } finally { 
       setIsLoading(false); 
     }
