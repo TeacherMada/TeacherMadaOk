@@ -12,9 +12,11 @@ let currentKeyIndex = 0;
 const PRIMARY_MODEL = 'gemini-3-flash-preview'; 
 
 // Fallback Chain: Used when Primary Model quotas are exhausted across ALL keys.
+// 'gemini-2.0-flash' is a high-speed, generous free-tier model.
 const FALLBACK_CHAIN = [
-    'gemini-2.0-flash-lite-preview-02-05', 
-    'gemini-flash-latest'               
+    'gemini-2.0-flash',              
+    'gemini-2.0-flash-lite-preview', 
+    'gemini-1.5-flash'               
 ];
 
 // Helper to get all available keys from "Backend" (Storage)
@@ -51,33 +53,28 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
     const apiKey = keys[currentKeyIndex];
     aiClient = new GoogleGenAI({ apiKey });
     
-    return getActiveModelName(); 
+    return getActiveModelName(); // Returns currently active model based on settings/fallback
 };
 
 // Determines the starting model. Defaults to PRIMARY_MODEL unless overridden by Admin settings.
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
-    const stored = settings.activeModel;
-    
-    // Strict Mode: Only allow known working models to prevent 404s from stale settings
-    const SAFE_MODELS = [PRIMARY_MODEL, ...FALLBACK_CHAIN, 'gemini-2.0-flash', 'gemini-1.5-flash'];
-    
-    if (stored && SAFE_MODELS.some(m => m === stored || stored.startsWith('gemini-'))) {
-        // Filter out known deprecated models explicitly
-        if (stored === 'gemini-2.0-flash' || stored === 'gemini-1.5-flash') return PRIMARY_MODEL;
-        return stored;
-    }
-    return PRIMARY_MODEL;
+    return settings.activeModel || PRIMARY_MODEL;
 };
 
 // === CORE FALLBACK LOGIC ===
+// 1. Try Current Model with Current Key.
+// 2. If Quota Error (429): Rotate through ALL available keys for Current Model.
+// 3. If ALL keys fail for Current Model: Switch to Next Model in Fallback Chain.
+// 4. Repeat until success or total exhaustion.
 const executeWithRetry = async <T>(
     operation: (modelName: string) => Promise<T>, 
     userId: string,
     attempt: number = 0,
-    fallbackIndex: number = -1 
+    fallbackIndex: number = -1 // -1 means trying Primary Model
 ): Promise<T> => {
     try {
+        // Determine which model to use
         let modelName = getActiveModelName();
         if (fallbackIndex >= 0 && fallbackIndex < FALLBACK_CHAIN.length) {
             modelName = FALLBACK_CHAIN[fallbackIndex];
@@ -94,38 +91,40 @@ const executeWithRetry = async <T>(
             const errorType = isQuotaError ? 'Quota' : 'ModelNot Found';
             console.warn(`${errorType} error on ${fallbackIndex === -1 ? 'Primary' : 'Fallback ' + fallbackIndex}. KeyIdx: ${currentKeyIndex}. Retrying...`);
 
+            // Strategy A: Rotate Key (Prioritize this for Quota errors)
+            // We retry as many times as we have keys.
             if (isQuotaError && attempt < keys.length) {
-                initializeGenAI(true); 
+                initializeGenAI(true); // Rotate to next key
                 return executeWithRetry(operation, userId, attempt + 1, fallbackIndex);
             } 
             
+            // Strategy B: Switch Model (If Key rotation exhausted OR Model Not Found)
+            // If we are at the end of the chain, we fail.
             if (fallbackIndex < FALLBACK_CHAIN.length - 1) {
                 const nextFallbackIndex = fallbackIndex + 1;
                 console.warn(`>> Switching to fallback model: ${FALLBACK_CHAIN[nextFallbackIndex]}`);
+                
+                // Reset key strategy slightly (optional, but good to start fresh)
                 initializeGenAI(true); 
+                
+                // Reset attempt counter for the new model
                 return executeWithRetry(operation, userId, 0, nextFallbackIndex);
             }
         }
         
-        console.error("All models and keys exhausted.", error);
+        // If we ran out of models and keys, throw the error
+        console.error("All models and keys exhausted.");
         throw error;
     }
 };
 
+// Check credits wrapper
 const checkCreditsBeforeAction = (userId: string) => {
     const status = storageService.canPerformRequest(userId);
     if (!status.allowed) {
         throw new Error("INSUFFICIENT_CREDITS");
     }
     return true;
-};
-
-const sanitizeHistory = (history: ChatMessage[]) => {
-    const cleanHistory = [...history];
-    while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
-        cleanHistory.shift();
-    }
-    return cleanHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
 };
 
 // Helper for JSON parsing from AI
@@ -145,6 +144,7 @@ export const startChatSession = async (
   prefs: UserPreferences,
   history: ChatMessage[] = []
 ) => {
+  // Initialize standard client first
   initializeGenAI(); 
   if (!aiClient) throw new Error("AI Client not initialized");
   return null; 
@@ -163,7 +163,11 @@ export const sendMessageToGeminiStream = async (
         if (!user || !user.preferences) throw new Error("User data missing");
         
         const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
-        const historyPayload = sanitizeHistory(previousHistory);
+        
+        const historyPayload = previousHistory.map(m => ({
+            role: m.role,
+            parts: [{ text: m.text }]
+        }));
 
         const chat = aiClient!.chats.create({
             model: modelName,
@@ -201,9 +205,14 @@ export const generateVoiceChatResponse = async (
     userId: string, 
     history: ChatMessage[]
 ): Promise<string> => {
+    // Note: Voice credits are time-based, checked in the component.
+    // However, we still check generic access here.
     const status = storageService.canPerformRequest(userId);
     if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
 
+    // For voice, latency is critical. We might prefer starting with a faster model directly if configured,
+    // but sticking to the standard chain ensures quality first, speed fallback second.
+    
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
         if (!aiClient) throw new Error("AI not init");
@@ -211,26 +220,38 @@ export const generateVoiceChatResponse = async (
         const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
+        // Specialized Prompt for Voice Calls - Optimized for speed and natural flow
         const systemInstruction = `
-            ACT: Friendly language tutor on a phone call.
-            USER: ${user.username}. LEVEL: ${user.preferences.level}. TARGET: ${user.preferences.targetLanguage}.
+            ROLE: You are 'TeacherMada', a warm, encouraging, and human-like language tutor.
+            CONTEXT: A real-time voice call with a student.
             
-            RULES:
-            1. KEEP IT SHORT. Max 2 sentences. No lists. No markdown.
-            2. Be encouraging but correct big mistakes softly ("You mean...?").
-            3. Ask ONE simple follow-up question to keep conversation going.
-            4. Speak naturally.
+            STUDENT PROFILE:
+            - Name: ${user.username}
+            - Current Level: ${user.preferences.level}
+            - Learning History/Memory: "${user.aiMemory || 'No prior context'}"
+            - Target Language: ${user.preferences.targetLanguage}
+            
+            INSTRUCTIONS:
+            1. ACT HUMAN: Do not speak like a robot. Use fillers (hmm, ah, interesting) occasionally if natural. Never say "As an AI".
+            2. BE CONCISE: Since this is voice, keep answers under 2-3 sentences unless explaining a concept.
+            3. TEACHING STYLE:
+               - If the user makes a mistake, gently repeat the correct version naturally (e.g., "Ah, you mean 'XXX'?").
+               - Ask ONE simple follow-up question to keep the conversation flowing.
+               - Adapt your vocabulary strictly to the user's level (${user.preferences.level}).
+            4. LANGUAGE: Speak in ${user.preferences.targetLanguage} mostly, but use ${user.preferences.explanationLanguage} for complex explanations if the user is Beginner.
         `;
 
-        const recentHistory = history.slice(-6);
-        const historyParts = sanitizeHistory(recentHistory);
+        const historyParts = history.slice(-6).map(msg => ({
+            role: msg.role,
+            parts: [{ text: msg.text }]
+        }));
 
         const chat = aiClient!.chats.create({
             model: modelName,
             config: {
                 systemInstruction: systemInstruction,
-                temperature: 0.6, 
-                maxOutputTokens: 150, 
+                temperature: 0.6, // Lower temp for faster, more focused results
+                maxOutputTokens: 150, // Limit output size for speed
             },
             history: historyParts as Content[],
         });
@@ -251,6 +272,7 @@ export const analyzeVoiceCallPerformance = async (
         const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
+        // Get only the user audio parts from recent history
         const conversation = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
 
         const prompt = `
@@ -326,6 +348,7 @@ export const generateSpeech = async (text: string, userId: string, voiceName: st
         if (!text || !text.trim()) return null;
         const safeText = text.substring(0, 4000);
 
+        // Prioritize TTS model
         const ttsModel = "gemini-2.5-flash-preview-tts";
 
         const response = await aiClient!.models.generateContent({

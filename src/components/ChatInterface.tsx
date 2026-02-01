@@ -71,7 +71,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isCallConnecting, setIsCallConnecting] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [callSeconds, setCallSeconds] = useState(0);
-  const [loadingText, setLoadingText] = useState("Réflexion...");
+  const [loadingText, setLoadingText] = useState("TeacherMada écoute...");
   const [callSummary, setCallSummary] = useState<VoiceCallSummary | null>(null);
   const [isAnalyzingCall, setIsAnalyzingCall] = useState(false);
   
@@ -164,10 +164,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       let timer1: any, timer2: any;
       if (isLoading && isCallActive) {
           setLoadingText("...");
-          timer1 = setTimeout(() => { setLoadingText("Traitement..."); }, 2500);
-          timer2 = setTimeout(() => { setLoadingText("Génération..."); }, 5000);
+          timer1 = setTimeout(() => { setLoadingText("TeacherMada réfléchit..."); }, 2000);
+          timer2 = setTimeout(() => { setLoadingText("Je formule ma réponse..."); }, 5000);
       } else {
-          setLoadingText("Réflexion...");
+          setLoadingText("Je vous écoute...");
       }
       return () => { clearTimeout(timer1); clearTimeout(timer2); };
   }, [isLoading, isCallActive]);
@@ -385,15 +385,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setCallSummary(null);
       setIsAnalyzingCall(false);
       playRingbackTone();
+      
+      // Artificial connection delay for realism
       setTimeout(() => {
           stopRingback();
           setIsCallConnecting(false);
+          
+          // Personalized TeacherMada Greeting
           const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
           const greeting = isMg 
-            ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika...`
-            : `Allô ${user.username} ! 😊 Nous allons pratiquer ensemble le ${preferences.targetLanguage}...`;
+            ? `Salama ${user.username} ! TeacherMada eto. Vonona hiresaka amin'ny ${preferences.targetLanguage} ve ianao ?`
+            : `Bonjour ${user.username}, ici TeacherMada ! On pratique un peu ton ${preferences.targetLanguage} ? Je t'écoute.`;
+          
           handleSpeak(greeting);
-      }, 5000);
+      }, 3500);
   };
 
   const handleEndCall = async () => {
