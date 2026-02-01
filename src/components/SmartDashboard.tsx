@@ -1,10 +1,9 @@
 
 import React, { useMemo, useState } from 'react';
-import { UserProfile, ChatMessage, VocabularyItem } from '../types';
-import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown, Trash2, Shield, AlertTriangle, Plus, Sparkles, Loader2, Volume2, Globe, GraduationCap, Map as MapIcon, Lock, Zap, Award, ArrowLeft, Download, Upload } from 'lucide-react';
+import { UserProfile, ChatMessage } from '../types';
+import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Type, Coins, CreditCard, ChevronRight, Check, Shield, Download, Upload, Loader2, Sparkles, Plus, Trash2 } from 'lucide-react';
 import { storageService } from '../services/storageService';
-import { generateVocabularyFromHistory, generateSpeech } from '../services/geminiService';
-import { CREDIT_PRICE_ARIARY, ADMIN_CONTACTS, TOTAL_LESSONS_PER_LEVEL } from '../constants';
+import { CREDIT_PRICE_ARIARY, ADMIN_CONTACTS } from '../constants';
 
 interface SmartDashboardProps {
   user: UserProfile;
@@ -24,33 +23,10 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
   user, messages, onClose, onUpgrade, onUpdateUser, onLogout, isDarkMode, toggleTheme, fontSize, onFontSizeChange, notify
 }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'hub' | 'parcours' | 'lessons' | 'vocab'>('parcours');
-  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'hub' | 'lessons'>('hub');
   const [editForm, setEditForm] = useState({ username: user.username, email: user.email || '', password: user.password || '' });
-  const [isGeneratingVocab, setIsGeneratingVocab] = useState(false);
-  const [newWordForm, setNewWordForm] = useState({ word: '', translation: '', context: '' });
-  const [isAddingWord, setIsAddingWord] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   
-  const activeCourses = useMemo(() => {
-      if (!user.stats.progressByLevel) return [];
-      return Object.entries(user.stats.progressByLevel).map(([key, count]) => {
-          const separatorIndex = key.lastIndexOf('-');
-          const language = key.substring(0, separatorIndex);
-          const level = key.substring(separatorIndex + 1);
-          const lessonCount = Number(count);
-          return { id: key, language, level, lessonCount, progress: Math.min((lessonCount / TOTAL_LESSONS_PER_LEVEL) * 100, 100) };
-      }).sort((a, b) => b.progress - a.progress);
-  }, [user.stats.progressByLevel]);
-
-  const currentCourse = useMemo(() => {
-      if (!selectedCourseId) {
-          const currentKey = `${user.preferences?.targetLanguage}-${user.preferences?.level}`;
-          return activeCourses.find(c => c.id === currentKey) || activeCourses[0] || null;
-      }
-      return activeCourses.find(c => c.id === selectedCourseId) || null;
-  }, [selectedCourseId, activeCourses, user.preferences]);
-
   const completedLessons = useMemo(() => {
     const lessons: {num: number, title: string, date: number}[] = [];
     const regex = /##\s*(?:🟢|🔴|🔵|✅)?\s*(?:LEÇON|LECON|LESSON|LESONA)\s*(\d+)\s*[:|-]?\s*(.*)/i;
@@ -122,66 +98,6 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
       input.click();
   };
 
-  const handleGenerateVocab = async () => {
-      setIsGeneratingVocab(true);
-      try {
-          const newWords = await generateVocabularyFromHistory(user.id, messages);
-          if (newWords.length > 0) {
-              const currentVocab = user.vocabulary || [];
-              const uniqueNew = newWords.filter(nw => !currentVocab.some(cw => cw.word.toLowerCase() === nw.word.toLowerCase()));
-              const updatedUser = { ...user, vocabulary: [...uniqueNew, ...currentVocab] };
-              onUpdateUser(updatedUser);
-              notify(`${uniqueNew.length} mots ajoutés !`, 'success');
-          } else {
-              notify("Pas assez de contenu pour extraire des mots.", 'info');
-          }
-      } catch (e: any) {
-          if(e.message === 'INSUFFICIENT_CREDITS') notify("Crédits insuffisants.", 'error');
-          else notify("Erreur lors de la génération.", 'error');
-      } finally { setIsGeneratingVocab(false); }
-  };
-
-  const handleAddManualWord = () => {
-      if (!newWordForm.word || !newWordForm.translation) return;
-      const newWord: VocabularyItem = {
-          id: `manual_${Date.now()}`,
-          word: newWordForm.word,
-          translation: newWordForm.translation,
-          context: newWordForm.context,
-          mastered: false,
-          addedAt: Date.now()
-      };
-      const updatedUser = { ...user, vocabulary: [newWord, ...(user.vocabulary || [])] };
-      onUpdateUser(updatedUser);
-      setNewWordForm({ word: '', translation: '', context: '' });
-      setIsAddingWord(false);
-      notify("Mot ajouté !", 'success');
-  };
-
-  const toggleWordMastery = (wordId: string) => {
-      const updatedVocab = (user.vocabulary || []).map(w => w.id === wordId ? { ...w, mastered: !w.mastered } : w);
-      onUpdateUser({ ...user, vocabulary: updatedVocab });
-  };
-
-  const deleteWord = (wordId: string) => {
-      const updatedVocab = (user.vocabulary || []).filter(w => w.id !== wordId);
-      onUpdateUser({ ...user, vocabulary: updatedVocab });
-  };
-
-  const playWordAudio = async (text: string) => {
-      try {
-          const audioBuffer = await generateSpeech(text, user.id);
-          if (audioBuffer) {
-              const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-              const decoded = await ctx.decodeAudioData(audioBuffer);
-              const source = ctx.createBufferSource();
-              source.buffer = decoded;
-              source.connect(ctx.destination);
-              source.start(0);
-          }
-      } catch(e) { console.error(e); }
-  };
-
   const handleAdminAccess = () => { window.location.reload(); };
 
   return (
@@ -209,9 +125,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
         {/* Tabs */}
         <div className="px-6 py-4 bg-white dark:bg-[#131825]">
             <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-x-auto scrollbar-hide">
-                <TabButton active={activeTab === 'parcours'} onClick={() => setActiveTab('parcours')} icon={<MapIcon className="w-4 h-4"/>} label="Parcours" />
-                <TabButton active={activeTab === 'vocab'} onClick={() => setActiveTab('vocab')} icon={<BookOpen className="w-4 h-4"/>} label="Mots" />
-                <TabButton active={activeTab === 'hub'} onClick={() => setActiveTab('hub')} icon={<Target className="w-4 h-4"/>} label="Hub" />
+                <TabButton active={activeTab === 'hub'} onClick={() => setActiveTab('hub')} icon={<Target className="w-4 h-4"/>} label="Profil & Compte" />
                 <TabButton active={activeTab === 'lessons'} onClick={() => setActiveTab('lessons')} icon={<Calendar className="w-4 h-4"/>} label="Historique" />
             </div>
         </div>
@@ -228,7 +142,6 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                                 <div className="flex items-center gap-2 mb-1"><div className="p-1.5 bg-white/10 rounded-lg backdrop-blur-md"><CreditCard className="w-4 h-4 text-indigo-300" /></div><span className="text-xs font-bold text-indigo-200 uppercase tracking-widest">Portefeuille</span></div>
                                 <div className="flex items-baseline gap-1.5 mt-2"><span className="text-5xl font-black text-white tracking-tighter">{user.credits}</span><span className="text-lg font-bold text-indigo-400">CRD</span></div>
                             </div>
-                            {user.isPremium && <div className="px-3 py-1 bg-gradient-to-r from-amber-400 to-orange-500 rounded-full text-[10px] font-black text-white shadow-lg uppercase tracking-wide flex items-center gap-1"><Crown className="w-3 h-3"/> Premium</div>}
                         </div>
                         <button onClick={onUpgrade} className="relative z-10 w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl text-sm flex items-center justify-center gap-2 hover:bg-indigo-50 transition-all shadow-lg active:scale-95"><Coins className="w-4 h-4 text-indigo-600" /> Recharger mon compte</button>
                     </div>
@@ -271,80 +184,6 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                             </div>
                         )}
                     </div>
-                </div>
-            )}
-
-            {activeTab === 'vocab' && (
-                <div className="space-y-4 animate-fade-in">
-                    <div className="flex gap-2 mb-4">
-                        <button onClick={handleGenerateVocab} disabled={isGeneratingVocab} className="flex-1 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition-all">{isGeneratingVocab ? <Loader2 className="w-4 h-4 animate-spin"/> : <Sparkles className="w-4 h-4"/>} IA Auto</button>
-                        <button onClick={() => setIsAddingWord(!isAddingWord)} className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"><Plus className="w-5 h-5"/></button>
-                    </div>
-                    {isAddingWord && (
-                        <div className="bg-white dark:bg-[#1A2030] p-4 rounded-2xl border border-slate-100 dark:border-white/5 animate-slide-up">
-                            <h4 className="text-sm font-bold text-slate-800 dark:text-white mb-3">Ajouter un mot</h4>
-                            <div className="space-y-2">
-                                <input type="text" placeholder="Mot" value={newWordForm.word} onChange={e => setNewWordForm({...newWordForm, word: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-sm border border-slate-200 dark:border-slate-700 outline-none" />
-                                <input type="text" placeholder="Traduction" value={newWordForm.translation} onChange={e => setNewWordForm({...newWordForm, translation: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-sm border border-slate-200 dark:border-slate-700 outline-none" />
-                                <button onClick={handleAddManualWord} className="w-full py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold mt-2">Confirmer</button>
-                            </div>
-                        </div>
-                    )}
-                    {!user.vocabulary || user.vocabulary.length === 0 ? (
-                        <div className="text-center py-10 text-slate-400"><BookOpen className="w-12 h-12 mx-auto mb-2 opacity-30"/><p className="text-sm">Votre boîte à mots est vide.</p></div>
-                    ) : (
-                        <div className="grid grid-cols-1 gap-3">
-                            {user.vocabulary.map((item) => (
-                                <div key={item.id} className={`p-4 rounded-xl border transition-all hover:shadow-md ${item.mastered ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-900' : 'bg-white dark:bg-[#1A2030] border-slate-100 dark:border-white/5'}`}>
-                                    <div className="flex justify-between items-start mb-1">
-                                        <h4 className="font-bold text-slate-800 dark:text-white text-lg flex items-center gap-2">{item.word}<button onClick={() => playWordAudio(item.word)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400 hover:text-indigo-500"><Volume2 className="w-4 h-4"/></button></h4>
-                                        <button onClick={() => deleteWord(item.id)} className="text-slate-300 hover:text-red-500"><X className="w-4 h-4"/></button>
-                                    </div>
-                                    <p className="text-sm text-indigo-600 dark:text-indigo-400 font-medium mb-2">{item.translation}</p>
-                                    <button onClick={() => toggleWordMastery(item.id)} className={`w-full py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors ${item.mastered ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}>{item.mastered ? <><Check className="w-3 h-3"/> Maîtrisé</> : "Marquer comme maîtrisé"}</button>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {activeTab === 'parcours' && (
-                <div className="animate-fade-in h-full flex flex-col">
-                    {!currentCourse && activeCourses.length === 0 ? (
-                        <div className="bg-slate-100 dark:bg-slate-800/50 p-8 rounded-2xl text-center text-slate-500 border-2 border-dashed border-slate-200 dark:border-slate-700">
-                            <MapIcon className="w-12 h-12 mx-auto mb-3 opacity-30"/><p className="text-sm font-bold">Aucun voyage commencé.</p>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col h-full">
-                            {currentCourse && (
-                                <>
-                                    <div className="text-center mb-6">
-                                        <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">{currentCourse.language}</h2>
-                                        <div className="inline-block px-3 py-1 bg-indigo-100 dark:bg-indigo-900/30 rounded-full text-indigo-700 dark:text-indigo-300 text-xs font-bold mt-1 border border-indigo-200 dark:border-indigo-800">Niveau {currentCourse.level}</div>
-                                    </div>
-                                    <div className="flex-1 overflow-y-auto px-4 pb-20 scrollbar-hide relative">
-                                        <div className="absolute left-1/2 top-4 bottom-4 w-1 bg-slate-200 dark:bg-slate-800 -translate-x-1/2 rounded-full"></div>
-                                        {Array.from({ length: TOTAL_LESSONS_PER_LEVEL }).map((_, idx) => {
-                                            const lessonNum = idx + 1;
-                                            const isCompleted = lessonNum <= currentCourse.lessonCount;
-                                            const isCurrent = lessonNum === currentCourse.lessonCount + 1;
-                                            const isLeft = idx % 2 === 0;
-                                            return (
-                                                <div key={idx} className={`relative flex items-center justify-between mb-8 ${isLeft ? 'flex-row' : 'flex-row-reverse'}`}>
-                                                    <div className={`relative z-10 w-16 h-16 rounded-full flex items-center justify-center border-4 transition-all duration-500 ${isCompleted ? 'bg-emerald-500 border-emerald-200 dark:border-emerald-900 text-white' : isCurrent ? 'bg-white dark:bg-slate-900 border-indigo-500 text-indigo-600 scale-110 shadow-xl' : 'bg-slate-100 dark:bg-slate-800 border-slate-200 text-slate-400'}`}>
-                                                        {isCompleted ? <Check className="w-8 h-8" /> : isCurrent ? <Zap className="w-8 h-8 fill-current" /> : <Lock className="w-6 h-6" />}
-                                                        <div className={`absolute -bottom-2 bg-slate-900 text-white text-[10px] font-bold px-2 py-0.5 rounded-full border border-white dark:border-slate-700`}>L{lessonNum}</div>
-                                                    </div>
-                                                    <div className="w-[40%]"></div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    )}
                 </div>
             )}
 

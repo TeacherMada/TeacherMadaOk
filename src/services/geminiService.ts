@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Content, Modality } from "@google/genai";
-import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, VoiceCallSummary, VocabularyItem } from "../types";
+import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, VoiceCallSummary } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
@@ -133,7 +133,8 @@ const checkCreditsBeforeAction = (userId: string) => {
 };
 
 const sanitizeHistory = (history: ChatMessage[]) => {
-    const recentHistory = history.slice(-15); 
+    // Keep more context for standard generation to ensure lessons follow up correctly
+    const recentHistory = history.slice(-20); 
     const cleanHistory = [...recentHistory];
     while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
         cleanHistory.shift();
@@ -150,13 +151,12 @@ export const startChatSession = async (
   return null; 
 };
 
-// === STREAMING ENABLED ===
-export const sendMessageToGeminiStream = async (
+// === STANDARD GENERATION (NO STREAMING) ===
+export const sendMessageToGemini = async (
     message: string, 
     userId: string,
-    previousHistory: ChatMessage[], 
-    onChunk: (text: string) => void
-): Promise<{ fullText: string }> => {
+    previousHistory: ChatMessage[]
+): Promise<string> => {
     checkCreditsBeforeAction(userId);
     
     return executeWithRetry(async (modelName) => {
@@ -172,31 +172,16 @@ export const sendMessageToGeminiStream = async (
             config: {
                 systemInstruction: systemInstruction,
                 temperature: 0.7, 
-                maxOutputTokens: 1000, 
+                maxOutputTokens: 2000, // Ensure long lessons are not cut off
             },
             history: historyPayload,
         });
 
-        try {
-            const result = await chat.sendMessageStream({ message });
-            let fullText = '';
-            for await (const chunk of result) {
-                const text = chunk.text;
-                if (text) {
-                    fullText += text;
-                    onChunk(text);
-                }
-            }
-            storageService.deductCreditOrUsage(userId);
-            return { fullText };
-        } catch (streamError) {
-            console.warn("Stream failed, fallback to standard", streamError);
-            const result = await chat.sendMessage({ message });
-            const text = result.text || "Erreur de connexion.";
-            onChunk(text); 
-            storageService.deductCreditOrUsage(userId);
-            return { fullText: text };
-        }
+        const result = await chat.sendMessage({ message });
+        const responseText = result.text || "Désolé, je n'ai pas pu générer de réponse.";
+        
+        storageService.deductCreditOrUsage(userId);
+        return responseText;
     }, userId);
 };
 
@@ -361,40 +346,4 @@ export const generateLevelExample = async (targetLang: string, level: string): P
         const response = await aiClient!.models.generateContent({ model: modelName, contents: `Sentence in ${targetLang} level ${level}.` });
         return response.text?.trim() || "";
     }, 'system');
-};
-
-export const generateVocabularyFromHistory = async (userId: string, history: ChatMessage[]): Promise<VocabularyItem[]> => {
-    const status = storageService.canPerformRequest(userId);
-    if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
-
-    return executeWithRetry(async (modelName) => {
-        const user = storageService.getUserById(userId);
-        const explanationLang = user?.preferences?.explanationLanguage || "Français";
-
-        const prompt = `
-            Analyze conversation. Extract 5 key vocabulary words used.
-            Output ONLY valid JSON array:
-            [
-                { "word": "word in target lang", "translation": "translation in ${explanationLang}", "context": "short context" }
-            ]
-        `;
-
-        const response = await aiClient!.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
-        });
-
-        storageService.deductCreditOrUsage(userId);
-
-        const json = safeJsonParse(response.text, []);
-        return json.map((item: any, index: number) => ({
-            id: `auto_${Date.now()}_${index}`,
-            word: item.word || "Mot",
-            translation: item.translation || "?",
-            context: item.context || "",
-            mastered: false,
-            addedAt: Date.now()
-        }));
-    }, userId);
 };
