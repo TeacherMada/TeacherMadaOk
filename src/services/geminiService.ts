@@ -8,14 +8,15 @@ let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
-// Primary Model: "Pro" tier quality (Subject to stricter rate limits)
-const PRIMARY_MODEL = 'gemini-3-flash-preview'; 
+// Primary Model: "gemini-2.0-flash" is currently the most stable production model.
+// Switching away from 3-flash-preview to avoid 404s.
+const PRIMARY_MODEL = 'gemini-2.0-flash'; 
 
 // Fallback Chain: Used when Primary Model quotas are exhausted across ALL keys.
 const FALLBACK_CHAIN = [
-    'gemini-2.0-flash',              
-    'gemini-2.0-flash-lite-preview', 
-    'gemini-1.5-flash'               
+    'gemini-2.0-flash-lite-preview-02-05', 
+    'gemini-1.5-flash',
+    'gemini-1.5-pro'
 ];
 
 // Helper to get all available keys from "Backend" (Storage)
@@ -58,6 +59,8 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
 // Determines the starting model. Defaults to PRIMARY_MODEL unless overridden by Admin settings.
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
+    // Safety check: if stored model is 3.0 preview (unstable), fallback to PRIMARY
+    if (settings.activeModel === 'gemini-3-flash-preview') return PRIMARY_MODEL;
     return settings.activeModel || PRIMARY_MODEL;
 };
 
@@ -76,14 +79,15 @@ const executeWithRetry = async <T>(
 
         return await operation(modelName);
     } catch (error: any) {
-        const isQuotaError = error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('resource_exhausted');
-        const isModelNotFoundError = error.message?.includes('404') || error.message?.includes('not found') || error.message?.includes('models/');
+        const msg = error.message || JSON.stringify(error);
+        const isQuotaError = msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted');
+        const isModelNotFoundError = msg.includes('404') || msg.includes('not found') || msg.includes('models/') || msg.includes('parsing response');
         
         const keys = getAvailableKeys();
 
         if (isQuotaError || isModelNotFoundError) {
-            const errorType = isQuotaError ? 'Quota' : 'ModelNot Found';
-            console.warn(`${errorType} error on ${fallbackIndex === -1 ? 'Primary' : 'Fallback ' + fallbackIndex}. KeyIdx: ${currentKeyIndex}. Retrying...`);
+            const errorType = isQuotaError ? 'Quota' : 'Model Error';
+            console.warn(`${errorType} on ${fallbackIndex === -1 ? 'Primary' : 'Fallback ' + fallbackIndex}. Retrying...`);
 
             if (isQuotaError && attempt < keys.length) {
                 initializeGenAI(true); 
@@ -92,13 +96,12 @@ const executeWithRetry = async <T>(
             
             if (fallbackIndex < FALLBACK_CHAIN.length - 1) {
                 const nextFallbackIndex = fallbackIndex + 1;
-                console.warn(`>> Switching to fallback model: ${FALLBACK_CHAIN[nextFallbackIndex]}`);
                 initializeGenAI(true); 
                 return executeWithRetry(operation, userId, 0, nextFallbackIndex);
             }
         }
         
-        console.error("All models and keys exhausted.");
+        console.error("All models and keys exhausted.", error);
         throw error;
     }
 };
@@ -109,6 +112,15 @@ const checkCreditsBeforeAction = (userId: string) => {
         throw new Error("INSUFFICIENT_CREDITS");
     }
     return true;
+};
+
+const sanitizeHistory = (history: ChatMessage[]) => {
+    const cleanHistory = [...history];
+    // Remove initial model messages (TeacherMada greeting)
+    while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
+        cleanHistory.shift();
+    }
+    return cleanHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
 };
 
 // Helper for JSON parsing from AI
@@ -133,17 +145,6 @@ export const startChatSession = async (
   return null; 
 };
 
-// === HELPER: Sanitize History for Gemini ===
-// Removes initial messages until a 'user' message is found.
-// This fixes "History must start with a user turn" error when history starts with a Model greeting.
-const sanitizeHistory = (history: ChatMessage[]) => {
-    const cleanHistory = [...history];
-    while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
-        cleanHistory.shift();
-    }
-    return cleanHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
-};
-
 export const sendMessageToGeminiStream = async (
     message: string, 
     userId: string,
@@ -157,8 +158,6 @@ export const sendMessageToGeminiStream = async (
         if (!user || !user.preferences) throw new Error("User data missing");
         
         const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
-        
-        // Use Sanitized History
         const historyPayload = sanitizeHistory(previousHistory);
 
         const chat = aiClient!.chats.create({
@@ -197,8 +196,6 @@ export const generateVoiceChatResponse = async (
     userId: string, 
     history: ChatMessage[]
 ): Promise<string> => {
-    // Note: Voice credits are time-based, checked in the component.
-    // However, we still check generic access here.
     const status = storageService.canPerformRequest(userId);
     if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
 
@@ -209,7 +206,6 @@ export const generateVoiceChatResponse = async (
         const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
-        // Specialized Prompt for Voice Calls - Optimized for speed and natural flow
         const systemInstruction = `
             ACT: Friendly language tutor on a phone call.
             USER: ${user.username}. LEVEL: ${user.preferences.level}. TARGET: ${user.preferences.targetLanguage}.
@@ -221,7 +217,6 @@ export const generateVoiceChatResponse = async (
             4. Speak naturally.
         `;
 
-        // Use Sanitized History (Last 6 messages)
         const recentHistory = history.slice(-6);
         const historyParts = sanitizeHistory(recentHistory);
 
@@ -229,8 +224,8 @@ export const generateVoiceChatResponse = async (
             model: modelName,
             config: {
                 systemInstruction: systemInstruction,
-                temperature: 0.6, // Lower temp for faster, more focused results
-                maxOutputTokens: 150, // Limit output size for speed
+                temperature: 0.6, 
+                maxOutputTokens: 150, 
             },
             history: historyParts as Content[],
         });
@@ -251,7 +246,6 @@ export const analyzeVoiceCallPerformance = async (
         const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
-        // Get only the user audio parts from recent history
         const conversation = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
 
         const prompt = `
@@ -327,7 +321,6 @@ export const generateSpeech = async (text: string, userId: string, voiceName: st
         if (!text || !text.trim()) return null;
         const safeText = text.substring(0, 4000);
 
-        // Prioritize TTS model
         const ttsModel = "gemini-2.5-flash-preview-tts";
 
         const response = await aiClient!.models.generateContent({
@@ -361,7 +354,6 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
         if (!aiClient) initializeGenAI();
         const imageModel = 'gemini-2.5-flash-image';
         
-        // CORRECTION: Utilisation d'un objet 'any' pour contourner la vérification de type stricte de TS
         const modelConfig: any = {
             imageConfig: {
                 aspectRatio: "16:9",
