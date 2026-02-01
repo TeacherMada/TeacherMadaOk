@@ -1,27 +1,37 @@
-
 import { GoogleGenAI, Modality } from "@google/genai";
 import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, VoiceCallSummary } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
 /**
- * Récupère un client GenAI fraîchement initialisé avec une clé aléatoire
- * extraite de process.env.API_KEY (supporte le format clé1,clé2,clé3)
+ * Retrieves a valid API Key from environment variables.
+ * Prioritizes process.env.API_KEY as per strict requirements.
+ * Also checks VITE_GOOGLE_API_KEY as a fallback since the user mentioned it.
+ * Supports comma-separated rotation.
  */
-const getAiClient = () => {
-    const rawKeys = process.env.API_KEY || "";
-    const keys = rawKeys.split(',').map(k => k.trim()).filter(k => k.length > 5);
+const getApiKey = (): string => {
+    // Attempt to get keys from standard process.env or Vite's import.meta.env
+    const rawKey = process.env.API_KEY || (import.meta as any).env?.VITE_GOOGLE_API_KEY || "";
+    const keys = rawKey.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 5);
 
     if (keys.length === 0) {
-        throw new Error("API_KEY_MISSING: Aucune clé valide trouvée dans l'environnement.");
+        // If we throw an error with "API_KEY", the UI will show "Erreur Configuration API"
+        throw new Error("REQUIRED_CONFIGURATION_MISSING: API_KEY environment variable is empty or invalid.");
     }
 
-    // Rotation aléatoire simple pour distribuer la charge
-    const apiKey = keys[Math.floor(Math.random() * keys.length)];
+    // Dynamic rotation: pick a random key from the list
+    return keys[Math.floor(Math.random() * keys.length)];
+};
+
+/**
+ * Creates a fresh GenAI instance using the required initialization pattern.
+ */
+const getAiClient = () => {
+    const apiKey = getApiKey();
     return new GoogleGenAI({ apiKey });
 };
 
-// Modèles recommandés
+// Recommended model names
 const TEXT_MODEL = 'gemini-3-flash-preview';
 const TTS_MODEL = 'gemini-2.5-flash-preview-tts';
 const IMAGE_MODEL = 'gemini-2.5-flash-image';
@@ -115,7 +125,7 @@ export const generateSpeech = async (text: string, userId: string): Promise<Arra
     return bytes.buffer;
 };
 
-// Signature fix pour App.tsx
+// Keep existing signature for App.tsx
 export const startChatSession = async (profile: UserProfile, prefs: UserPreferences, history: ChatMessage[]) => null;
 
 export const translateText = async (text: string, targetLang: string, userId: string): Promise<string> => {
@@ -162,7 +172,6 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
     });
     storageService.deductCreditOrUsage(userId);
     
-    // FIX TS18048 - Accès sécurisé
     const parts = response.candidates?.[0]?.content?.parts;
     if (!parts) return null;
     
@@ -174,18 +183,23 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
     return null;
 };
 
-export const analyzeUserProgress = async (history: ChatMessage[], memory: string, userId: string) => {
+export const analyzeUserProgress = async (history: ChatMessage[], memory: string, userId: string): Promise<{ newMemory: string; xpEarned: number; feedback: string }> => {
     const ai = getAiClient();
-    const prompt = `Analyze progress. Update memory. Current: ${memory}. JSON: {newMemory, xpEarned}`;
+    const prompt = `Analyze progress. Update memory. Current memory: ${memory}. JSON: {newMemory, xpEarned, feedback}`;
     const response = await ai.models.generateContent({
         model: TEXT_MODEL,
         contents: prompt,
         config: { responseMimeType: "application/json" }
     });
     try {
-        return JSON.parse(response.text || "{}");
+        const json = JSON.parse(response.text || "{}");
+        return {
+            newMemory: json.newMemory || memory,
+            xpEarned: Number(json.xpEarned) || 10,
+            feedback: json.feedback || "Bien joué !"
+        };
     } catch {
-        return { newMemory: memory, xpEarned: 10 };
+        return { newMemory: memory, xpEarned: 10, feedback: "Session analysée." };
     }
 };
 
@@ -198,9 +212,14 @@ export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId
         config: { responseMimeType: "application/json" }
     });
     try {
-        return JSON.parse(response.text || "{}");
+        const json = JSON.parse(response.text || "{}");
+        return {
+            score: Number(json.score) || 7,
+            feedback: json.feedback || "Bien joué !",
+            tip: json.tip || "Continuez !"
+        };
     } catch {
-        return { score: 7, feedback: "Bien joué !", tip: "Continuez !" };
+        return { score: 7, feedback: "Bonne pratique !", tip: "Pratiquez plus souvent." };
     }
 };
 

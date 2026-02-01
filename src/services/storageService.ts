@@ -1,11 +1,9 @@
-
 import { UserProfile, ChatMessage, UserPreferences, SystemSettings, Transaction, AdminRequest } from "../types";
 
 const CURRENT_USER_KEY = 'smart_teacher_current_user_id';
 const SETTINGS_KEY = 'smart_teacher_system_settings';
 const REQUESTS_KEY = 'smart_teacher_admin_requests';
 
-// Nettoyage définitif : Pas de stockage de clés API ici
 const DEFAULT_SETTINGS: SystemSettings = {
   apiKeys: [], 
   activeModel: 'gemini-3-flash-preview',
