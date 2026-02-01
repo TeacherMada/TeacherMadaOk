@@ -1,32 +1,33 @@
+
 import { GoogleGenAI, Modality } from "@google/genai";
 import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, VoiceCallSummary } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
-// Helper to create a fresh client instance with rotation logic
+/**
+ * Récupère un client GenAI fraîchement initialisé avec une clé aléatoire
+ * extraite de process.env.API_KEY (supporte le format clé1,clé2,clé3)
+ */
 const getAiClient = () => {
-    // API key obtained from process.env.API_KEY (supports comma-separated list for rotation)
-    const apiKeyRaw = process.env.API_KEY || "";
-    const keys = apiKeyRaw.split(',').map(k => k.trim()).filter(Boolean);
-    
+    const rawKeys = process.env.API_KEY || "";
+    const keys = rawKeys.split(',').map(k => k.trim()).filter(k => k.length > 5);
+
     if (keys.length === 0) {
-        throw new Error("API_KEY_MISSING: La variable d'environnement API_KEY est absente ou vide.");
+        throw new Error("API_KEY_MISSING: Aucune clé valide trouvée dans l'environnement.");
     }
-    
-    // Pick a random key from the list to handle quotas/rotation
+
+    // Rotation aléatoire simple pour distribuer la charge
     const apiKey = keys[Math.floor(Math.random() * keys.length)];
-    
-    // Initialization must use a named parameter
     return new GoogleGenAI({ apiKey });
 };
 
-// Recommended model names
+// Modèles recommandés
 const TEXT_MODEL = 'gemini-3-flash-preview';
 const TTS_MODEL = 'gemini-2.5-flash-preview-tts';
 const IMAGE_MODEL = 'gemini-2.5-flash-image';
 
 const sanitizeHistory = (history: ChatMessage[]) => {
-    return history.slice(-10).map(m => ({
+    return history.slice(-12).map(m => ({
         role: m.role,
         parts: [{ text: m.text }]
     }));
@@ -69,7 +70,7 @@ export const generateVoiceChatResponse = async (
     const systemInstruction = `
         ACT: Friendly language tutor on a phone call. 
         USER: ${user.username}. TARGET: ${user.preferences.targetLanguage}. LEVEL: ${user.preferences.level}.
-        RULES: Very short response (max 2 sentences). Natural flow. No markdown. Correct errors gently.
+        RULES: Short response (max 2 sentences). Natural flow. No markdown. Correct errors softly.
     `;
 
     const response = await ai.models.generateContent({
@@ -114,6 +115,7 @@ export const generateSpeech = async (text: string, userId: string): Promise<Arra
     return bytes.buffer;
 };
 
+// Signature fix pour App.tsx
 export const startChatSession = async (profile: UserProfile, prefs: UserPreferences, history: ChatMessage[]) => null;
 
 export const translateText = async (text: string, targetLang: string, userId: string): Promise<string> => {
@@ -128,7 +130,7 @@ export const translateText = async (text: string, targetLang: string, userId: st
 
 export const generatePracticalExercises = async (user: UserProfile, history: ChatMessage[]): Promise<ExerciseItem[]> => {
     const ai = getAiClient();
-    const prompt = `Generate 5 interactive exercises for ${user.preferences?.targetLanguage} level ${user.preferences?.level}. Return JSON array.`;
+    const prompt = `Generate 5 exercises for ${user.preferences?.targetLanguage} level ${user.preferences?.level}. Return JSON array.`;
     const response = await ai.models.generateContent({
         model: TEXT_MODEL,
         contents: prompt,
@@ -160,12 +162,16 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
     });
     storageService.deductCreditOrUsage(userId);
     
-    // FIX TS18048: Avoid direct access to potentially undefined nested properties
-    const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-    const imageData = part?.inlineData?.data;
-    const mimeType = part?.inlineData?.mimeType || 'image/png';
+    // FIX TS18048 - Accès sécurisé
+    const parts = response.candidates?.[0]?.content?.parts;
+    if (!parts) return null;
     
-    return imageData ? `data:${mimeType};base64,${imageData}` : null;
+    const part = parts.find(p => p.inlineData);
+    if (part && part.inlineData) {
+        return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+    }
+    
+    return null;
 };
 
 export const analyzeUserProgress = async (history: ChatMessage[], memory: string, userId: string) => {
@@ -185,7 +191,7 @@ export const analyzeUserProgress = async (history: ChatMessage[], memory: string
 
 export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId: string): Promise<VoiceCallSummary> => {
     const ai = getAiClient();
-    const prompt = `Analyze call. JSON: {score, feedback, tip}`;
+    const prompt = `Analyze call performance. JSON: {score, feedback, tip}`;
     const response = await ai.models.generateContent({
         model: TEXT_MODEL,
         contents: prompt,
@@ -217,7 +223,7 @@ export const generateDailyChallenges = async (prefs: UserPreferences): Promise<D
     const ai = getAiClient();
     const response = await ai.models.generateContent({
         model: TEXT_MODEL,
-        contents: `Generate 3 daily challenges for language learning. JSON.`,
+        contents: `Generate 3 daily challenges for language learning. JSON array.`,
         config: { responseMimeType: "application/json" }
     });
     try {

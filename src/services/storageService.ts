@@ -5,10 +5,9 @@ const CURRENT_USER_KEY = 'smart_teacher_current_user_id';
 const SETTINGS_KEY = 'smart_teacher_system_settings';
 const REQUESTS_KEY = 'smart_teacher_admin_requests';
 
-// API Key must be obtained exclusively from process.env.API_KEY per guidelines.
-// Application must not ask the user for it or manage it in settings.
+// Nettoyage définitif : Pas de stockage de clés API ici
 const DEFAULT_SETTINGS: SystemSettings = {
-  apiKeys: [], // Removed local management of keys
+  apiKeys: [], 
   activeModel: 'gemini-3-flash-preview',
   adminContact: {
     telma: "034 93 102 68",
@@ -177,7 +176,6 @@ export const storageService = {
       const settings = storageService.getSystemSettings();
       const validRefs = settings.validTransactionRefs || [];
       
-      // Auto-validate if reference matches known pattern
       let matchedRef: string | null = null;
       if (type === 'credit' && amount && message) {
           matchedRef = validRefs.find(ref => message.toUpperCase().includes(ref.toUpperCase())) || null;
@@ -190,7 +188,6 @@ export const storageService = {
           }
       }
 
-      // Safe Async Fetch & Update
       const currentRequests = await storageService.getAdminRequests();
       const newRequest: AdminRequest = {
           id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -311,7 +308,6 @@ export const storageService = {
       localStorage.removeItem(`chat_history_${userId}_${langKey}`);
   },
 
-  // --- EXPORT / IMPORT FEATURES ---
   exportUserData: () => {
     const data: Record<string, string | null> = {};
     for (let i = 0; i < localStorage.length; i++) {
