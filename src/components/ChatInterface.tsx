@@ -198,7 +198,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           setIsCallConnecting(false);
           const isMg = preferences.explanationLanguage.includes('Mada');
           const greeting = isMg 
-            ? `Manao ahoana ! TeacherMada eto. Inona no hianarantsika androany ?`
+            ? `Salama ! TeacherMada eto. Vonona hiresaka ve ianao ?`
             : `Bonjour ! C'est TeacherMada. De quoi souhaites-tu discuter ?`;
           handleSpeak(greeting);
       }, 1500);
@@ -235,7 +235,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           reply = await sendMessageToGemini(textToSend, user.id, updatedHistory);
       }
       
-      // Sécurité anti-code : on retire tout bloc de code markdown si l'IA en génère par erreur
+      // Sécurité : on retire tout bloc de code markdown si l'IA en génère par erreur
       const safeReply = reply.replace(/```[\s\S]*?```/g, '').trim();
 
       const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: safeReply, timestamp: Date.now() };
@@ -246,13 +246,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       if (isCallActive) setAiLastReply(safeReply);
 
       // --- AUTO PLAY IA ---
-      // On lance la voix automatiquement pour chaque message de l'IA
+      // Lancement automatique de l'audio pour chaque réponse de l'IA
       handleSpeak(safeReply);
 
       const updated = storageService.getUserById(user.id);
       if(updated) onUpdateUser(updated);
     } catch (error: any) {
-      notify(error.message || "Erreur réseau. Réessayez.", 'error');
+      notify(error.message || "Erreur de connexion.", 'error');
     } finally { 
       setIsLoading(false); 
     }
@@ -398,7 +398,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       <div id="chat-feed" ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 md:p-6 space-y-5 pt-16 pb-4 scrollbar-hide">
         {messages.map((msg) => (
             <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}>
-                <div className={`flex max-w-[88%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div className={`flex max-w-[92%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                     <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-1 mx-1.5 ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1 shadow-sm'}`}>
                         {msg.role === 'user' ? <User className="w-3.5 h-3.5 text-indigo-600" /> : <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" />}
                     </div>
