@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, FileText, Type, Coins, Lock, BrainCircuit, Menu, MessageCircle, Image as ImageIcon, Library, PhoneOff, VolumeX, Trophy, ChevronUp, RotateCcw } from 'lucide-react';
 import { UserProfile, ChatMessage, ExerciseItem, VoiceName } from '../types';
-import { sendMessageToGeminiStream, generateSpeech, generatePracticalExercises, translateText, generateVoiceChatResponse, analyzeVoiceCallPerformance, getLessonSummary } from '../services/geminiService';
+import { sendMessageToGeminiStream, generateSpeech, generatePracticalExercises, translateText, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import MarkdownRenderer from './MarkdownRenderer';
 import ExerciseSession from './ExerciseSession';
@@ -37,14 +37,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [showSmartOptions, setShowSmartOptions] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
 
-  // States Modes
+  // States Modales
   const [isCallActive, setIsCallActive] = useState(false);
   const [isTrainingMode, setIsTrainingMode] = useState(false);
   const [isDialogueActive, setIsDialogueActive] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [exercises, setExercises] = useState<ExerciseItem[]>([]);
+  const [isMuted, setIsMuted] = useState(false);
   const [callSeconds, setCallSeconds] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -54,7 +54,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const recognitionRef = useRef<any>(null);
 
   const preferences = user.preferences!;
-
   const textSizeClass = useMemo(() => {
       switch (fontSize) {
           case 'small': return 'text-sm';
@@ -64,12 +63,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       }
   }, [fontSize]);
 
-  const matchingMessages = useMemo(() => {
-    if (!searchQuery.trim()) return [];
-    return messages.filter(m => m.text.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [messages, searchQuery]);
-
-  const getAudioContext = async () => {
+  /**
+   * CRITIQUE : Débloque l'audio via un geste utilisateur
+   */
+  const unlockAudio = async () => {
       if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
           audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       }
@@ -83,7 +80,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     try {
         const rawPCM = await generateSpeech(text, user.id, user.preferences?.voiceName);
         if (rawPCM) {
-            const ctx = await getAudioContext();
+            const ctx = await unlockAudio();
             const dataInt16 = new Int16Array(rawPCM.buffer, rawPCM.byteOffset, rawPCM.byteLength / 2);
             const audioBuffer = ctx.createBuffer(1, dataInt16.length, 24000);
             const channelData = audioBuffer.getChannelData(0);
@@ -92,7 +89,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             source.buffer = audioBuffer;
             source.connect(ctx.destination);
             activeSourceRef.current = source;
-            source.onended = () => { setIsPlayingAudio(false); };
+            source.onended = () => { setIsPlayingAudio(false); if(isCallActive) startListening(); };
             source.start(0);
         } else { setIsPlayingAudio(false); }
     } catch (e) { setIsPlayingAudio(false); }
@@ -101,8 +98,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const stopAudio = () => { if (activeSourceRef.current) { try { activeSourceRef.current.stop(); } catch(e){} } setIsPlayingAudio(false); };
 
   const handleSend = async (textOverride?: string) => {
-    // CRITIQUE : Init audio context sur geste utilisateur pour auto-play
-    await getAudioContext();
+    // Étape 1 : On débloque l'audio IMMÉDIATEMENT sur le clic utilisateur
+    await unlockAudio();
     
     const textToSend = textOverride || input;
     if (!textToSend.trim() || isLoading) return;
@@ -138,39 +135,54 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setStreamingText('');
       storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage);
       
-      // AUTO PLAY
+      // Lancement automatique de l'audio
       handleSpeak(safeReply);
 
       const updated = storageService.getUserById(user.id);
       if(updated) onUpdateUser(updated);
     } catch (error: any) {
-      notify("Erreur réseau. Rotation des clés en cours...", 'error');
+      notify("Erreur de connexion. Rotation des clés...", 'error');
     } finally { 
       setIsLoading(false); 
     }
   };
+
+  const startListening = () => {
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitRecognition;
+    if (!SpeechRec) return;
+    const rec = new SpeechRec();
+    rec.lang = preferences.targetLanguage.includes('Anglais') ? 'en-US' : 'fr-FR';
+    rec.onstart = () => setIsListening(true);
+    rec.onend = () => setIsListening(false);
+    rec.onresult = (e: any) => {
+        const txt = e.results[0][0].transcript;
+        if(isCallActive) handleSend(txt);
+        else setInput(prev => prev + ' ' + txt);
+    };
+    recognitionRef.current = rec;
+    rec.start();
+  };
+
+  const stopListening = () => { if(recognitionRef.current) recognitionRef.current.stop(); setIsListening(false); };
 
   const handleExportPDF = (text: string) => {
     const doc = new jsPDF();
     doc.setFontSize(12);
     const lines = doc.splitTextToSize(text.replace(/[*#]/g, ''), 180);
     doc.text(lines, 15, 20);
-    doc.save(`lecon_${Date.now()}.pdf`);
-    notify("PDF prêt", 'success');
+    doc.save(`tm_lecon_${Date.now()}.pdf`);
+    notify("PDF téléchargé", 'success');
   };
 
   const handleExportImage = async (id: string) => {
-    // @ts-ignore
-    if(typeof html2canvas === 'undefined') return;
     const el = document.getElementById(`msg-content-${id}`);
-    if(!el) return;
-    // @ts-ignore
-    const canvas = await html2canvas(el, { backgroundColor: isDarkMode ? '#0f172a' : '#ffffff' });
+    if(!el || typeof (window as any).html2canvas === 'undefined') return;
+    const canvas = await (window as any).html2canvas(el, { backgroundColor: isDarkMode ? '#0f172a' : '#ffffff' });
     const link = document.createElement('a');
-    link.download = `capture_${id}.png`;
+    link.download = `tm_capture_${id}.png`;
     link.href = canvas.toDataURL();
     link.click();
-    notify("Image prête", 'success');
+    notify("Image téléchargée", 'success');
   };
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, streamingText, isLoading]);
@@ -198,9 +210,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   </div>
               </div>
               <div className="w-full max-w-xs grid grid-cols-3 gap-6 mb-12">
-                  <button onClick={() => stopAudio()} className="p-4 rounded-full bg-slate-800 text-white"><VolumeX/></button>
-                  <button onClick={() => setIsCallActive(false)} className="p-6 bg-red-500 text-white rounded-full shadow-xl"><PhoneOff/></button>
-                  <button onClick={() => notify("Micro actif", "info")} className="p-4 rounded-full bg-slate-800 text-white"><Mic/></button>
+                  <button onClick={() => stopAudio()} className="p-4 rounded-full bg-slate-800 text-white transition-colors">{isMuted ? <VolumeX/> : <Volume2/>}</button>
+                  <button onClick={() => setIsCallActive(false)} className="p-6 bg-red-500 text-white rounded-full shadow-xl hover:bg-red-600"><PhoneOff/></button>
+                  <button onClick={() => isListening ? stopListening() : startListening()} className={`p-4 rounded-full transition-all ${isListening ? 'bg-white text-slate-900' : 'bg-slate-800 text-white'}`}><Mic/></button>
               </div>
           </div>
       )}
@@ -216,13 +228,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           </button>
           {showSmartOptions && (
               <div className="absolute top-14 left-10 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-2 animate-fade-in z-50">
-                  <button onClick={() => { setShowSmartOptions(false); setIsTrainingMode(true); generatePracticalExercises(user, messages).then(setExercises); }} className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl flex items-center gap-3 text-sm font-bold">
+                  <button onClick={() => { setShowSmartOptions(false); setIsTrainingMode(true); generatePracticalExercises(user, messages).then(setExercises); }} className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl flex items-center gap-3 text-sm font-bold transition-colors">
                       <BrainCircuit className="w-4 h-4 text-orange-500"/>Exercice Pratique
                   </button>
-                  <button onClick={() => { setShowSmartOptions(false); setIsCallActive(true); }} className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl flex items-center gap-3 text-sm font-bold">
+                  <button onClick={() => { setShowSmartOptions(false); setIsCallActive(true); }} className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl flex items-center gap-3 text-sm font-bold transition-colors">
                       <Phone className="w-4 h-4 text-purple-500"/>Appel Vocal
                   </button>
-                  <button onClick={() => { setShowSmartOptions(false); setIsDialogueActive(true); }} className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl flex items-center gap-3 text-sm font-bold">
+                  <button onClick={() => { setShowSmartOptions(false); setIsDialogueActive(true); }} className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl flex items-center gap-3 text-sm font-bold transition-colors">
                       <MessageCircle className="w-4 h-4 text-emerald-500"/>Dialogues
                   </button>
               </div>
@@ -241,11 +253,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         <input type="text" placeholder="Rechercher..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
                     </div>
                     <div className="grid grid-cols-2 gap-2 border-t pt-3">
-                        <button onClick={toggleTheme} className="flex flex-col items-center p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl">
+                        <button onClick={toggleTheme} className="flex flex-col items-center p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors">
                             {isDarkMode ? <Sun className="w-5 h-5 text-amber-500 mb-1"/> : <Moon className="w-5 h-5 text-indigo-500 mb-1"/>}
                             <span className="text-[10px] font-black uppercase">Thème</span>
                         </button>
-                        <button onClick={onShowProfile} className="flex flex-col items-center p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl">
+                        <button onClick={onShowProfile} className="flex flex-col items-center p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors">
                             <User className="w-5 h-5 text-indigo-600 mb-1"/>
                             <span className="text-[10px] font-black uppercase">Profil</span>
                         </button>
@@ -255,7 +267,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </div>
       </header>
       
-      {/* Flux de messages - Optimisé Mobile */}
+      {/* Flux - Optimisation Mobile 92% largeur bulle */}
       <div id="chat-feed" className="flex-1 overflow-y-auto p-3 md:p-6 space-y-5 pt-16 pb-4 scrollbar-hide">
         {messages.map((msg) => (
             <div key={msg.id} id={`msg-${msg.id}`} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}>
@@ -271,6 +283,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     <button onClick={() => handleSpeak(msg.text)} className={`p-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-full transition-colors ${isPlayingAudio ? 'text-indigo-600' : 'text-slate-400'}`}><Volume2 className="w-4 h-4"/></button>
                                     <button onClick={() => handleExportPDF(msg.text)} className="p-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-400 hover:text-red-500"><FileText className="w-4 h-4"/></button>
                                     <button onClick={() => handleExportImage(msg.id)} className="p-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-400 hover:text-purple-500"><ImageIcon className="w-4 h-4"/></button>
+                                    <button onClick={() => { navigator.clipboard.writeText(msg.text); notify("Texte copié", "success"); }} className="p-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-400"><Copy className="w-4 h-4"/></button>
                                 </div>
                             </>
                          )}
@@ -309,6 +322,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
             />
             <div className="flex items-center gap-1 pb-1 pr-1">
+                 <button onClick={() => { if(isListening) stopListening(); else startListening(); }} className={`p-2.5 rounded-full transition-all ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:bg-slate-200'}`}><Mic className="w-5 h-5" /></button>
                  <button onClick={() => handleSend()} disabled={!input.trim() || isLoading} className="p-3 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 disabled:opacity-50 transform active:scale-95 transition-all"><Send className="w-4.5 h-4.5" /></button>
             </div>
         </div>

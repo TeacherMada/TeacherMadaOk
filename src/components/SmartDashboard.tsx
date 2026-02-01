@@ -1,8 +1,8 @@
-
 import React, { useMemo, useState } from 'react';
-import { UserProfile, ChatMessage, VoiceName } from '../types';
-import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Type, Coins, CreditCard, ChevronRight, Check, Shield, Download, Upload, Loader2, Sparkles, Plus, Trash2, Sliders } from 'lucide-react';
+import { UserProfile, ChatMessage, VoiceName, VocabularyItem } from '../types';
+import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Type, Coins, CreditCard, ChevronRight, Check, Shield, Download, Upload, Loader2, Sparkles, Plus, Trash2, Sliders, Volume2, Search, BrainCircuit } from 'lucide-react';
 import { storageService } from '../services/storageService';
+import { generateVocabularyFromHistory, generateSpeech } from '../services/geminiService';
 
 interface SmartDashboardProps {
   user: UserProfile;
@@ -26,24 +26,52 @@ const VOICE_OPTIONS: { id: VoiceName; label: string; desc: string }[] = [
 ];
 
 const SmartDashboard: React.FC<SmartDashboardProps> = ({ 
-  user, onClose, onUpdateUser, onLogout, isDarkMode, toggleTheme, fontSize, onFontSizeChange, notify
+  user, messages, onClose, onUpdateUser, onLogout, isDarkMode, toggleTheme, fontSize, onFontSizeChange, notify
 }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'hub' | 'lessons'>('hub');
-  const [editForm, setEditForm] = useState({ username: user.username, email: user.email || '', password: user.password || '' });
-  
-  const handleSaveProfile = () => {
-    if (!editForm.username.trim()) return;
-    onUpdateUser({ ...user, username: editForm.username, email: editForm.email, password: editForm.password });
-    setIsEditing(false);
-    notify('Profil mis à jour !', 'success');
+  const [activeTab, setActiveTab] = useState<'hub' | 'vocab' | 'lessons'>('hub');
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [isPlaying, setIsPlaying] = useState<string | null>(null);
+
+  const handleExtractVocab = async () => {
+    if (!storageService.canPerformRequest(user.id).allowed) { notify("Crédits insuffisants", "error"); return; }
+    setIsExtracting(true);
+    try {
+        const newWords = await generateVocabularyFromHistory(messages, user.preferences?.targetLanguage || "English");
+        const updatedVocab = [...(user.vocabulary || []), ...newWords];
+        onUpdateUser({ ...user, vocabulary: updatedVocab });
+        storageService.saveUserProfile({ ...user, vocabulary: updatedVocab });
+        notify(`${newWords.length} mots ajoutés !`, "success");
+    } catch (e) { notify("Échec de l'extraction", "error"); }
+    finally { setIsExtracting(false); }
   };
 
-  const handleUpdateVoice = (v: VoiceName) => {
-    const updated = { ...user.preferences!, voiceName: v };
-    onUpdateUser({ ...user, preferences: updated });
-    storageService.updatePreferences(user.id, updated);
-    notify(`Voix ${v} activée`, 'info');
+  const handlePlayWord = async (text: string, id: string) => {
+      setIsPlaying(id);
+      const raw = await generateSpeech(text, user.id, user.preferences?.voiceName);
+      if (raw) {
+          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+          const dataInt16 = new Int16Array(raw.buffer, raw.byteOffset, raw.byteLength / 2);
+          const audioBuffer = ctx.createBuffer(1, dataInt16.length, 24000);
+          const channelData = audioBuffer.getChannelData(0);
+          for (let i = 0; i < dataInt16.length; i++) channelData[i] = dataInt16[i] / 32768.0;
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+          source.onended = () => setIsPlaying(null);
+          source.start(0);
+      } else setIsPlaying(null);
+  };
+
+  const toggleMastered = (id: string) => {
+      const updated = (user.vocabulary || []).map(v => v.id === id ? { ...v, mastered: !v.mastered } : v);
+      onUpdateUser({ ...user, vocabulary: updated });
+      storageService.saveUserProfile({ ...user, vocabulary: updated });
+  };
+
+  const deleteWord = (id: string) => {
+      const updated = (user.vocabulary || []).filter(v => v.id !== id);
+      onUpdateUser({ ...user, vocabulary: updated });
+      storageService.saveUserProfile({ ...user, vocabulary: updated });
   };
 
   return (
@@ -65,8 +93,9 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
         {/* Tab Switcher */}
         <div className="px-6 py-4">
             <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
-                <button onClick={() => setActiveTab('hub')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'hub' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500'}`}>Mon Espace</button>
-                <button onClick={() => setActiveTab('lessons')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'lessons' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500'}`}>Historique</button>
+                <button onClick={() => setActiveTab('hub')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${activeTab === 'hub' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500'}`}>Profil</button>
+                <button onClick={() => setActiveTab('vocab')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${activeTab === 'vocab' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500'}`}>Boîte à Mots</button>
+                <button onClick={() => setActiveTab('lessons')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${activeTab === 'lessons' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500'}`}>Historique</button>
             </div>
         </div>
 
@@ -74,7 +103,6 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
         <div className="flex-1 overflow-y-auto scrollbar-hide p-6">
             {activeTab === 'hub' && (
                 <div className="space-y-6">
-                    {/* Voice Selection */}
                     <div className="bg-slate-50 dark:bg-[#1A2030] rounded-3xl p-6 border border-slate-100 dark:border-white/5 shadow-sm">
                         <div className="flex items-center gap-3 mb-6">
                              <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl text-indigo-600"><Sliders className="w-5 h-5"/></div>
@@ -82,19 +110,13 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             {VOICE_OPTIONS.map(v => (
-                                <button 
-                                    key={v.id} 
-                                    onClick={() => handleUpdateVoice(v.id)}
-                                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-1 ${user.preferences?.voiceName === v.id ? 'border-indigo-500 bg-indigo-500/5 text-indigo-600 dark:text-indigo-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-indigo-200'}`}
-                                >
+                                <button key={v.id} onClick={() => { const up = {...user.preferences!, voiceName: v.id}; onUpdateUser({...user, preferences: up}); storageService.updatePreferences(user.id, up); notify(`Voix ${v.label} activée`, 'info'); }} className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-1 ${user.preferences?.voiceName === v.id ? 'border-indigo-500 bg-indigo-500/5 text-indigo-600 dark:text-indigo-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:border-indigo-200'}`}>
                                     <div className="text-sm font-black">{v.label}</div>
                                     <div className="text-[10px] opacity-60 font-bold uppercase">{v.desc}</div>
                                 </button>
                             ))}
                         </div>
                     </div>
-
-                    {/* Stats */}
                     <div className="grid grid-cols-2 gap-3">
                         <div className="bg-white dark:bg-[#1A2030] p-5 rounded-3xl text-center border border-slate-100 dark:border-white/5 shadow-sm">
                             <Trophy className="w-7 h-7 text-amber-500 mx-auto mb-2" />
@@ -107,22 +129,53 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Série (Jours)</div>
                         </div>
                     </div>
+                </div>
+            )}
 
-                    {/* Settings UI */}
-                    <div className="bg-white dark:bg-[#1A2030] rounded-3xl border border-slate-100 dark:border-white/5 shadow-sm overflow-hidden divide-y dark:divide-white/5">
-                        <div className="p-5 flex items-center justify-between">
-                            <span className="text-sm font-bold">Mode Sombre</span>
-                            <button onClick={toggleTheme} className={`w-12 h-7 rounded-full p-1 transition-colors ${isDarkMode ? 'bg-indigo-600' : 'bg-slate-200'}`}><div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${isDarkMode ? 'translate-x-5' : 'translate-x-0'}`}></div></button>
-                        </div>
-                        <div className="p-5 flex items-center justify-between">
-                            <span className="text-sm font-bold">Taille Texte</span>
-                            <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
-                                {(['small', 'normal', 'large'] as const).map(s => (
-                                    <button key={s} onClick={() => onFontSizeChange(s)} className={`px-3 py-1 rounded-md text-xs font-black transition-all ${fontSize === s ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-400'}`}>A</button>
-                                ))}
+            {activeTab === 'vocab' && (
+                <div className="space-y-6 animate-fade-in">
+                    <button onClick={handleExtractVocab} disabled={isExtracting} className="w-full py-4 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-black rounded-2xl shadow-lg flex items-center justify-center gap-3 transition-transform active:scale-95 disabled:opacity-50">
+                        {isExtracting ? <Loader2 className="animate-spin w-5 h-5"/> : <BrainCircuit className="w-5 h-5"/>}
+                        EXTRAIRE LES MOTS DU COURS
+                    </button>
+                    <div className="space-y-3">
+                        {(user.vocabulary || []).length === 0 ? (
+                            <div className="text-center py-20 text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl">
+                                <Sparkles className="w-10 h-10 mx-auto mb-3 opacity-20"/>
+                                <p className="text-sm font-bold">Votre boîte à mots est vide.</p>
                             </div>
-                        </div>
+                        ) : (
+                            user.vocabulary.slice().reverse().map(word => (
+                                <div key={word.id} className={`p-4 rounded-2xl border transition-all flex items-center justify-between ${word.mastered ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-100' : 'bg-white dark:bg-[#1A2030] border-slate-100 dark:border-white/5'}`}>
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-black text-slate-900 dark:text-white">{word.word}</span>
+                                            <button onClick={() => handlePlayWord(word.word, word.id)} className={`p-1.5 rounded-full ${isPlaying === word.id ? 'text-indigo-600 animate-pulse' : 'text-slate-400'}`}><Volume2 className="w-4 h-4"/></button>
+                                        </div>
+                                        <p className="text-xs text-slate-500 font-medium">{word.translation}</p>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <button onClick={() => toggleMastered(word.id)} className={`p-2 rounded-xl ${word.mastered ? 'text-emerald-500 bg-emerald-100 dark:bg-emerald-900/30' : 'text-slate-300 hover:text-emerald-500'}`}><CheckCircle className="w-5 h-5"/></button>
+                                        <button onClick={() => deleteWord(word.id)} className="p-2 rounded-xl text-slate-300 hover:text-red-500"><Trash2 className="w-5 h-5"/></button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
                     </div>
+                </div>
+            )}
+
+            {activeTab === 'lessons' && (
+                <div className="space-y-4 animate-fade-in">
+                    {user.stats.lessonsCompleted === 0 ? (
+                        <div className="text-center py-20 text-slate-400">Aucun cours terminé.</div>
+                    ) : (
+                        <div className="p-6 bg-indigo-50 dark:bg-indigo-900/10 rounded-3xl text-center border border-indigo-100 dark:border-white/5">
+                            <BookOpen className="w-10 h-10 text-indigo-500 mx-auto mb-3" />
+                            <h4 className="text-3xl font-black text-indigo-700 dark:text-indigo-400">{user.stats.lessonsCompleted}</h4>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Leçons maîtrisées</p>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
