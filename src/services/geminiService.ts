@@ -3,7 +3,7 @@ import { UserProfile, UserPreferences, ChatMessage, VoiceName, VoiceCallSummary 
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
-// Fix: Avoid prohibited models and use recommended ones
+// Utilisation des modèles recommandés
 const MODEL_POOL = [
     'gemini-3-flash-preview',
     'gemini-flash-lite-latest',
@@ -12,7 +12,7 @@ const MODEL_POOL = [
 
 const getApiKey = (): string => {
     const rawKeys = process.env.API_KEY || "";
-    // On type explicitement les itérateurs pour corriger TS7006
+    // Typage explicite des arguments de map pour corriger TS7006
     const keys = rawKeys.split(',')
         .map((k: string) => k.trim())
         .filter((k: string) => k.length > 5);
@@ -20,6 +20,7 @@ const getApiKey = (): string => {
     if (keys.length === 0) {
         throw new Error("API_KEY_MISSING: Aucune clé valide dans process.env.API_KEY");
     }
+    // Rotation aléatoire pour distribuer la charge
     return keys[Math.floor(Math.random() * keys.length)];
 };
 
@@ -27,19 +28,20 @@ async function executeWithFallback<T>(operation: (ai: GoogleGenAI, modelName: st
     let lastError: any;
     for (const model of MODEL_POOL) {
         try {
-            // Fix: Create new GoogleGenAI instance right before call
+            // Instance fraîche à chaque tentative pour utiliser une clé potentiellement différente
             const ai = new GoogleGenAI({ apiKey: getApiKey() });
             return await operation(ai, model);
         } catch (error: any) {
             lastError = error;
             const msg = error.message?.toLowerCase() || "";
-            if (msg.includes('429') || msg.includes('quota') || msg.includes('fetch')) {
+            // Retry uniquement si quota ou erreur de fetch
+            if (msg.includes('429') || msg.includes('quota') || msg.includes('fetch') || msg.includes('network')) {
                 continue;
             }
             throw error;
         }
     }
-    throw lastError || new Error("Service IA indisponible.");
+    throw lastError || new Error("Service IA temporairement indisponible.");
 }
 
 export const sendMessageToGemini = async (message: string, userId: string, history: ChatMessage[]): Promise<string> => {
@@ -55,7 +57,7 @@ export const sendMessageToGemini = async (message: string, userId: string, histo
             ],
             config: { 
                 systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!) + 
-                "\n\n🚨 INTERDICTION : Ne jamais envoyer de blocs de code ou markdown technique. Texte clair uniquement.",
+                "\n\n🚨 RÈGLE ABSOLUE : Interdiction de générer du code informatique (HTML, JS, Markdown technique). Réponds exclusivement avec du texte pédagogique fluide.",
                 temperature: 0.7 
             }
         });
@@ -66,12 +68,12 @@ export const sendMessageToGemini = async (message: string, userId: string, histo
 
 export const generateSpeech = async (text: string, userId: string, voice?: VoiceName): Promise<Uint8Array | null> => {
     try {
-        // Fix: Create new GoogleGenAI instance right before call
         const ai = new GoogleGenAI({ apiKey: getApiKey() });
         const user = storageService.getUserById(userId);
         const voiceToUse = voice || user?.preferences?.voiceName || 'Kore';
         
-        const cleanText = text.replace(/[*#_`~]/g, '').trim().substring(0, 800);
+        // Nettoyage rapide du markdown pour le TTS
+        const cleanText = text.replace(/[*#_`~]/g, '').trim().substring(0, 1000);
         if (!cleanText) return null;
 
         const response = await ai.models.generateContent({
@@ -95,7 +97,7 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
         }
         return bytes;
     } catch (e) {
-        console.error("TTS Error:", e);
+        console.error("Erreur TTS:", e);
         return null;
     }
 };
@@ -103,6 +105,7 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
 export const generateVoiceChatResponse = async (message: string, userId: string, history: ChatMessage[]): Promise<string> => {
     const user = storageService.getUserById(userId);
     if (!user) throw new Error("USER_NOT_FOUND");
+    
     return executeWithFallback(async (ai, model) => {
         const response = await ai.models.generateContent({
             model: 'gemini-flash-lite-latest',
@@ -111,9 +114,9 @@ export const generateVoiceChatResponse = async (message: string, userId: string,
                 { role: 'user', parts: [{ text: message }] }
             ],
             config: {
-                systemInstruction: `Tu es TeacherMada en APPEL VOCAL. Réponses ultra-courtes. Pas de markdown. Langue: ${user.preferences?.targetLanguage}.`,
-                maxOutputTokens: 100,
-                temperature: 0.5
+                systemInstruction: `Tu es TeacherMada en APPEL VOCAL. Réponds en 1 phrase courte et naturelle. Pas de markdown. Langue: ${user.preferences?.targetLanguage}.`,
+                maxOutputTokens: 120,
+                temperature: 0.6
             }
         });
         return response.text || "D'accord.";
@@ -131,23 +134,20 @@ export const translateText = async (text: string, targetLang: string, userId: st
 };
 
 export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId: string): Promise<VoiceCallSummary> => {
-    // Fix: Create new GoogleGenAI instance right before call
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const prompt = `Analyse JSON: {score, feedback, tip}. Conversation: ${JSON.stringify(history.slice(-4))}`;
     const res = await ai.models.generateContent({
-        // Fix: Use gemini-3-flash-preview instead of prohibited gemini-1.5-flash
         model: 'gemini-3-flash-preview',
         contents: prompt,
         config: { responseMimeType: "application/json" }
     });
     try {
-        return JSON.parse(res.text || '{"score":7, "feedback":"Bien", "tip":"Continuez"}');
+        return JSON.parse(res.text || '{"score":7, "feedback":"Bon travail", "tip":"Continuez"}');
     } catch {
-        return { score: 7, feedback: "Bon travail", tip: "Continuez !" };
+        return { score: 7, feedback: "Bonne progression", tip: "Continuez à pratiquer !" };
     }
-}
+};
 
-// Fix: Added missing parameters to startChatSession signature to match caller in src/App.tsx
 export const startChatSession = async (userProfile: UserProfile, prefs: UserPreferences, history: ChatMessage[]) => null;
 export const analyzeUserProgress = async (h: any, m: any, id: any) => ({ newMemory: m, xpEarned: 10, feedback: "Ok" });
 export const generateDailyChallenges = async (p: any) => [];

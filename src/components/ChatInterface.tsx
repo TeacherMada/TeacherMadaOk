@@ -103,7 +103,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const handleSend = async (textOverride?: string) => {
-    // CRITIQUE : Activer l'AudioContext dès le clic utilisateur pour autoriser l'Auto-play plus tard
+    // CRITIQUE : Activer l'AudioContext dès le geste utilisateur (click) pour autoriser l'Auto-play
     await getAudioContext();
     
     const textToSend = textOverride || input;
@@ -131,13 +131,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setMessages(finalHistory);
       storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage);
       
-      // AUTO-PLAY : On lance la voix immédiatement
+      // AUTO-PLAY : On lance la voix immédiatement sans intervention manuelle
       handleSpeak(safeReply);
 
       const updated = storageService.getUserById(user.id);
       if(updated) onUpdateUser(updated);
     } catch (error: any) {
-      notify(error.message || "Erreur.", 'error');
+      notify(error.message || "Erreur réseau.", 'error');
     } finally { 
       setIsLoading(false); 
     }
@@ -174,7 +174,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </div>
       </header>
       
-      {/* Messages */}
+      {/* Messages - Largeur optimisée pour mobile (92%) */}
       <div id="chat-feed" ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 md:p-6 space-y-5 pt-16 pb-4 scrollbar-hide">
         {messages.map((msg) => (
             <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}>
