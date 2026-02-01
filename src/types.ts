@@ -1,4 +1,3 @@
-
 export enum TargetLanguage {
   English = 'Anglais 🇬🇧',
   French = 'Français 🇫🇷',
@@ -19,17 +18,23 @@ export enum LearningMode {
   Pronunciation = '🎧 Prononciation / Audio'
 }
 
-export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2' | 'HSK 1' | 'HSK 2' | 'HSK 3' | 'HSK 4' | 'HSK 5' | 'HSK 6';
+export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
 
+/**
+ * Fix for Onboarding.tsx: Added missing LanguageLevel type.
+ */
+export type LanguageLevel = string;
+
+/**
+ * Fix for constants.ts and Onboarding.tsx: Added missing LevelDescriptor interface.
+ */
 export interface LevelDescriptor {
-  code: LanguageLevel;
+  code: string;
   title: string;
   description: string;
   skills: string[];
   example: string;
 }
-
-export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
 
 export interface UserPreferences {
   targetLanguage: string;
@@ -38,7 +43,6 @@ export interface UserPreferences {
   mode: string;
   fontSize?: 'small' | 'normal' | 'large' | 'xl';
   voiceName?: VoiceName;
-  needsAssessment?: boolean;
 }
 
 export interface ChatMessage {
@@ -46,16 +50,6 @@ export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
   timestamp: number;
-}
-
-export interface DailyChallenge {
-  id: string;
-  description: string;
-  targetCount: number;
-  currentCount: number;
-  xpReward: number;
-  isCompleted: boolean;
-  type: 'message_count' | 'lesson_complete' | 'vocabulary' | 'exercise_score';
 }
 
 export interface VocabularyItem {
@@ -67,15 +61,13 @@ export interface VocabularyItem {
   addedAt: number;
 }
 
-export type UserRole = 'user' | 'admin';
-
 export interface UserProfile {
   id: string;
   username: string;
   email?: string;
   phoneNumber?: string; 
   password?: string;
-  role: UserRole;
+  role: 'user' | 'admin';
   createdAt: number;
   preferences: UserPreferences | null;
   stats: {
@@ -83,37 +75,19 @@ export interface UserProfile {
     streak: number;
     lessonsCompleted: number;
     progressByLevel: Record<string, number>; 
-    weakPoints?: string[]; 
-    interests?: string[]; 
   };
-  skills?: {
-    vocabulary: number;
-    grammar: number;
-    pronunciation: number;
-    listening: number;
-  };
-  vocabulary?: VocabularyItem[];
-  dailyChallenges?: DailyChallenge[];
-  lastChallengeDate?: string;
+  vocabulary: VocabularyItem[];
   aiMemory: string; 
-  isPremium: boolean;
-  hasSeenTutorial?: boolean;
   credits: number;
   freeUsage: {
     lastResetWeek: string;
     count: number;
   };
   isSuspended?: boolean;
-}
-
-export interface Transaction {
-  id: string;
-  userId: string;
-  amount: number;
-  creditsAdded: number;
-  date: number;
-  status: 'pending' | 'completed' | 'rejected';
-  method: string;
+  /**
+   * Fix for storageService.ts: Added missing hasSeenTutorial property.
+   */
+  hasSeenTutorial?: boolean;
 }
 
 export interface AdminRequest {
@@ -138,14 +112,15 @@ export interface SystemSettings {
   };
   creditPrice: number;
   customLanguages?: { code: string; baseName: string; flag: string; }[];
+  /**
+   * Added to support transaction reference storage used in AdminDashboard.
+   */
   validTransactionRefs?: string[];
 }
 
-export type ExerciseType = 'multiple_choice' | 'true_false' | 'fill_blank';
-
 export interface ExerciseItem {
   id: string;
-  type: ExerciseType;
+  type: 'multiple_choice' | 'true_false' | 'fill_blank';
   question: string;
   options?: string[];
   correctAnswer: string;
