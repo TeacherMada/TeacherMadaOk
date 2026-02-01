@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, FileText, Type, Coins, Lock, BrainCircuit, Menu, MessageCircle, Image as ImageIcon, Library, PhoneOff, VolumeX, Trophy, ChevronUp } from 'lucide-react';
 import { UserProfile, ChatMessage, ExerciseItem, VoiceName } from '../types';
-import { sendMessageToGeminiStream, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
+import { sendMessageToGeminiStream, generateSpeech, generatePracticalExercises, translateText, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import MarkdownRenderer from './MarkdownRenderer';
 import ExerciseSession from './ExerciseSession';
@@ -39,9 +39,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
 
-  // Modals & Modes
+  // Modes & Modales
   const [isCallActive, setIsCallActive] = useState(false);
-  const [isCallConnecting, setIsCallConnecting] = useState(false);
   const [isTrainingMode, setIsTrainingMode] = useState(false);
   const [isDialogueActive, setIsDialogueActive] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -103,7 +102,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const stopAudio = () => { if (activeSourceRef.current) { try { activeSourceRef.current.stop(); } catch(e){} } setIsPlayingAudio(false); };
 
   const handleSend = async (textOverride?: string) => {
-    await getAudioContext(); // Débloque l'audio sur geste utilisateur
+    // CRITIQUE : Débloquer l'audio via un geste utilisateur immédiat
+    await getAudioContext();
+    
     const textToSend = textOverride || input;
     if (!textToSend.trim() || isLoading) return;
 
@@ -138,13 +139,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setStreamingText('');
       storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage);
       
-      // --- AUTO PLAY ---
+      // AUTO PLAY : La voix se lance dès que le texte est complet
       handleSpeak(safeReply);
 
       const updated = storageService.getUserById(user.id);
       if(updated) onUpdateUser(updated);
     } catch (error: any) {
-      notify("Erreur réseau.", 'error');
+      notify("Erreur réseau. Vérifiez vos clés API.", 'error');
     } finally { 
       setIsLoading(false); 
     }
@@ -173,7 +174,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     doc.setFontSize(12);
     const lines = doc.splitTextToSize(text.replace(/[*#]/g, ''), 180);
     doc.text(lines, 15, 20);
-    doc.save(`lecon_${Date.now()}.pdf`);
+    doc.save(`tm_lecon_${Date.now()}.pdf`);
     notify("PDF téléchargé", 'success');
   };
 
@@ -185,7 +186,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // @ts-ignore
     const canvas = await html2canvas(el, { backgroundColor: isDarkMode ? '#0f172a' : '#ffffff' });
     const link = document.createElement('a');
-    link.download = `capture_${id}.png`;
+    link.download = `tm_capture_${id}.png`;
     link.href = canvas.toDataURL();
     link.click();
     notify("Image téléchargée", 'success');
@@ -201,7 +202,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           {exercises.length > 0 ? <ExerciseSession exercises={exercises} onClose={() => setIsTrainingMode(false)} onComplete={(s, t) => { setIsTrainingMode(false); notify(`Score: ${s}/${t}`, 'success'); }} /> : <div className="flex-1 flex flex-col items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-indigo-500 mb-4"/>Génération des exercices...</div>}
       </div>}
 
-      {/* Appel Vocal */}
+      {/* Appel Vocal Overlay */}
       {isCallActive && (
           <div className="fixed inset-0 z-[160] bg-slate-900/95 backdrop-blur-2xl flex flex-col items-center justify-between py-12 px-6 animate-fade-in overflow-hidden">
               <div className="text-center mt-12 z-20">
@@ -275,13 +276,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </div>
       </header>
       
-      {/* Messages */}
+      {/* Flux de messages - Largeur optimisée pour mobile (92%) */}
       <div id="chat-feed" className="flex-1 overflow-y-auto p-3 md:p-6 space-y-5 pt-16 pb-4 scrollbar-hide">
         {messages.map((msg) => (
             <div key={msg.id} id={`msg-${msg.id}`} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}>
                 <div className={`flex max-w-[92%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                    <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-1 mx-1.5 ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1 shadow-sm'}`}>
-                        {msg.role === 'user' ? <User className="w-3.5 h-3.5 text-indigo-600" /> : <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" />}
+                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 mx-1.5 ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1 shadow-sm'}`}>
+                        {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" />}
                     </div>
                     <div id={`msg-content-${msg.id}`} className={`px-4 py-3 rounded-[1.3rem] shadow-sm ${textSizeClass} transition-all duration-300 ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-slate-200 text-slate-800 rounded-tl-none border border-slate-50 dark:border-slate-700'}`}>
                          {msg.role === 'user' ? <p className="whitespace-pre-wrap">{msg.text}</p> : (
@@ -300,7 +301,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         ))}
         {streamingText && (
              <div className="flex justify-start animate-fade-in">
-                 <div className="flex-shrink-0 w-7 h-7 rounded-full bg-white border flex items-center justify-center mt-1 mx-1.5 p-1"><img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
+                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-1.5 p-1"><img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
                  <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-[1.3rem] rounded-tl-none border border-slate-50 shadow-sm">
                     <MarkdownRenderer content={streamingText} />
                  </div>
@@ -308,14 +309,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         )}
         {isLoading && !streamingText && (
              <div className="flex justify-start animate-fade-in">
-                 <div className="flex-shrink-0 w-7 h-7 rounded-full bg-white border flex items-center justify-center mt-1 mx-1.5 p-1"><img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
+                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-1.5 p-1"><img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
                  <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border border-slate-50 shadow-sm"><Loader2 className="w-4 h-4 animate-spin text-indigo-500"/></div>
              </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
+      {/* Zone d'Input */}
       <div id="input-area" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 p-3 sticky bottom-0">
         <div className="max-w-4xl mx-auto flex items-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 p-1.5 shadow-sm">
             <textarea
