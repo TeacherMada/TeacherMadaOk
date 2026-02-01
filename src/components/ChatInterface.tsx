@@ -263,6 +263,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
     
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
+    
     // Optimistic Update
     setMessages(prev => [...prev, userMsg]);
     storageService.saveChatHistory(user.id, [...messages, userMsg], preferences.targetLanguage);
@@ -278,10 +279,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       let finalResponseText = "";
       
       if (isCallActive) {
-          finalResponseText = await generateVoiceChatResponse(textToSend, user.id, [...messages, userMsg]);
+          // Pass 'messages' (current history BEFORE userMsg) to prevent duplication in prompt
+          finalResponseText = await generateVoiceChatResponse(textToSend, user.id, messages);
       } else {
-          // STANDARD GENERATION (No Stream)
-          finalResponseText = await sendMessageToGemini(textToSend, user.id, [...messages, userMsg]);
+          // Pass 'messages' (current history BEFORE userMsg) to prevent duplication in prompt
+          finalResponseText = await sendMessageToGemini(textToSend, user.id, messages);
       }
       
       const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: finalResponseText, timestamp: Date.now() };
@@ -293,11 +295,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       if(updated) onUpdateUser(updated);
 
     } catch (error: any) {
+      console.error(error);
       if (error.message.includes('INSUFFICIENT_CREDITS')) {
          setShowPaymentModal(true);
          notify("Crédits insuffisants.", 'error');
+      } else if (error.message.includes('API_KEY')) {
+         notify("Erreur Configuration API.", 'error');
       } else {
-         notify("Erreur de connexion.", 'error');
+         notify("Erreur de connexion. Réessayez.", 'error');
       }
     } finally { 
       setIsLoading(false); 
@@ -432,6 +437,47 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const closeCallOverlay = () => { setIsCallActive(false); setIsCallConnecting(false); setCallSummary(null); setIsMuted(false); setCallSeconds(0); setShowVoiceInput(false); };
   const toggleMute = () => setIsMuted(!isMuted);
 
+  const handleValidateSummary = async () => {
+      const num = parseInt(summaryInputVal);
+      if (isNaN(num) || num < 1) return;
+      if (!storageService.canPerformRequest(user.id).allowed) {
+        setShowPaymentModal(true);
+        return;
+      }
+      setSummaryInputVal('');
+      setIsGeneratingSummary(true); setShowSummaryResultModal(true); setShowMenu(false);
+      const context = messages.slice(-10).map(m => m.text).join('\n');
+      try {
+        const summary = await getLessonSummary(num, context, user.id);
+        setSummaryContent(summary);
+      } catch(e: any) {
+        setSummaryContent("Erreur : Crédits insuffisants ou problème technique.");
+        if(e.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true);
+      } finally {
+        setIsGeneratingSummary(false);
+      }
+  };
+
+  const handleValidateJump = () => { const num = parseInt(jumpInputVal); const regex = new RegExp(`##\\s*(?:🟢|🔴|🔵)?\\s*(?:LEÇON|LECON|LESSON|LESONA)\\s*${num}`, 'i'); const targetMsg = messages.find(m => m.role === 'model' && m.text.match(regex)); if (targetMsg) { setShowMenu(false); setJumpInputVal(''); document.getElementById(`msg-${targetMsg.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } else { notify(`⚠️ Leçon ${num} introuvable.`, 'error'); } };
+
+  const handleToggleExplanationLang = () => {
+      const newLang = preferences.explanationLanguage === ExplanationLanguage.French 
+        ? ExplanationLanguage.Malagasy 
+        : ExplanationLanguage.French;
+      
+      const updatedPrefs = { ...preferences, explanationLanguage: newLang };
+      const updatedUser = { ...user, preferences: updatedPrefs };
+      storageService.updatePreferences(user.id, updatedPrefs);
+      onUpdateUser(updatedUser);
+      notify(`Explications en : ${newLang.split(' ')[0]}`, 'success');
+  };
+
+  const handleFontSizeChange = (size: 'small' | 'normal' | 'large' | 'xl') => {
+    const updatedUser = { ...user, preferences: { ...user.preferences!, fontSize: size } };
+    onUpdateUser(updatedUser);
+    storageService.updatePreferences(user.id, updatedUser.preferences!);
+  };
+
   return (
     <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
       {showPaymentModal && <PaymentModal user={user} onClose={() => setShowPaymentModal(false)} />}
@@ -461,6 +507,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   <ExerciseSession exercises={exercises} onClose={handleQuitTraining} onComplete={handleExerciseComplete} />
               )}
           </div>
+      )}
+
+      {showSummaryResultModal && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-lg p-6 shadow-xl border border-slate-100 max-h-[80vh] flex flex-col">
+                <div className="flex justify-between items-center mb-4 pb-2 border-b">
+                    <h3 className="font-bold flex items-center gap-2 text-slate-800 dark:text-white"><BookOpen className="text-indigo-500"/> Résumé</h3>
+                    <button onClick={() => setShowSummaryResultModal(false)}><X className="text-slate-500"/></button>
+                </div>
+                <div className="flex-1 overflow-y-auto scrollbar-hide">
+                    {isGeneratingSummary ? <div className="text-center py-10"><Loader2 className="animate-spin mx-auto text-indigo-500 mb-2"/>Génération...</div> : <MarkdownRenderer content={summaryContent}/>}
+                </div>
+            </div>
+        </div>
       )}
 
       {/* Header */}

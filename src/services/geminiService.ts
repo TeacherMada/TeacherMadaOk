@@ -8,7 +8,8 @@ let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
-const PRIMARY_MODEL = 'gemini-2.0-flash'; 
+// Updated to gemini-3-flash-preview as per prompt instructions for basic text tasks
+const PRIMARY_MODEL = 'gemini-3-flash-preview'; 
 
 const FALLBACK_CHAIN = [
     'gemini-2.0-flash-lite-preview-02-05', 
@@ -48,14 +49,20 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
     }
     const apiKey = keys[currentKeyIndex];
     if (!apiKey) return null;
-    aiClient = new GoogleGenAI({ apiKey });
+    try {
+        aiClient = new GoogleGenAI({ apiKey });
+    } catch (e) {
+        console.error("Failed to initialize GoogleGenAI", e);
+        return null;
+    }
     return getActiveModelName(); 
 };
 
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
-    if (settings.activeModel === 'gemini-3-flash-preview') return PRIMARY_MODEL;
-    return settings.activeModel || PRIMARY_MODEL;
+    // Prefer PRIMARY_MODEL if settings model is not explicitly set or is old default
+    if (!settings.activeModel || settings.activeModel === 'gemini-2.0-flash') return PRIMARY_MODEL;
+    return settings.activeModel;
 };
 
 // === ROBUST JSON PARSER (ANTI-CRASH) ===
@@ -105,6 +112,7 @@ const executeWithRetry = async <T>(
         return await operation(modelName);
     } catch (error: any) {
         const msg = error.message || JSON.stringify(error);
+        
         if (msg.includes("API_KEY_MISSING")) throw new Error("Configuration API manquante.");
 
         const isQuotaError = msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted');
@@ -118,6 +126,7 @@ const executeWithRetry = async <T>(
                 return executeWithRetry(operation, userId, attempt + 1, fallbackIndex);
             } 
             if (fallbackIndex < FALLBACK_CHAIN.length - 1) {
+                // If model not found or quota exhausted on all keys, switch model
                 initializeGenAI(true); 
                 return executeWithRetry(operation, userId, 0, fallbackIndex + 1);
             }
@@ -136,10 +145,16 @@ const sanitizeHistory = (history: ChatMessage[]) => {
     // Keep more context for standard generation to ensure lessons follow up correctly
     const recentHistory = history.slice(-20); 
     const cleanHistory = [...recentHistory];
+    
+    // Ensure history starts with user message if possible, though Gemini is flexible
     while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
         cleanHistory.shift();
     }
-    return cleanHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+    
+    return cleanHistory.map(m => ({ 
+        role: m.role, 
+        parts: [{ text: m.text }] 
+    }));
 };
 
 export const startChatSession = async (
