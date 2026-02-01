@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { TargetLanguage, ExplanationLanguage, LearningMode, UserPreferences, LanguageLevel, LevelDescriptor } from '../types';
 import { LEVEL_DEFINITIONS } from '../constants';
 import { storageService } from '../services/storageService';
-import { BookOpen, Languages, GraduationCap, Sun, Moon, ArrowLeft, CheckCircle2, Info, HelpCircle, Loader2, Lightbulb } from 'lucide-react';
+import { BookOpen, Languages, GraduationCap, Sun, Moon, ArrowLeft, CheckCircle2, Info, HelpCircle, Loader2 } from 'lucide-react';
 
 interface OnboardingProps {
   onComplete: (prefs: UserPreferences) => void;
@@ -202,16 +202,6 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
                             </li>
                         ))}
                     </ul>
-                    
-                    {/* Clean Fun Fact / Tip Section */}
-                    <div className="bg-amber-50 dark:bg-amber-900/10 p-4 rounded-xl border border-amber-100 dark:border-amber-900/30">
-                        <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-xs mb-1">
-                            <Lightbulb className="w-4 h-4" /> LE SAVIEZ-VOUS ?
-                        </div>
-                        <p className="text-slate-700 dark:text-slate-300 text-sm">
-                            Une pratique régulière de 15 minutes par jour est plus efficace que 2 heures une fois par semaine.
-                        </p>
-                    </div>
                 </div>
 
                 <div className="flex flex-col gap-3">

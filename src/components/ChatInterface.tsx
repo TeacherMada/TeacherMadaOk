@@ -47,15 +47,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [showMenu, setShowMenu] = useState(false);
   const [showSmartOptions, setShowSmartOptions] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  
   const [isTranslating, setIsTranslating] = useState(false);
   const [isListening, setIsListening] = useState(false);
   
-  // Translation Map for Messages { msgId: translatedText }
-  const [translations, setTranslations] = useState<Record<string, string>>({});
-  const [loadingTranslationId, setLoadingTranslationId] = useState<string | null>(null);
-
-  // Voice Call State
   const [isCallActive, setIsCallActive] = useState(false);
   const [isCallConnecting, setIsCallConnecting] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -328,31 +322,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     } catch (e: any) { if(e.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true); } 
     finally { setIsTranslating(false); }
   };
-
-  // New: Translate a specific message content
-  const handleTranslateMessage = async (msgId: string, text: string) => {
-      // If already translated, toggle (remove)
-      if (translations[msgId]) {
-          setTranslations(prev => {
-              const next = { ...prev };
-              delete next[msgId];
-              return next;
-          });
-          return;
-      }
-
-      setLoadingTranslationId(msgId);
-      try {
-          // Translate TO the explanation language (e.g. French or Malagasy)
-          const target = preferences.explanationLanguage === ExplanationLanguage.Malagasy ? 'Malagasy' : 'Français';
-          const result = await translateText(text, target, user.id);
-          setTranslations(prev => ({ ...prev, [msgId]: result }));
-      } catch (e: any) {
-          notify("Impossible de traduire.", 'error');
-      } finally {
-          setLoadingTranslationId(null);
-      }
-  };
   
   const handleGenerateImage = async () => {
     setIsGeneratingImage(true); setShowSmartOptions(false);
@@ -369,11 +338,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     stopListening();
     if (msgId) lastSpokenMessageId.current = msgId;
     setIsPlayingAudio(true);
-    const cleanText = text.replace(/[*#_`~]/g, '');
+    
+    // Aggressive cleaning to remove markdown and special chars that might break TTS
+    const cleanText = text.replace(/[*#_`~\[\]]/g, '').replace(/<[^>]*>/g, '').trim();
+    
     try {
         const rawAudioBuffer = await generateSpeech(cleanText, user.id);
         if (rawAudioBuffer) {
             const ctx = await getAudioContext();
+            if (ctx.state === 'suspended') await ctx.resume(); // CRITICAL: Ensure audio context is running
+            
             const decoded = await ctx.decodeAudioData(rawAudioBuffer);
             const source = ctx.createBufferSource();
             source.buffer = decoded;
@@ -382,7 +356,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             source.onended = () => { setIsPlayingAudio(false); if (isCallActive) startListening(); };
             source.start(0);
         } else { setIsPlayingAudio(false); if (isCallActive) startListening(); }
-    } catch (error: any) { setIsPlayingAudio(false); if (isCallActive) startListening(); if(error.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true); }
+    } catch (error: any) { 
+        console.error("Speech Error:", error);
+        setIsPlayingAudio(false); 
+        if (isCallActive) startListening(); 
+        if(error.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true); 
+    }
   };
 
   // --- Training Mode Handlers ---
@@ -470,9 +449,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const getLanguageDisplay = () => { 
       const lang = preferences.targetLanguage; 
       const level = preferences.level.split(' ')[0]; // Extract A1, B2, etc.
-      if (lang.includes("Chinois")) return `Chinois 🇨🇳 ${level}`; 
-      const parts = lang.split(' '); 
-      return `${parts[0]} ${parts[parts.length - 1]} ${level}`; 
+      
+      let flag = "🏳️";
+      let name = lang;
+      
+      if (lang.includes("Chinois")) { flag = "🇨🇳"; name = "Chinois"; }
+      else if (lang.includes("Anglais")) { flag = "🇬🇧"; name = "Anglais"; }
+      else if (lang.includes("Français")) { flag = "🇫🇷"; name = "Français"; }
+      else if (lang.includes("Espagnol")) { flag = "🇪🇸"; name = "Espagnol"; }
+      else if (lang.includes("Allemand")) { flag = "🇩🇪"; name = "Allemand"; }
+      else {
+          // Attempt to extract if standard format "Name Flag"
+          const parts = lang.split(' ');
+          if (parts.length > 1) {
+              name = parts[0];
+              flag = parts[parts.length - 1];
+          }
+      }
+      
+      return `${name} ${flag} ${level}`; 
   };
   
   const handleEndCall = async () => { stopListening(); stopAudio(); closeCallOverlay(); };
@@ -571,16 +566,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           <button onClick={() => { stopAudio(); onChangeMode(); }} disabled={isAnalyzing} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all group disabled:opacity-50 shrink-0">
              {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin text-indigo-600" /> : <ArrowLeft className="w-5 h-5 text-slate-500 dark:text-slate-400 group-hover:text-indigo-600" />}
           </button>
+          
+          {/* Enhanced Badge Button */}
           <button onClick={() => setShowSmartOptions(!showSmartOptions)} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-800 dark:text-indigo-300 rounded-full border border-indigo-100 dark:border-indigo-900/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors max-w-full overflow-hidden">
              <Globe className="w-4 h-4 shrink-0" />
              <span className="text-xs font-bold whitespace-nowrap truncate">{getLanguageDisplay()}</span>
              <ChevronDown className={`w-3 h-3 transition-transform shrink-0 ${showSmartOptions ? 'rotate-180' : ''}`} />
           </button>
+          
           {showSmartOptions && (
               <div className="absolute top-12 left-0 md:left-10 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-2 animate-fade-in z-50">
                   <div className="space-y-1">
                       <button onClick={handleStartTraining} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors"><BrainCircuit className="w-4 h-4 text-orange-500"/><span className="text-slate-700 dark:text-slate-300">Exercice Pratique</span></button>
                       <button onClick={handleStartCall} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors"><Phone className="w-4 h-4 text-purple-500"/><span className="text-slate-700 dark:text-slate-300">Appel Vocal</span></button>
+                      {/* Traduction option explicitly added to dropdown */}
+                      <button onClick={() => { setShowSmartOptions(false); setInput('Traduis: '); textareaRef.current?.focus(); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors"><Languages className="w-4 h-4 text-blue-500"/><span className="text-slate-700 dark:text-slate-300">Traduction</span></button>
                        <button onClick={() => { setShowSmartOptions(false); onChangeMode(); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors group"><Library className="w-4 h-4 text-indigo-500"/><span className="text-slate-700 dark:text-slate-300">Autres Cours</span></button>
                   </div>
               </div>
@@ -695,6 +695,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       <div id="chat-feed" ref={chatContainerRef} className={`flex-1 overflow-y-auto p-3 md:p-4 space-y-4 md:space-y-6 pt-20 pb-4 scrollbar-hide`}>
         {messages.filter(msg => !searchQuery || msg.text.toLowerCase().includes(searchQuery.toLowerCase())).map((msg, index) => {
             const isCurrentMatch = matchingMessages[currentMatchIndex]?.id === msg.id;
+            const isLastModelMessage = index === messages.length - 1 && msg.role === 'model';
+
             return (
                 <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
                     <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -710,7 +712,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 <>
                                     <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} highlight={searchQuery} />
                                     
-                                    {/* Start Button: Only if it's the very first message sequence */}
+                                    {/* Start Button: Only if it's the VERY FIRST message in the entire history (excluding system prompt logic if stored in front, but here messages usually start with greeting) */}
                                     {index === 0 && messages.length === 1 && !isLoading && (
                                         <div className="mt-3 text-center animate-fade-in">
                                             <button 
@@ -722,34 +724,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                         </div>
                                     )}
 
-                                    {/* Action Buttons */}
+                                    {/* Action Buttons Layout - Reorganized */}
                                     <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50" data-html2canvas-ignore>
+                                        {/* Left Side: Tools */}
                                         <div className="flex items-center gap-1">
-                                            <button onClick={() => handleSpeak(msg.text, msg.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><Volume2 className="w-4 h-4 text-slate-400 hover:text-indigo-500"/></button>
-                                            <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">{copiedId === msg.id ? <Check className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4 text-slate-400"/>}</button>
-                                            <button onClick={() => handleTranslateMessage(msg.id, msg.text)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
-                                                {loadingTranslationId === msg.id ? <Loader2 className="w-4 h-4 animate-spin text-indigo-500"/> : <Languages className={`w-4 h-4 ${translations[msg.id] ? 'text-indigo-500' : 'text-slate-400'}`}/>}
-                                            </button>
-                                            <button onClick={() => handleExportImage(msg.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><ImageIcon className="w-4 h-4 text-slate-400 hover:text-purple-500"/></button>
+                                            <button onClick={() => handleSpeak(msg.text, msg.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Écouter"><Volume2 className="w-4 h-4 text-slate-400 hover:text-indigo-500"/></button>
+                                            <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Copier">{copiedId === msg.id ? <Check className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4 text-slate-400"/>}</button>
+                                            <button onClick={() => handleExportImage(msg.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Image"><ImageIcon className="w-4 h-4 text-slate-400 hover:text-purple-500"/></button>
                                         </div>
                                         
-                                        {/* Next Button - Only on the very last message */}
-                                        {index === messages.length - 1 && !isLoading && (
+                                        {/* Right Side: Next Button (Only on last AI message) */}
+                                        {isLastModelMessage && !isLoading && (
                                             <button onClick={() => handleSend("Suivant")} className="flex items-center gap-1 pl-3 pr-2 py-1 bg-slate-100 dark:bg-slate-700 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold transition-colors">
                                                 Suivant <ArrowRight className="w-3 h-3"/>
                                             </button>
                                         )}
                                     </div>
-                                    
-                                    {/* Inline Translation Display */}
-                                    {translations[msg.id] && (
-                                        <div className="mt-2 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800 text-sm text-slate-700 dark:text-slate-200 animate-fade-in-up">
-                                            <div className="flex items-center gap-2 mb-1 text-xs font-bold text-indigo-500 uppercase tracking-wider">
-                                                <Languages className="w-3 h-3"/> Traduction
-                                            </div>
-                                            {translations[msg.id]}
-                                        </div>
-                                    )}
                                 </>
                              )}
                         </div>
