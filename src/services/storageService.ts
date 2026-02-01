@@ -5,12 +5,11 @@ const CURRENT_USER_KEY = 'smart_teacher_current_user_id';
 const SETTINGS_KEY = 'smart_teacher_system_settings';
 const REQUESTS_KEY = 'smart_teacher_admin_requests';
 
-// @ts-ignore
-const ENV_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY || '';
-
+// API Key must be obtained exclusively from process.env.API_KEY per guidelines.
+// Application must not ask the user for it or manage it in settings.
 const DEFAULT_SETTINGS: SystemSettings = {
-  apiKeys: ENV_API_KEY ? [ENV_API_KEY] : [],
-  activeModel: 'gemini-2.0-flash', // Optimized for speed/cost
+  apiKeys: [], // Removed local management of keys
+  activeModel: 'gemini-3-flash-preview',
   adminContact: {
     telma: "034 93 102 68",
     airtel: "033 38 784 20",
@@ -258,9 +257,6 @@ export const storageService = {
     if (!data) return DEFAULT_SETTINGS;
     try {
         const parsed = JSON.parse(data);
-        if ((!parsed.apiKeys || parsed.apiKeys.length === 0) && ENV_API_KEY) {
-            parsed.apiKeys = [ENV_API_KEY];
-        }
         return { ...DEFAULT_SETTINGS, ...parsed };
     } catch {
         return DEFAULT_SETTINGS;

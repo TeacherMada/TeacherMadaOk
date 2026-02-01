@@ -1,179 +1,60 @@
 
-import { GoogleGenAI, Content, Modality } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, VoiceCallSummary } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
-let aiClient: GoogleGenAI | null = null;
-
-// === MODEL CONFIGURATION ===
-// Switched to 2.0 Flash for stability and speed
-const PRIMARY_MODEL = 'gemini-2.0-flash'; 
-
-const FALLBACK_CHAIN = [
-    'gemini-2.0-flash-lite-preview-02-05', 
-    'gemini-1.5-flash'
-];
-
-export interface RoleplayResponse {
-    aiReply: string;
-    correction?: string;
-    score?: number;
-    feedback?: string;
-    explanation?: string;
-}
-
-const initializeGenAI = () => {
-    // STRICT: Use Render environment variable only as requested
+// Helper to create a fresh client instance with the environment key
+const getAiClient = () => {
+    // API key must be obtained exclusively from the environment variable process.env.API_KEY
     const apiKey = process.env.API_KEY;
-    
     if (!apiKey) {
-      console.error("CRITICAL: process.env.API_KEY is missing. Please check Render Environment Variables.");
-      return null;
+        throw new Error("API_KEY_MISSING: La variable d'environnement API_KEY est absente.");
     }
-
-    try {
-        aiClient = new GoogleGenAI({ apiKey });
-    } catch (e) {
-        console.error("Failed to initialize GoogleGenAI", e);
-        return null;
-    }
-    return getActiveModelName(); 
+    // Initialization must use a named parameter
+    return new GoogleGenAI({ apiKey });
 };
 
-const getActiveModelName = () => {
-    const settings = storageService.getSystemSettings();
-    if (!settings.activeModel) return PRIMARY_MODEL;
-    return settings.activeModel;
-};
-
-// === ROBUST JSON PARSER (ANTI-CRASH) ===
-const safeJsonParse = (text: string | undefined, fallback: any) => {
-    if (!text) return fallback;
-    try {
-        return JSON.parse(text);
-    } catch (e) {
-        try {
-            // Attempt to clean markdown code blocks
-            let clean = text.replace(/```json/g, '').replace(/```/g, '');
-            const firstOpen = clean.indexOf('{');
-            const firstArray = clean.indexOf('[');
-            
-            const start = (firstOpen !== -1 && (firstArray === -1 || firstOpen < firstArray)) ? firstOpen : firstArray;
-            const lastClose = clean.lastIndexOf('}');
-            const lastArray = clean.lastIndexOf(']');
-            const end = Math.max(lastClose, lastArray);
-
-            if (start !== -1 && end !== -1 && end > start) {
-                clean = clean.substring(start, end + 1);
-                return JSON.parse(clean);
-            }
-            return fallback;
-        } catch (e2) {
-            console.error("Deep JSON Parse Error", e2);
-            return fallback;
-        }
-    }
-};
-
-const executeWithRetry = async <T>(
-    operation: (modelName: string) => Promise<T>, 
-    userId: string,
-    attempt: number = 0,
-    fallbackIndex: number = -1 
-): Promise<T> => {
-    try {
-        let modelName = getActiveModelName();
-        if (fallbackIndex >= 0 && fallbackIndex < FALLBACK_CHAIN.length) {
-            modelName = FALLBACK_CHAIN[fallbackIndex];
-        }
-        
-        if (!aiClient) initializeGenAI();
-        if (!aiClient) throw new Error("API_KEY_MISSING");
-
-        return await operation(modelName);
-    } catch (error: any) {
-        const msg = error.message || JSON.stringify(error);
-        if (msg.includes("API_KEY_MISSING")) throw new Error("Configuration API manquante (process.env.API_KEY).");
-
-        const isQuotaError = msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted');
-        const isModelError = msg.includes('404') || msg.includes('not found') || msg.includes('models/');
-
-        if (isQuotaError || isModelError) {
-            console.warn(`API Error (${isQuotaError ? 'Quota' : 'Model'}). Retrying...`);
-            
-            // Try fallback models since we only have one key
-            if (fallbackIndex < FALLBACK_CHAIN.length - 1) {
-                return executeWithRetry(operation, userId, 0, fallbackIndex + 1);
-            }
-        }
-        throw error;
-    }
-};
-
-const checkCreditsBeforeAction = (userId: string) => {
-    const status = storageService.canPerformRequest(userId);
-    if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
-    return true;
-};
+// Use recommended model names as per guidelines
+// Basic Text Tasks: 'gemini-3-flash-preview'
+const TEXT_MODEL = 'gemini-3-flash-preview';
+// gemini tts: 'gemini-2.5-flash-preview-tts'
+const TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+// gemini flash image: 'gemini-2.5-flash-image'
+const IMAGE_MODEL = 'gemini-2.5-flash-image';
 
 const sanitizeHistory = (history: ChatMessage[]) => {
-    // Keep more context for standard generation to ensure lessons follow up correctly
-    const recentHistory = history.slice(-15); 
-    const cleanHistory = [...recentHistory];
-    
-    // Ensure history starts with user message if possible, though Gemini is flexible
-    while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
-        cleanHistory.shift();
-    }
-    
-    return cleanHistory.map(m => ({ 
-        role: m.role, 
-        parts: [{ text: m.text }] 
+    return history.slice(-10).map(m => ({
+        role: m.role,
+        parts: [{ text: m.text }]
     }));
 };
 
-export const startChatSession = async (
-    profile?: UserProfile,
-    prefs?: UserPreferences,
-    history?: ChatMessage[]
-) => {
-  initializeGenAI(); 
-  return null; 
-};
-
-// === STANDARD GENERATION (NO STREAMING) ===
 export const sendMessageToGemini = async (
     message: string, 
     userId: string,
-    previousHistory: ChatMessage[]
+    history: ChatMessage[]
 ): Promise<string> => {
-    checkCreditsBeforeAction(userId);
-    
-    return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
-        const user = storageService.getUserById(userId);
-        if (!user || !user.preferences) throw new Error("User data missing");
-        
-        const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
-        const historyPayload = sanitizeHistory(previousHistory);
+    const ai = getAiClient();
+    const user = storageService.getUserById(userId);
+    if (!user || !user.preferences) throw new Error("USER_DATA_MISSING");
 
-        const chat = aiClient!.chats.create({
-            model: modelName,
-            config: {
-                systemInstruction: systemInstruction,
-                temperature: 0.7, 
-                maxOutputTokens: 2000, 
-            },
-            history: historyPayload,
-        });
+    const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
 
-        const result = await chat.sendMessage({ message });
-        const responseText = result.text || "Désolé, je n'ai pas pu générer de réponse.";
-        
-        storageService.deductCreditOrUsage(userId);
-        return responseText;
-    }, userId);
+    // Call generateContent with model name and prompt/history
+    const response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: [...sanitizeHistory(history), { role: 'user', parts: [{ text: message }] }],
+        config: {
+            systemInstruction,
+            temperature: 0.7,
+            maxOutputTokens: 2048
+        }
+    });
+
+    storageService.deductCreditOrUsage(userId);
+    // Access .text property directly (not a method)
+    return response.text || "Désolé, je n'ai pas pu générer de réponse.";
 };
 
 export const generateVoiceChatResponse = async (
@@ -181,166 +62,164 @@ export const generateVoiceChatResponse = async (
     userId: string, 
     history: ChatMessage[]
 ): Promise<string> => {
-    const status = storageService.canPerformRequest(userId);
-    if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
+    const ai = getAiClient();
+    const user = storageService.getUserById(userId);
+    if (!user || !user.preferences) throw new Error("USER_DATA_MISSING");
 
-    return executeWithRetry(async (modelName) => {
-        const user = storageService.getUserById(userId);
-        if (!user || !user.preferences) throw new Error("User data missing");
+    const systemInstruction = `
+        ACT: Friendly language tutor on a phone call. 
+        USER: ${user.username}. TARGET: ${user.preferences.targetLanguage}. LEVEL: ${user.preferences.level}.
+        RULES: Very short response (max 2 sentences). Natural flow. No markdown. Correct errors gently.
+    `;
 
-        const systemInstruction = `
-            ACT: Friendly language tutor.
-            USER: ${user.username}. TARGET: ${user.preferences.targetLanguage}.
-            RULES: Short spoken response. Natural. Max 2 sentences. No markdown.
-        `;
-        
-        // Use stricter history for voice to keep context tight
-        const historyParts = sanitizeHistory(history);
-        
-        const chat = aiClient!.chats.create({
-            model: modelName,
-            config: { systemInstruction, temperature: 0.6, maxOutputTokens: 100 },
-            history: historyParts as Content[],
-        });
-        const result = await chat.sendMessage({ message });
-        return result.text || "Je vous écoute.";
-    }, userId);
+    const response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: [...sanitizeHistory(history), { role: 'user', parts: [{ text: message }] }],
+        config: {
+            systemInstruction,
+            temperature: 0.6,
+            maxOutputTokens: 150
+        }
+    });
+
+    // Access .text property directly
+    return response.text || "Je vous écoute.";
 };
 
-export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId: string): Promise<VoiceCallSummary> => {
-    return executeWithRetry(async (modelName) => {
-        const prompt = `Analyze conversation. Return JSON: { "score": number(1-10), "feedback": "string", "tip": "string" }`;
-        const response = await aiClient!.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
-        });
-        return safeJsonParse(response.text, { score: 7, feedback: "Bonne pratique.", tip: "Continuez !" });
-    }, userId);
+export const generateSpeech = async (text: string, userId: string): Promise<ArrayBuffer | null> => {
+    const ai = getAiClient();
+    const cleanText = text.replace(/[*#_`~]/g, '').trim();
+    if (!cleanText) return null;
+
+    const response = await ai.models.generateContent({
+        model: TTS_MODEL,
+        contents: [{ parts: [{ text: cleanText }] }],
+        config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+                voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName: 'Kore' }
+                }
+            }
+        }
+    });
+
+    // Extract audio data from the response part
+    const base64Data = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+    if (!base64Data) return null;
+
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
 };
+
+// Fix: startChatSession signature updated to accept arguments from App.tsx (Line 143/144 error fix)
+export const startChatSession = async (profile: UserProfile, prefs: UserPreferences, history: ChatMessage[]) => null;
 
 export const translateText = async (text: string, targetLang: string, userId: string): Promise<string> => {
-    checkCreditsBeforeAction(userId);
-    return executeWithRetry(async (modelName) => {
-        const prompt = `Translate to ${targetLang}: "${text}"`;
-        const response = await aiClient!.models.generateContent({ model: modelName, contents: prompt });
-        storageService.deductCreditOrUsage(userId);
-        return response.text?.trim() || text;
-    }, userId);
+    const ai = getAiClient();
+    const response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: `Translate to ${targetLang}: "${text}"`,
+    });
+    storageService.deductCreditOrUsage(userId);
+    return response.text?.trim() || text;
 };
 
-export const getLessonSummary = async (lessonNumber: number, context: string, userId: string): Promise<string> => {
-    checkCreditsBeforeAction(userId);
-    return executeWithRetry(async (modelName) => {
-        const prompt = `Summarize Lesson ${lessonNumber}. Context: ${context}. Markdown format.`;
-        const response = await aiClient!.models.generateContent({ model: modelName, contents: prompt });
-        storageService.deductCreditOrUsage(userId);
-        return response.text || "Erreur résumé.";
-    }, userId);
+export const generatePracticalExercises = async (user: UserProfile, history: ChatMessage[]): Promise<ExerciseItem[]> => {
+    const ai = getAiClient();
+    const prompt = `Generate 5 interactive exercises for ${user.preferences?.targetLanguage} level ${user.preferences?.level}. Return JSON array.`;
+    const response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: prompt,
+        config: { responseMimeType: "application/json" }
+    });
+    storageService.deductCreditOrUsage(user.id);
+    try {
+        const json = JSON.parse(response.text || "[]");
+        return json.map((ex: any, i: number) => ({ ...ex, id: `ex_${Date.now()}_${i}` }));
+    } catch { return []; }
 };
 
-export const generateSpeech = async (text: string, userId: string, voiceName: string = 'Kore'): Promise<ArrayBuffer | null> => {
-    return executeWithRetry(async (modelName) => {
-        if (!text || !text.trim()) return null;
-        // Use a dedicated TTS model or fallback to 2.5
-        const ttsModel = "gemini-2.5-flash-preview-tts";
-        
-        const response = await aiClient!.models.generateContent({
-            model: ttsModel,
-            contents: [{ parts: [{ text: `Read: ${text.substring(0, 4000)}` }] }],
-            config: { responseModalities: [Modality.AUDIO], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } } },
-        });
-        const base64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!base64) return null;
-        const binaryString = atob(base64);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
-        return bytes.buffer;
-    }, userId);
+export const getLessonSummary = async (num: number, context: string, userId: string): Promise<string> => {
+    const ai = getAiClient();
+    const response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: `Summarize lesson ${num} based on: ${context}`,
+    });
+    storageService.deductCreditOrUsage(userId);
+    return response.text || "Résumé indisponible.";
 };
 
 export const generateConceptImage = async (prompt: string, userId: string): Promise<string | null> => {
-    checkCreditsBeforeAction(userId);
-    return executeWithRetry(async () => {
-        const response = await aiClient!.models.generateContent({
-            model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: prompt }] },
-            config: { imageConfig: { aspectRatio: "16:9" } } as any
-        });
-        storageService.deductCreditOrUsage(userId);
-        
-        const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-        if (part?.inlineData?.data) {
-             return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
-        }
-        return null;
-    }, userId);
+    const ai = getAiClient();
+    const response = await ai.models.generateContent({
+        model: IMAGE_MODEL,
+        contents: { parts: [{ text: prompt }] },
+        config: { imageConfig: { aspectRatio: "16:9" } } as any
+    });
+    storageService.deductCreditOrUsage(userId);
+    const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+    return part ? `data:image/png;base64,${part.inlineData.data}` : null;
+};
+
+export const analyzeUserProgress = async (history: ChatMessage[], memory: string, userId: string) => {
+    const ai = getAiClient();
+    const prompt = `Analyze progress. Update memory. Current: ${memory}. JSON: {newMemory, xpEarned}`;
+    const response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: prompt,
+        config: { responseMimeType: "application/json" }
+    });
+    try {
+        return JSON.parse(response.text || "{}");
+    } catch {
+        return { newMemory: memory, xpEarned: 10 };
+    }
+};
+
+export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId: string): Promise<VoiceCallSummary> => {
+    const ai = getAiClient();
+    const prompt = `Analyze call. JSON: {score, feedback, tip}`;
+    const response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: prompt,
+        config: { responseMimeType: "application/json" }
+    });
+    try {
+        return JSON.parse(response.text || "{}");
+    } catch {
+        return { score: 7, feedback: "Bien joué !", tip: "Continuez !" };
+    }
+};
+
+export const generateRoleplayResponse = async (history: ChatMessage[], scenario: string, user: UserProfile, closing: boolean = false, init: boolean = false) => {
+    const ai = getAiClient();
+    const prompt = closing ? `Analyze session. JSON: {aiReply, score, feedback}` : `Continue roleplay ${scenario}. JSON: {aiReply, correction, explanation}`;
+    const response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: [...sanitizeHistory(history), { role: 'user', parts: [{ text: prompt }] }],
+        config: { responseMimeType: "application/json" }
+    });
+    try {
+        return JSON.parse(response.text || "{}");
+    } catch {
+        return { aiReply: "..." };
+    }
 };
 
 export const generateDailyChallenges = async (prefs: UserPreferences): Promise<DailyChallenge[]> => {
-    return executeWithRetry(async (modelName) => {
-        const prompt = `Generate 3 daily challenges for ${prefs.targetLanguage} level ${prefs.level}. JSON Array.`;
-        const response = await aiClient!.models.generateContent({ model: modelName, contents: prompt, config: { responseMimeType: "application/json" } });
-        const json = safeJsonParse(response.text, []);
-        return json.map((item: any, i: number) => ({
-            id: `daily_${Date.now()}_${i}`,
-            description: item.description || "Pratiquer 5 min",
-            type: item.type || "message_count",
-            targetCount: item.targetCount || 5,
-            currentCount: 0,
-            xpReward: item.xpReward || 50,
-            isCompleted: false
-        }));
-    }, 'system'); 
-};
-
-export const analyzeUserProgress = async (history: ChatMessage[], currentMemory: string, userId: string): Promise<{ newMemory: string; xpEarned: number; feedback: string }> => {
-    const status = storageService.canPerformRequest(userId);
-    if (!status.allowed) return { newMemory: currentMemory, xpEarned: 10, feedback: "Bonne session (Crédits épuisés)." };
-    return executeWithRetry(async (modelName) => {
-        const prompt = `Analyze session. Update memory. JSON: {newMemory, xpEarned, feedback}`;
-        const response = await aiClient!.models.generateContent({ model: modelName, contents: prompt, config: { responseMimeType: "application/json" } });
-        storageService.deductCreditOrUsage(userId);
-        const json = safeJsonParse(response.text, {});
-        return { newMemory: json.newMemory || currentMemory, xpEarned: json.xpEarned || 15, feedback: json.feedback || "Bien joué !" };
-    }, userId);
-};
-
-export const generatePracticalExercises = async (profile: UserProfile, history: ChatMessage[]): Promise<ExerciseItem[]> => {
-  checkCreditsBeforeAction(profile.id);
-  return executeWithRetry(async (modelName) => {
-      const prompt = `Generate 5 exercises for ${profile.preferences?.targetLanguage}. JSON array.`;
-      const response = await aiClient!.models.generateContent({ model: modelName, contents: prompt, config: { responseMimeType: "application/json" } });
-      storageService.deductCreditOrUsage(profile.id);
-      const json = safeJsonParse(response.text, []);
-      return json.map((item: any, idx: number) => ({ ...item, id: `ex_${Date.now()}_${idx}` }));
-  }, profile.id);
-};
-
-export const generateRoleplayResponse = async (history: ChatMessage[], scenario: string, userProfile: UserProfile, isClosing: boolean = false, isInit: boolean = false): Promise<RoleplayResponse> => {
-    if (!isInit) {
-        const status = storageService.canPerformRequest(userProfile.id);
-        if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
-    }
-    return executeWithRetry(async (modelName) => {
-        const context = history.map(m => `${m.role}: ${m.text}`).join('\n');
-        const prompt = isInit ? `Start roleplay ${scenario}. JSON: {aiReply}` : `Roleplay ${scenario}. History: ${context}. JSON: {aiReply, correction}`;
-        const response = await aiClient!.models.generateContent({ model: modelName, contents: prompt, config: { responseMimeType: "application/json" } });
-        return safeJsonParse(response.text, { aiReply: "..." });
-    }, userProfile.id);
-};
-
-export const generateLanguageFlag = async (name: string) => { 
-    return executeWithRetry(async (modelName) => {
-        const response = await aiClient!.models.generateContent({ model: modelName, contents: `Flag emoji for ${name}. JSON {flag, code}`, config: { responseMimeType: "application/json" } });
-        return safeJsonParse(response.text, { code: name, flag: "🏳️" });
-    }, 'system');
-};
-
-export const generateLevelExample = async (targetLang: string, level: string): Promise<string> => {
-    return executeWithRetry(async (modelName) => {
-        const response = await aiClient!.models.generateContent({ model: modelName, contents: `Sentence in ${targetLang} level ${level}.` });
-        return response.text?.trim() || "";
-    }, 'system');
+    const ai = getAiClient();
+    const response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: `Generate 3 daily challenges for language learning. JSON.`,
+        config: { responseMimeType: "application/json" }
+    });
+    try {
+        const json = JSON.parse(response.text || "[]");
+        return json.map((c: any, i: number) => ({ ...c, id: `c_${Date.now()}_${i}`, currentCount: 0, isCompleted: false }));
+    } catch { return []; }
 };

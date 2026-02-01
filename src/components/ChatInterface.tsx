@@ -54,10 +54,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isCallConnecting, setIsCallConnecting] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [callSeconds, setCallSeconds] = useState(0);
-  const [loadingText, setLoadingText] = useState("TeacherMada écoute...");
   const [callSummary, setCallSummary] = useState<VoiceCallSummary | null>(null);
   const [isAnalyzingCall, setIsAnalyzingCall] = useState(false);
-  const [showVoiceInput, setShowVoiceInput] = useState(false);
   
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
@@ -76,14 +74,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [showTutorial, setShowTutorial] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null); 
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const recognitionRef = useRef<any>(null);
-  const lastSpokenMessageId = useRef<string | null>(null);
 
   const preferences = user.preferences!;
 
@@ -91,66 +88,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const currentLang = preferences.targetLanguage;
       const currentLevel = preferences.level.split(' ')[0] || 'A1';
       const nextLevel = NEXT_LEVEL_MAP[currentLevel] || 'Expert';
-      
       const courseKey = `${currentLang}-${preferences.level}`;
       const lessonsDone = user.stats.progressByLevel?.[courseKey] || 0;
       const percentage = Math.min((lessonsDone / TOTAL_LESSONS_PER_LEVEL) * 100, 100);
-      
       return { currentLevel, nextLevel, percentage, lessonsDone };
   }, [user.stats.progressByLevel, preferences.targetLanguage, preferences.level]);
-
-  const lastLessonInChat = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === 'model') {
-            const match = messages[i].text.match(/##\s*(?:🟢|🔴|🔵)?\s*(?:LEÇON|LECON|LESSON|LESONA)\s*(\d+)/i);
-            if (match) return parseInt(match[1], 10);
-        }
-    }
-    return 0;
-  }, [messages]);
-
-  const displayedLessonNumber = useMemo(() => {
-    if (lastLessonInChat > 0) return lastLessonInChat.toString();
-    return (progressData.lessonsDone + 1).toString();
-  }, [lastLessonInChat, progressData.lessonsDone]);
-
-  // Search Logic
-  const matchingMessages = useMemo(() => {
-    if (!searchQuery.trim()) return [];
-    return messages
-      .map((m, i) => ({ id: m.id, index: i, match: m.text.toLowerCase().includes(searchQuery.toLowerCase()) }))
-      .filter(m => m.match);
-  }, [messages, searchQuery]);
-
-  useEffect(() => {
-    setCurrentMatchIndex(0);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (matchingMessages.length > 0) {
-      const match = matchingMessages[currentMatchIndex];
-      const el = document.getElementById(`msg-${match.id}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }
-  }, [currentMatchIndex, matchingMessages]);
-
-  const handleNextMatch = () => {
-    if (matchingMessages.length === 0) return;
-    setCurrentMatchIndex(prev => (prev + 1) % matchingMessages.length);
-  };
-
-  const handlePrevMatch = () => {
-    if (matchingMessages.length === 0) return;
-    setCurrentMatchIndex(prev => (prev - 1 + matchingMessages.length) % matchingMessages.length);
-  };
 
   // SMART AUTO-SCROLL
   const scrollToBottom = (force = false) => { 
       if (chatContainerRef.current) {
           const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-          // Only scroll if user is already near bottom (150px tolerance) OR if forced
           const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
           if (force || isNearBottom) {
               messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
@@ -169,20 +116,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, [input]);
 
-  const getTextSizeClass = () => {
+  const textSizeClass = useMemo(() => {
       switch (fontSize) {
           case 'small': return 'text-sm';
           case 'large': return 'text-lg';
           case 'xl': return 'text-xl leading-relaxed';
           default: return 'text-base';
       }
-  };
-  const textSizeClass = getTextSizeClass();
+  }, [fontSize]);
 
-  // ROBUST AUDIO CONTEXT SINGLETON
   const getAudioContext = async () => {
       if (!audioContextRef.current) {
-          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       }
       if (audioContextRef.current.state === 'suspended') {
           await audioContextRef.current.resume();
@@ -199,11 +144,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const startListening = () => {
-    if (isMuted && isCallActive) {
-        notify("Micro désactivé.", 'info');
-        return;
-    }
-
+    if (isMuted && isCallActive) return;
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       notify("Reconnaissance vocale non supportée", 'error');
@@ -216,10 +157,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     
     recognition.onstart = () => setIsListening(true);
     recognition.onend = () => setIsListening(false);
-    recognition.onerror = (e: any) => { console.error(e); setIsListening(false); };
+    recognition.onerror = () => setIsListening(false);
     recognition.onresult = (e: any) => {
       const text = e.results[0][0].transcript;
-      if (isCallActive) { handleSend(text); } else { setInput(prev => prev + (prev ? ' ' : '') + text); }
+      if (isCallActive) {
+          handleSend(text);
+      } else {
+          setInput(prev => prev + (prev ? ' ' : '') + text);
+      }
     };
     recognitionRef.current = recognition;
     recognition.start();
@@ -232,30 +177,31 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           setShowPaymentModal(true);
           return;
       }
-      setShowSmartOptions(false);
       setIsCallActive(true);
       setIsCallConnecting(true);
       setCallSeconds(0);
-      setCallSummary(null);
-      setIsAnalyzingCall(false);
       
-      // Warm up audio context on user click
+      // Warm up audio context
       await getAudioContext();
       
       setTimeout(() => {
           setIsCallConnecting(false);
-          const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
-          const greeting = isMg 
-            ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika...`
-            : `Allô ${user.username} ! 😊 Nous allons pratiquer le ${preferences.targetLanguage}...`;
+          const greeting = `Bonjour ${user.username} ! 😊 Je vous écoute pour pratiquer le ${preferences.targetLanguage}.`;
           handleSpeak(greeting);
-      }, 1500);
+      }, 1000);
+  };
+
+  const handleEndCall = () => {
+      stopListening();
+      stopAudio();
+      setIsCallActive(false);
+      setIsCallConnecting(false);
+      setCallSeconds(0);
   };
 
   const handleSend = async (textOverride?: string) => {
     stopAudio();
     const textToSend = typeof textOverride === 'string' ? textOverride : input;
-    
     if (!textToSend.trim() || isLoading || isAnalyzing) return;
 
     if (!storageService.canPerformRequest(user.id).allowed) {
@@ -266,14 +212,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
     
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
-    
-    // Optimistic Update
     const newHistory = [...messages, userMsg];
     setMessages(newHistory);
     storageService.saveChatHistory(user.id, newHistory, preferences.targetLanguage);
     
     setInput('');
-    setGeneratedImage(null);
     setIsLoading(true);
     onMessageSent();
     
@@ -281,11 +224,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     try {
       let finalResponseText = "";
-      
       if (isCallActive) {
           finalResponseText = await generateVoiceChatResponse(textToSend, user.id, newHistory);
       } else {
-          // IMPORTANT: Pass newHistory to service to ensure context continuity
           finalResponseText = await sendMessageToGemini(textToSend, user.id, newHistory);
       }
       
@@ -300,51 +241,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     } catch (error: any) {
       console.error(error);
-      if (error.message.includes('INSUFFICIENT_CREDITS')) {
-         setShowPaymentModal(true);
-         notify("Crédits insuffisants.", 'error');
-      } else if (error.message.includes('API_KEY')) {
-         notify("Erreur Configuration API.", 'error');
-      } else {
-         notify("Erreur de connexion. Réessayez.", 'error');
-      }
+      const errMsg = error.message?.includes("API_KEY") ? "Erreur Configuration API." : "Erreur de connexion. Réessayez.";
+      notify(errMsg, 'error');
     } finally { 
       setIsLoading(false); 
     }
   };
 
-  const handleTranslateInput = async () => {
-    if (!input.trim()) return;
-    setIsTranslating(true);
-    setShowMenu(false);
-    try {
-        const translation = await translateText(input, preferences.targetLanguage, user.id);
-        setInput(translation);
-    } catch (e: any) { if(e.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true); } 
-    finally { setIsTranslating(false); }
-  };
-  
-  const handleGenerateImage = async () => {
-    setIsGeneratingImage(true); setShowSmartOptions(false);
-    try {
-        const prompt = `Digital illustration of ${preferences.targetLanguage} culture: ${input}`;
-        const base64 = await generateConceptImage(prompt, user.id);
-        if (base64) setGeneratedImage(base64);
-    } catch (e: any) { if(e.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true); } 
-    finally { setIsGeneratingImage(false); }
-  };
-
-  const handleSpeak = async (text: string, msgId?: string) => {
+  const handleSpeak = async (text: string) => {
     stopAudio();
     stopListening();
-    if (msgId) lastSpokenMessageId.current = msgId;
     setIsPlayingAudio(true);
     
-    // Clean text to avoid TTS issues
-    const cleanText = text.replace(/[*#_`~]/g, '').trim();
-    
     try {
-        const rawAudioBuffer = await generateSpeech(cleanText, user.id);
+        const rawAudioBuffer = await generateSpeech(text, user.id);
         if (rawAudioBuffer) {
             const ctx = await getAudioContext();
             const decoded = await ctx.decodeAudioData(rawAudioBuffer);
@@ -352,61 +262,19 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             source.buffer = decoded;
             source.connect(ctx.destination);
             activeSourceRef.current = source;
-            source.onended = () => { setIsPlayingAudio(false); if (isCallActive) startListening(); };
+            source.onended = () => { 
+                setIsPlayingAudio(false); 
+                if (isCallActive) startListening(); 
+            };
             source.start(0);
-        } else { setIsPlayingAudio(false); if (isCallActive) startListening(); }
-    } catch (error: any) { setIsPlayingAudio(false); if (isCallActive) startListening(); if(error.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true); }
-  };
-
-  // --- Training Mode Handlers ---
-  const handleStartTraining = async () => {
-      setShowSmartOptions(false);
-      setShowMenu(false);
-      setIsTrainingMode(true);
-      setExercises([]);
-      setExerciseError(false);
-      try {
-          if (!storageService.canPerformRequest(user.id).allowed) {
-             throw new Error('INSUFFICIENT_CREDITS');
-          }
-          setIsLoadingExercises(true);
-          const gen = await generatePracticalExercises(user, messages);
-          if (gen.length === 0) throw new Error("No exercises generated");
-          setExercises(gen);
-          
-          const updated = storageService.getUserById(user.id);
-          if(updated) onUpdateUser(updated);
-      } catch(e: any) {
-          console.error(e);
-          setExerciseError(true);
-          if(e.message === 'INSUFFICIENT_CREDITS') {
-              setShowPaymentModal(true);
-              setIsTrainingMode(false);
-          } else {
-              notify("Erreur de génération. Réessayez.", 'error');
-          }
-      } finally {
-          setIsLoadingExercises(false);
-      }
-  };
-
-  const handleQuitTraining = () => {
-      setIsTrainingMode(false);
-      setExercises([]);
-  };
-
-  const handleExerciseComplete = (score: number, total: number) => { 
-      setIsTrainingMode(false); 
-      const resultMsg: ChatMessage = { id: Date.now().toString(), role: 'model', text: `🎯 **Session d'entraînement terminée !**\n\nScore : **${score}/${total}**\n\nContinuez comme ça !`, timestamp: Date.now() }; 
-      setMessages([...messages, resultMsg]); 
-      storageService.saveChatHistory(user.id, [...messages, resultMsg], preferences.targetLanguage); 
-      onMessageSent(); 
-  };
-
-  const handleTutorialComplete = () => { 
-      setShowTutorial(false); 
-      storageService.markTutorialSeen(user.id); 
-      onUpdateUser({ ...user, hasSeenTutorial: true }); 
+        } else {
+            setIsPlayingAudio(false);
+            if (isCallActive) startListening();
+        }
+    } catch (error) {
+        setIsPlayingAudio(false);
+        if (isCallActive) startListening();
+    }
   };
 
   const stopAudio = () => { 
@@ -416,339 +284,97 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       } 
       setIsPlayingAudio(false); 
   };
-  
-  const handleCopy = async (text: string, id: string) => { try { await navigator.clipboard.writeText(text); setCopiedId(id); setTimeout(() => setCopiedId(null), 2000); } catch (err) {} };
-  
-  const handleExportPDF = (text: string) => {
-     const doc = new jsPDF();
-     doc.setFontSize(10);
-     doc.text(text.replace(/[*#]/g, ''), 10, 10);
-     doc.save(`lecon_${Date.now()}.pdf`);
-  };
-  
-  const handleExportImage = (msgId: string) => { 
-      const element = document.getElementById(`msg-content-${msgId}`);
-      if (!element) return;
-      try {
-          // @ts-ignore
-          window.html2canvas(element).then((canvas: any) => {
-              const link = document.createElement('a');
-              link.download = `teacher_mada_${msgId}.png`;
-              link.href = canvas.toDataURL();
-              link.click();
-          });
-      } catch(e) { notify("Erreur export", 'error'); }
-  };
-  
-  const getLanguageDisplay = () => { 
-      const lang = preferences.targetLanguage; 
-      const level = preferences.level.split(' ')[0]; // Extract A1, B2, etc.
-      
-      let flag = "🏳️";
-      let name = lang;
-      
-      if (lang.includes("Chinois")) { flag = "🇨🇳"; name = "Chinois"; }
-      else if (lang.includes("Anglais")) { flag = "🇬🇧"; name = "Anglais"; }
-      else if (lang.includes("Français")) { flag = "🇫🇷"; name = "Français"; }
-      else if (lang.includes("Espagnol")) { flag = "🇪🇸"; name = "Espagnol"; }
-      else if (lang.includes("Allemand")) { flag = "🇩🇪"; name = "Allemand"; }
-      else {
-          const parts = lang.split(' ');
-          if (parts.length > 1) {
-              name = parts[0];
-              flag = parts[parts.length - 1];
-          }
-      }
-      
-      return `${name} ${flag} ${level}`; 
-  };
-  
-  const handleEndCall = async () => { stopListening(); stopAudio(); closeCallOverlay(); };
-  const closeCallOverlay = () => { setIsCallActive(false); setIsCallConnecting(false); setCallSummary(null); setIsMuted(false); setCallSeconds(0); setShowVoiceInput(false); };
-  const toggleMute = () => setIsMuted(!isMuted);
 
-  const handleValidateSummary = async () => {
-      const num = parseInt(summaryInputVal);
-      if (isNaN(num) || num < 1) return;
-      if (!storageService.canPerformRequest(user.id).allowed) {
-        setShowPaymentModal(true);
-        return;
-      }
-      setSummaryInputVal('');
-      setIsGeneratingSummary(true); setShowSummaryResultModal(true); setShowMenu(false);
-      const context = messages.slice(-10).map(m => m.text).join('\n');
-      try {
-        const summary = await getLessonSummary(num, context, user.id);
-        setSummaryContent(summary);
-      } catch(e: any) {
-        setSummaryContent("Erreur : Crédits insuffisants ou problème technique.");
-        if(e.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true);
-      } finally {
-        setIsGeneratingSummary(false);
-      }
-  };
-
-  const handleValidateJump = () => { const num = parseInt(jumpInputVal); const regex = new RegExp(`##\\s*(?:🟢|🔴|🔵)?\\s*(?:LEÇON|LECON|LESSON|LESONA)\\s*${num}`, 'i'); const targetMsg = messages.find(m => m.role === 'model' && m.text.match(regex)); if (targetMsg) { setShowMenu(false); setJumpInputVal(''); document.getElementById(`msg-${targetMsg.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } else { notify(`⚠️ Leçon ${num} introuvable.`, 'error'); } };
-
-  const handleToggleExplanationLang = () => {
-      const newLang = preferences.explanationLanguage === ExplanationLanguage.French 
-        ? ExplanationLanguage.Malagasy 
-        : ExplanationLanguage.French;
-      
-      const updatedPrefs = { ...preferences, explanationLanguage: newLang };
-      const updatedUser = { ...user, preferences: updatedPrefs };
-      storageService.updatePreferences(user.id, updatedPrefs);
-      onUpdateUser(updatedUser);
-      notify(`Explications en : ${newLang.split(' ')[0]}`, 'success');
-  };
-
-  const handleFontSizeChange = (size: 'small' | 'normal' | 'large' | 'xl') => {
-    const updatedUser = { ...user, preferences: { ...user.preferences!, fontSize: size } };
-    onUpdateUser(updatedUser);
-    storageService.updatePreferences(user.id, updatedUser.preferences!);
+  const getLanguageDisplay = () => {
+    const lang = preferences.targetLanguage;
+    const level = preferences.level.split(' ')[0];
+    return `${lang} • ${level}`;
   };
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
       {showPaymentModal && <PaymentModal user={user} onClose={() => setShowPaymentModal(false)} />}
-      {showTutorial && <TutorialOverlay onComplete={handleTutorialComplete} />}
+      {showTutorial && <TutorialOverlay onComplete={() => setShowTutorial(false)} />}
       {isDialogueActive && <DialogueSession user={user} onClose={() => setIsDialogueActive(false)} onUpdateUser={onUpdateUser} notify={notify} />}
 
-      {/* Training Overlay */}
-      {isTrainingMode && (
-          <div className="fixed inset-0 z-50 bg-white dark:bg-slate-950 flex flex-col">
-              {isLoadingExercises ? (
-                  <div className="flex-1 flex flex-col items-center justify-center space-y-4">
-                      <div className="relative">
-                          <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-                          <BrainCircuit className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 text-indigo-600" />
-                      </div>
-                      <h3 className="text-xl font-bold text-slate-800 dark:text-white">Génération des exercices...</h3>
-                      <p className="text-slate-500">TeacherMada analyse vos progrès.</p>
+      {/* Voice Call Overlay */}
+      {isCallActive && (
+          <div className="fixed inset-0 z-[150] bg-slate-900/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-white animate-fade-in">
+              <div className="text-center space-y-4 mb-12">
+                  <div className="w-32 h-32 mx-auto bg-indigo-600 rounded-full flex items-center justify-center shadow-2xl animate-pulse">
+                      <Phone className="w-16 h-16 text-white" />
                   </div>
-              ) : exerciseError ? (
-                  <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-                      <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
-                      <h3 className="text-xl font-bold mb-2">Erreur de génération</h3>
-                      <button onClick={handleStartTraining} className="px-6 py-2 bg-indigo-600 text-white rounded-lg">Réessayer</button>
-                      <button onClick={handleQuitTraining} className="mt-4 text-slate-500">Annuler</button>
-                  </div>
-              ) : (
-                  <ExerciseSession exercises={exercises} onClose={handleQuitTraining} onComplete={handleExerciseComplete} />
-              )}
+                  <h2 className="text-2xl font-bold">Appel avec TeacherMada</h2>
+                  <p className="text-indigo-300">{isCallConnecting ? "Connexion..." : isPlayingAudio ? "TeacherMada parle..." : isListening ? "Je vous écoute..." : "En attente..."}</p>
+              </div>
+              
+              <div className="flex gap-8">
+                  <button onClick={handleEndCall} className="p-6 bg-red-500 rounded-full shadow-lg hover:bg-red-600 transition-all">
+                      <PhoneOff className="w-8 h-8" />
+                  </button>
+              </div>
           </div>
-      )}
-
-      {showSummaryResultModal && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-lg p-6 shadow-xl border border-slate-100 max-h-[80vh] flex flex-col">
-                <div className="flex justify-between items-center mb-4 pb-2 border-b">
-                    <h3 className="font-bold flex items-center gap-2 text-slate-800 dark:text-white"><BookOpen className="text-indigo-500"/> Résumé</h3>
-                    <button onClick={() => setShowSummaryResultModal(false)}><X className="text-slate-500"/></button>
-                </div>
-                <div className="flex-1 overflow-y-auto scrollbar-hide">
-                    {isGeneratingSummary ? <div className="text-center py-10"><Loader2 className="animate-spin mx-auto text-indigo-500 mb-2"/>Génération...</div> : <MarkdownRenderer content={summaryContent}/>}
-                </div>
-            </div>
-        </div>
       )}
 
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-40 bg-white/90 dark:bg-slate-900/95 backdrop-blur-md shadow-sm h-14 md:h-16 px-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
-        <div className="flex-1 flex items-center gap-2 relative">
-          <button onClick={() => { stopAudio(); onChangeMode(); }} disabled={isAnalyzing} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all group disabled:opacity-50 shrink-0">
-             {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin text-indigo-600" /> : <ArrowLeft className="w-5 h-5 text-slate-500 dark:text-slate-400 group-hover:text-indigo-600" />}
+        <div className="flex items-center gap-2">
+          <button onClick={onChangeMode} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all shrink-0">
+             <ArrowLeft className="w-5 h-5 text-slate-500" />
           </button>
-          <button onClick={() => setShowSmartOptions(!showSmartOptions)} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-800 dark:text-indigo-300 rounded-full border border-indigo-100 dark:border-indigo-900/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors max-w-full overflow-hidden">
-             <Globe className="w-4 h-4 shrink-0" />
-             <span className="text-xs font-bold whitespace-nowrap truncate">{getLanguageDisplay()}</span>
-             <ChevronDown className={`w-3 h-3 transition-transform shrink-0 ${showSmartOptions ? 'rotate-180' : ''}`} />
-          </button>
-          {showSmartOptions && (
-              <div className="absolute top-12 left-0 md:left-10 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-2 animate-fade-in z-50">
-                  <div className="space-y-1">
-                      <button onClick={handleStartTraining} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors"><BrainCircuit className="w-4 h-4 text-orange-500"/><span className="text-slate-700 dark:text-slate-300">Exercice Pratique</span></button>
-                      <button onClick={handleStartCall} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors"><Phone className="w-4 h-4 text-purple-500"/><span className="text-slate-700 dark:text-slate-300">Appel Vocal</span></button>
-                       <button onClick={() => { setShowSmartOptions(false); onChangeMode(); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors group"><Library className="w-4 h-4 text-indigo-500"/><span className="text-slate-700 dark:text-slate-300">Autres Cours</span></button>
-                  </div>
-              </div>
-          )}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-800 dark:text-indigo-300 rounded-full border border-indigo-100 dark:border-indigo-900/50">
+             <Globe className="w-4 h-4" />
+             <span className="text-xs font-bold whitespace-nowrap">{getLanguageDisplay()}</span>
+          </div>
         </div>
-        <div className="flex flex-col items-center w-auto shrink-0 px-2">
-             <h2 className="text-base md:text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 whitespace-nowrap">Leçon {displayedLessonNumber}</h2>
-        </div>
-        <div className="flex-1 flex items-center justify-end gap-2">
-             <button onClick={() => setShowPaymentModal(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/50`}>
-                  <Coins className={`w-3.5 h-3.5 text-amber-500 group-hover:rotate-12 transition-transform`} />
-                  <span className={`text-xs font-bold text-indigo-900 dark:text-indigo-100 hidden sm:inline`}>{user.role === 'admin' ? '∞' : user.credits}</span>
+        
+        <div className="flex items-center gap-2">
+             <button onClick={() => setShowPaymentModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/20 text-indigo-900 dark:text-indigo-100">
+                  <Coins className="w-3.5 h-3.5 text-amber-500" />
+                  <span className="text-xs font-bold">{user.role === 'admin' ? '∞' : user.credits}</span>
              </button>
-             <div className="relative">
-                 <button onClick={() => setShowMenu(!showMenu)} className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}><Menu className="w-5 h-5" /></button>
-                 
-                 {showMenu && (
-                     <div className="absolute top-12 right-0 w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-3 animate-fade-in z-50">
-                         {/* Enhanced Search */}
-                         <div className="p-2 border-b border-slate-100 dark:border-slate-800 mb-2">
-                             <div className="relative flex items-center">
-                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"/>
-                                 <input 
-                                    type="text" 
-                                    placeholder="Rechercher..." 
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full bg-slate-50 dark:bg-black/20 text-sm py-2 pl-9 pr-16 rounded-lg border-none outline-none focus:ring-1 focus:ring-indigo-500"
-                                 />
-                                 {searchQuery && matchingMessages.length > 0 && (
-                                     <div className="absolute right-1 flex items-center gap-1">
-                                         <span className="text-[10px] text-slate-400 font-bold mr-1">{currentMatchIndex + 1}/{matchingMessages.length}</span>
-                                         <button onClick={handlePrevMatch} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><ChevronUp className="w-3 h-3 text-slate-500"/></button>
-                                         <button onClick={handleNextMatch} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><ChevronDown className="w-3 h-3 text-slate-500"/></button>
-                                     </div>
-                                 )}
-                             </div>
-                         </div>
-                        
-                         {/* Quick Tools in Menu */}
-                         <div className="grid grid-cols-2 gap-2 mb-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">
-                             <button onClick={() => { setShowMenu(false); setInput('Traduis: '); textareaRef.current?.focus(); }} className="flex flex-col items-center gap-1 p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-colors">
-                                 <Languages className="w-5 h-5 text-blue-500"/>
-                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">Traduction</span>
-                             </button>
-                             <button onClick={handleStartTraining} className="flex flex-col items-center gap-1 p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-colors">
-                                 <BrainCircuit className="w-5 h-5 text-orange-500"/>
-                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">Exercice</span>
-                             </button>
-                             <button onClick={handleStartCall} className="flex flex-col items-center gap-1 p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-colors">
-                                 <Phone className="w-5 h-5 text-purple-500"/>
-                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">Appel</span>
-                             </button>
-                             <button onClick={() => { setShowMenu(false); setIsDialogueActive(true); }} className="flex flex-col items-center gap-1 p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-colors">
-                                 <MessageCircle className="w-5 h-5 text-emerald-500"/>
-                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">Dialogue</span>
-                             </button>
-                         </div>
-
-                         {/* Lesson Controls Grid */}
-                         <div className="grid grid-cols-2 gap-2 mb-2">
-                             <button onClick={() => { setShowSummaryResultModal(false); setShowMenu(true); }} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
-                                 <div className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm group-hover:scale-110 transition-transform">
-                                    <BookOpen className="w-5 h-5 text-indigo-500"/>
-                                 </div>
-                                 <div className="w-full">
-                                    <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Résumé</span>
-                                    <div className="flex items-center justify-center gap-1 mt-1">
-                                        <input type="number" placeholder="#" value={summaryInputVal} onChange={e => setSummaryInputVal(e.target.value)} onClick={e => e.stopPropagation()} className="w-8 text-center bg-transparent border-b border-slate-300 dark:border-slate-600 text-xs focus:border-indigo-500 outline-none"/>
-                                        <div onClick={(e) => { e.stopPropagation(); handleValidateSummary(); }} className="text-[10px] font-black text-indigo-600 cursor-pointer">GO</div>
-                                    </div>
-                                 </div>
-                             </button>
-
-                             <button className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
-                                 <div className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm group-hover:scale-110 transition-transform">
-                                    <RotateCcw className="w-5 h-5 text-emerald-500"/>
-                                 </div>
-                                 <div className="w-full">
-                                    <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Aller à</span>
-                                    <div className="flex items-center justify-center gap-1 mt-1">
-                                        <input type="number" placeholder="#" value={jumpInputVal} onChange={e => setJumpInputVal(e.target.value)} onClick={e => e.stopPropagation()} className="w-8 text-center bg-transparent border-b border-slate-300 dark:border-slate-600 text-xs focus:border-emerald-500 outline-none"/>
-                                        <div onClick={(e) => { e.stopPropagation(); handleValidateJump(); }} className="text-[10px] font-black text-emerald-600 cursor-pointer">GO</div>
-                                    </div>
-                                 </div>
-                             </button>
-                         </div>
-
-                         <div className="grid grid-cols-2 gap-2 mb-2 border-t border-slate-100 dark:border-slate-800 pt-2">
-                             <button onClick={toggleTheme} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-center gap-2 transition-colors">
-                                 {isDarkMode ? <Sun className="w-4 h-4 text-amber-500"/> : <Moon className="w-4 h-4 text-indigo-500"/>}
-                                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Thème</span>
-                             </button>
-                             <button onClick={handleToggleExplanationLang} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-center gap-2 transition-colors">
-                                 <Languages className="w-4 h-4 text-purple-500"/>
-                                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{preferences.explanationLanguage.split(' ')[0]}</span>
-                             </button>
-                         </div>
-                     </div>
-                 )}
-             </div>
-             
-             <button onClick={onShowProfile} className="relative w-9 h-9 ml-1 group shrink-0">
-                <div className="relative w-full h-full rounded-full bg-slate-900 text-white font-bold flex items-center justify-center border-2 border-white dark:border-slate-800 z-10 overflow-hidden">
-                    <span className="z-10">{user.username.substring(0, 2).toUpperCase()}</span>
-                </div>
+             <button onClick={onShowProfile} className="w-9 h-9 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center border-2 border-white dark:border-slate-800 shadow-sm">
+                {user.username.substring(0, 1).toUpperCase()}
              </button>
         </div>
       </header>
       
       {/* Chat Area */}
-      <div id="chat-feed" ref={chatContainerRef} className={`flex-1 overflow-y-auto p-3 md:p-4 space-y-4 md:space-y-6 pt-20 pb-4 scrollbar-hide`}>
-        {messages.filter(msg => !searchQuery || msg.text.toLowerCase().includes(searchQuery.toLowerCase())).map((msg, index) => {
-            const isCurrentMatch = matchingMessages[currentMatchIndex]?.id === msg.id;
-            const isLastModelMessage = index === messages.length - 1 && msg.role === 'model';
+      <div id="chat-feed" ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 md:p-4 space-y-6 pt-20 pb-4 scrollbar-hide">
+        {messages.map((msg, index) => (
+            <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}>
+                
+                {/* Badge AI */}
+                {msg.role === 'model' && (
+                    <div className="ml-12 mb-1">
+                        <span className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-full border border-indigo-100 dark:border-indigo-900/50 uppercase tracking-widest">
+                            {preferences.targetLanguage.split(' ')[0]} • {preferences.level.split(' ')[0]}
+                        </span>
+                    </div>
+                )}
 
-            return (
-                <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in flex-col`}>
-                    
-                    {/* Badge for AI Messages */}
-                    {msg.role === 'model' && (
-                        <div className="self-start ml-12 mb-1 flex items-center gap-2">
-                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
-                                {preferences.targetLanguage.split(' ')[0]} • {preferences.level.split(' ')[0]}
-                            </span>
-                        </div>
-                    )}
-
-                    <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse self-end' : 'flex-row self-start'}`}>
-                        {msg.role === 'user' ? (
-                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs shadow-sm mt-1 mx-2 border border-white dark:border-slate-800">{user.username.charAt(0).toUpperCase()}</div>
-                        ) : (
-                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1 overflow-hidden">
-                                <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                            </div>
-                        )}
-                        <div id={`msg-content-${msg.id}`} className={`px-4 py-3 rounded-2xl shadow-sm ${textSizeClass} transition-all duration-300 ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-slate-200 text-slate-800 rounded-tl-none border border-slate-100 dark:border-slate-700'} ${isCurrentMatch ? 'ring-4 ring-yellow-400/50' : ''}`}>
-                             {msg.role === 'user' ? <p className="whitespace-pre-wrap">{msg.text}</p> : (
-                                <>
-                                    <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} highlight={searchQuery} />
-                                    
-                                    {/* Start Button: Only if it's the VERY FIRST message in the entire history */}
-                                    {index === 0 && messages.length === 1 && !isLoading && (
-                                        <div className="mt-3 text-center animate-fade-in">
-                                            <button 
-                                                onClick={() => handleSend("Commence le cours")}
-                                                className="px-6 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all text-sm"
-                                            >
-                                                Commencer la leçon
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    {/* Action Buttons Layout - Reorganized */}
-                                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50" data-html2canvas-ignore>
-                                        {/* Left Side: Tools */}
-                                        <div className="flex items-center gap-1">
-                                            <button onClick={() => handleSpeak(msg.text, msg.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Écouter"><Volume2 className="w-4 h-4 text-slate-400 hover:text-indigo-500"/></button>
-                                            <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Copier">{copiedId === msg.id ? <Check className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4 text-slate-400"/>}</button>
-                                            <button onClick={() => handleExportImage(msg.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Image"><ImageIcon className="w-4 h-4 text-slate-400 hover:text-purple-500"/></button>
-                                        </div>
-                                        
-                                        {/* Right Side: Next Button (Only on last AI message) */}
-                                        {isLastModelMessage && !isLoading && (
-                                            <button onClick={() => handleSend("Suivant")} className="flex items-center gap-1 pl-3 pr-2 py-1 bg-slate-100 dark:bg-slate-700 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold transition-colors">
-                                                Suivant <ArrowRight className="w-3 h-3"/>
-                                            </button>
-                                        )}
-                                    </div>
-                                </>
-                             )}
-                        </div>
+                <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 mx-2 ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1'}`}>
+                        {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" />}
+                    </div>
+                    <div id={`msg-content-${msg.id}`} className={`px-4 py-3 rounded-2xl shadow-sm ${textSizeClass} transition-all duration-300 ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-slate-200 text-slate-800 rounded-tl-none border border-slate-100 dark:border-slate-700'}`}>
+                         {msg.role === 'user' ? <p className="whitespace-pre-wrap">{msg.text}</p> : (
+                            <>
+                                <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} />
+                                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
+                                    <button onClick={() => handleSpeak(msg.text)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><Volume2 className="w-4 h-4 text-slate-400"/></button>
+                                    <button onClick={() => navigator.clipboard.writeText(msg.text)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><Copy className="w-4 h-4 text-slate-400"/></button>
+                                </div>
+                            </>
+                         )}
                     </div>
                 </div>
-            );
-        })}
-        {(isLoading || isAnalyzing) && (
+            </div>
+        ))}
+        {isLoading && (
              <div className="flex justify-start animate-fade-in">
                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1"><img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
-                 <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border shadow-sm flex items-center gap-2 min-w-[120px]"><TypingIndicator /></div>
+                 <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border shadow-sm flex items-center gap-2"><TypingIndicator /></div>
              </div>
         )}
         <div ref={messagesEndRef} />
@@ -756,40 +382,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       {/* Input Area */}
       <div id="input-area" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 p-3 md:p-4 sticky bottom-0">
-        
-        {/* Progress Bar A1 -> A2 */}
-        <div className="max-w-4xl mx-auto mb-3 px-2">
-            <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 px-1 uppercase tracking-wide">
-                <span className="text-indigo-500 dark:text-indigo-400">{progressData.currentLevel}</span>
-                <span className="text-slate-300 dark:text-slate-600">{Math.round(progressData.percentage)}%</span>
-                <span>{progressData.nextLevel}</span>
-            </div>
-            <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative shadow-inner">
-                <div 
-                    className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 animate-gradient-x absolute top-0 left-0 transition-all duration-1000 ease-out"
-                    style={{ width: `${progressData.percentage}%` }}
-                ></div>
-            </div>
-        </div>
-
-        <div className="max-w-4xl mx-auto relative flex items-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-[26px] border border-slate-200 dark:border-slate-700 p-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/50">
+        <div className="max-w-4xl mx-auto flex items-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-[26px] border border-slate-200 dark:border-slate-700 p-2 shadow-sm">
             <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={"Message..."}
-                disabled={isLoading || isAnalyzing}
+                placeholder="Message..."
+                disabled={isLoading}
                 rows={1}
-                className="w-full bg-transparent text-slate-800 dark:text-white rounded-xl pl-4 py-3 text-base focus:outline-none resize-none max-h-32 scrollbar-hide self-center disabled:opacity-50"
+                className="w-full bg-transparent text-slate-800 dark:text-white rounded-xl pl-4 py-3 text-base focus:outline-none resize-none max-h-32 scrollbar-hide self-center"
             />
             <div className="flex items-center gap-1 pb-1 pr-1">
-                 {/* Voice Call Icon - Prominent */}
-                 <button onClick={handleStartCall} disabled={isLoading} className="p-2 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 border border-purple-100 dark:border-purple-900/50 shadow-sm" title="Appel Vocal">
-                     <Phone className="w-5 h-5"/>
-                 </button>
-
-                 <button onClick={toggleListening} className={`p-2 rounded-full ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-200'}`}><Mic className="w-5 h-5" /></button>
-                 <button onClick={() => handleSend()} disabled={!input.trim() || isLoading || isAnalyzing} className={`p-2.5 rounded-full text-white transition-all shadow-md transform hover:scale-105 active:scale-95 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700`}><Send className="w-4 h-4" /></button>
+                 <button onClick={handleStartCall} className="p-2 rounded-full text-purple-500 hover:bg-purple-100 dark:hover:bg-purple-900/30" title="Appel Vocal"><Phone className="w-5 h-5"/></button>
+                 <button onClick={toggleListening} className={`p-2 rounded-full ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-indigo-600'}`}><Mic className="w-5 h-5" /></button>
+                 <button onClick={() => handleSend()} disabled={!input.trim() || isLoading} className="p-2.5 rounded-full bg-indigo-600 text-white shadow-md hover:bg-indigo-700 disabled:opacity-50"><Send className="w-4 h-4" /></button>
             </div>
         </div>
       </div>

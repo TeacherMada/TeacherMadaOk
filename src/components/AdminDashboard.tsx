@@ -18,7 +18,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
   const [requests, setRequests] = useState<AdminRequest[]>([]);
   const [search, setSearch] = useState('');
   const [settings, setSettings] = useState<SystemSettings>(storageService.getSystemSettings());
-  const [newApiKey, setNewApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   
   // Custom Language State (MANUAL ADDITION)
@@ -100,17 +99,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
       notify("Paramètres système sauvegardés et synchronisés.", 'success');
   };
 
-  const addApiKey = () => {
-      if (newApiKey.trim()) {
-          setSettings(prev => ({ ...prev, apiKeys: [...prev.apiKeys, newApiKey.trim()] }));
-          setNewApiKey('');
-      }
-  };
-
-  const removeApiKey = (key: string) => {
-      setSettings(prev => ({ ...prev, apiKeys: prev.apiKeys.filter(k => k !== key) }));
-  };
-
   const handleAddLanguage = async () => {
       if (!newLangName.trim() || !newLangFlag.trim()) {
           notify("Nom et Drapeau requis.", 'error');
@@ -118,8 +106,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
       }
       
       try {
-          // Construct Manual Language Object
-          // Code generation: simple slug from name (e.g. "Italien" -> "Italien 🇮🇹")
           const code = `${newLangName} ${newLangFlag}`;
           const newLang = { code: code, baseName: newLangName, flag: newLangFlag };
           
@@ -464,30 +450,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
         {/* SETTINGS TAB */}
         {activeTab === 'settings' && (
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 md:p-6 space-y-8">
-                <div>
-                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><Key className="w-5 h-5 text-indigo-500" /> Gestion API Keys (Gemini)</h3>
-                    <div className="space-y-2 mb-4">
-                        {settings.apiKeys.map((key, idx) => (
-                            <div key={idx} className="flex flex-col md:flex-row md:items-center justify-between bg-slate-50 dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 gap-2">
-                                <span className="font-mono text-xs md:text-sm text-slate-600 dark:text-slate-300 break-all">
-                                    {key.substring(0, 12)}...{key.substring(key.length - 8)}
-                                </span>
-                                <button onClick={() => removeApiKey(key)} className="text-red-500 hover:text-red-700 font-bold text-xs uppercase self-end md:self-auto">Supprimer</button>
-                            </div>
-                        ))}
-                    </div>
-                    <div className="flex flex-col md:flex-row gap-2">
-                        <input 
-                            type="text" 
-                            value={newApiKey}
-                            onChange={(e) => setNewApiKey(e.target.value)}
-                            placeholder="Coller nouvelle API Key ici"
-                            className="flex-1 p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
-                        />
-                        <button onClick={addApiKey} className="bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-lg font-bold">Ajouter</button>
-                    </div>
-                </div>
-
+                {/* Note: API Key management UI removed for GenAI SDK compliance */}
                 <div className="border-t border-slate-100 dark:border-slate-800 pt-6">
                     <h3 className="text-lg font-bold mb-4">Contacts Mobile Money (Affichage User)</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
