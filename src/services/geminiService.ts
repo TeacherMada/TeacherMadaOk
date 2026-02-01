@@ -12,7 +12,6 @@ let currentKeyIndex = 0;
 const PRIMARY_MODEL = 'gemini-3-flash-preview'; 
 
 // Fallback Chain: Used when Primary Model quotas are exhausted across ALL keys.
-// Updated to robust models to prevent 404 errors.
 const FALLBACK_CHAIN = [
     'gemini-2.0-flash-lite-preview-02-05', 
     'gemini-flash-latest'               
@@ -52,32 +51,33 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
     const apiKey = keys[currentKeyIndex];
     aiClient = new GoogleGenAI({ apiKey });
     
-    return getActiveModelName(); // Returns currently active model based on settings/fallback
+    return getActiveModelName(); 
 };
 
 // Determines the starting model. Defaults to PRIMARY_MODEL unless overridden by Admin settings.
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
-    // FORCE FIX: If stored model is the old 'gemini-2.0-flash' which causes 404, override it.
-    if (settings.activeModel === 'gemini-2.0-flash' || settings.activeModel === 'gemini-1.5-flash') {
-        return PRIMARY_MODEL;
+    const stored = settings.activeModel;
+    
+    // Strict Mode: Only allow known working models to prevent 404s from stale settings
+    const SAFE_MODELS = [PRIMARY_MODEL, ...FALLBACK_CHAIN, 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    
+    if (stored && SAFE_MODELS.some(m => m === stored || stored.startsWith('gemini-'))) {
+        // Filter out known deprecated models explicitly
+        if (stored === 'gemini-2.0-flash' || stored === 'gemini-1.5-flash') return PRIMARY_MODEL;
+        return stored;
     }
-    return settings.activeModel || PRIMARY_MODEL;
+    return PRIMARY_MODEL;
 };
 
 // === CORE FALLBACK LOGIC ===
-// 1. Try Current Model with Current Key.
-// 2. If Quota Error (429): Rotate through ALL available keys for Current Model.
-// 3. If ALL keys fail for Current Model: Switch to Next Model in Fallback Chain.
-// 4. Repeat until success or total exhaustion.
 const executeWithRetry = async <T>(
     operation: (modelName: string) => Promise<T>, 
     userId: string,
     attempt: number = 0,
-    fallbackIndex: number = -1 // -1 means trying Primary Model
+    fallbackIndex: number = -1 
 ): Promise<T> => {
     try {
-        // Determine which model to use
         let modelName = getActiveModelName();
         if (fallbackIndex >= 0 && fallbackIndex < FALLBACK_CHAIN.length) {
             modelName = FALLBACK_CHAIN[fallbackIndex];
@@ -94,34 +94,24 @@ const executeWithRetry = async <T>(
             const errorType = isQuotaError ? 'Quota' : 'ModelNot Found';
             console.warn(`${errorType} error on ${fallbackIndex === -1 ? 'Primary' : 'Fallback ' + fallbackIndex}. KeyIdx: ${currentKeyIndex}. Retrying...`);
 
-            // Strategy A: Rotate Key (Prioritize this for Quota errors)
-            // We retry as many times as we have keys.
             if (isQuotaError && attempt < keys.length) {
-                initializeGenAI(true); // Rotate to next key
+                initializeGenAI(true); 
                 return executeWithRetry(operation, userId, attempt + 1, fallbackIndex);
             } 
             
-            // Strategy B: Switch Model (If Key rotation exhausted OR Model Not Found)
-            // If we are at the end of the chain, we fail.
             if (fallbackIndex < FALLBACK_CHAIN.length - 1) {
                 const nextFallbackIndex = fallbackIndex + 1;
                 console.warn(`>> Switching to fallback model: ${FALLBACK_CHAIN[nextFallbackIndex]}`);
-                
-                // Reset key strategy slightly (optional, but good to start fresh)
                 initializeGenAI(true); 
-                
-                // Reset attempt counter for the new model
                 return executeWithRetry(operation, userId, 0, nextFallbackIndex);
             }
         }
         
-        // If we ran out of models and keys, throw the error
-        console.error("All models and keys exhausted.");
+        console.error("All models and keys exhausted.", error);
         throw error;
     }
 };
 
-// Check credits wrapper
 const checkCreditsBeforeAction = (userId: string) => {
     const status = storageService.canPerformRequest(userId);
     if (!status.allowed) {
@@ -130,26 +120,34 @@ const checkCreditsBeforeAction = (userId: string) => {
     return true;
 };
 
-export const startChatSession = async (
-  profile: UserProfile, 
-  prefs: UserPreferences,
-  history: ChatMessage[] = []
-) => {
-  // Initialize standard client first
-  initializeGenAI(); 
-  if (!aiClient) throw new Error("AI Client not initialized");
-  return null; 
-};
-
-// === HELPER: Sanitize History for Gemini ===
-// Removes initial messages until a 'user' message is found.
-// This fixes "History must start with a user turn" error when history starts with a Model greeting.
 const sanitizeHistory = (history: ChatMessage[]) => {
     const cleanHistory = [...history];
     while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
         cleanHistory.shift();
     }
     return cleanHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+};
+
+// Helper for JSON parsing from AI
+const safeJsonParse = (text: string | undefined, fallback: any) => {
+    if (!text) return fallback;
+    try {
+        const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(clean);
+    } catch (e) {
+        console.error("JSON Parse Error", e);
+        return fallback;
+    }
+};
+
+export const startChatSession = async (
+  profile: UserProfile, 
+  prefs: UserPreferences,
+  history: ChatMessage[] = []
+) => {
+  initializeGenAI(); 
+  if (!aiClient) throw new Error("AI Client not initialized");
+  return null; 
 };
 
 export const sendMessageToGeminiStream = async (
@@ -165,8 +163,6 @@ export const sendMessageToGeminiStream = async (
         if (!user || !user.preferences) throw new Error("User data missing");
         
         const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
-        
-        // Use Sanitized History
         const historyPayload = sanitizeHistory(previousHistory);
 
         const chat = aiClient!.chats.create({
@@ -205,8 +201,6 @@ export const generateVoiceChatResponse = async (
     userId: string, 
     history: ChatMessage[]
 ): Promise<string> => {
-    // Note: Voice credits are time-based, checked in the component.
-    // However, we still check generic access here.
     const status = storageService.canPerformRequest(userId);
     if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
 
@@ -217,7 +211,6 @@ export const generateVoiceChatResponse = async (
         const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
-        // Specialized Prompt for Voice Calls - Optimized for speed and natural flow
         const systemInstruction = `
             ACT: Friendly language tutor on a phone call.
             USER: ${user.username}. LEVEL: ${user.preferences.level}. TARGET: ${user.preferences.targetLanguage}.
@@ -229,16 +222,15 @@ export const generateVoiceChatResponse = async (
             4. Speak naturally.
         `;
 
-        // Use Sanitized History (Last 6 messages)
         const recentHistory = history.slice(-6);
         const historyParts = sanitizeHistory(recentHistory);
 
-        const chat = aiClient.chats.create({
+        const chat = aiClient!.chats.create({
             model: modelName,
             config: {
                 systemInstruction: systemInstruction,
-                temperature: 0.6, // Lower temp for faster, more focused results
-                maxOutputTokens: 150, // Limit output size for speed
+                temperature: 0.6, 
+                maxOutputTokens: 150, 
             },
             history: historyParts as Content[],
         });
@@ -259,7 +251,6 @@ export const analyzeVoiceCallPerformance = async (
         const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
-        // Get only the user audio parts from recent history
         const conversation = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
 
         const prompt = `
@@ -284,12 +275,11 @@ export const analyzeVoiceCallPerformance = async (
             config: { responseMimeType: "application/json" }
         });
 
-        const json = JSON.parse(response.text || "{}");
-        return {
-            score: json.score || 7,
-            feedback: json.feedback || "Bonne pratique !",
-            tip: json.tip || "Continuez à pratiquer régulièrement."
-        };
+        return safeJsonParse(response.text, {
+            score: 7,
+            feedback: "Bonne pratique ! Continuez à parler.",
+            tip: "Essayez d'utiliser plus de vocabulaire varié."
+        });
     }, userId);
 };
 
@@ -315,10 +305,9 @@ export const getLessonSummary = async (lessonNumber: number, context: string, us
 
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
-        if (!aiClient) throw new Error("AI Client not initialized");
-
+        
         const prompt = `Génère un résumé concis pour la LEÇON ${lessonNumber}. Contexte: ${context}. Format Markdown strict.`;
-        const response = await aiClient.models.generateContent({
+        const response = await aiClient!.models.generateContent({
             model: modelName,
             contents: prompt,
         });
@@ -333,15 +322,13 @@ export const generateSpeech = async (text: string, userId: string, voiceName: st
     
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI(); 
-        if (!aiClient) throw new Error("AI Client not initialized");
 
         if (!text || !text.trim()) return null;
         const safeText = text.substring(0, 4000);
 
-        // Prioritize TTS model
         const ttsModel = "gemini-2.5-flash-preview-tts";
 
-        const response = await aiClient.models.generateContent({
+        const response = await aiClient!.models.generateContent({
             model: ttsModel,
             contents: [{ parts: [{ text: `Read: ${safeText}` }] }],
             config: {
@@ -370,8 +357,6 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
 
     return executeWithRetry(async () => {
         if (!aiClient) initializeGenAI();
-        if (!aiClient) throw new Error("AI Client not initialized");
-
         const imageModel = 'gemini-2.5-flash-image';
         
         // CORRECTION: Utilisation d'un objet 'any' pour contourner la vérification de type stricte de TS
@@ -381,7 +366,7 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
             }
         };
 
-        const response = await aiClient.models.generateContent({
+        const response = await aiClient!.models.generateContent({
             model: imageModel,
             contents: {
                 parts: [{ text: prompt }]
@@ -414,7 +399,8 @@ export const generateDailyChallenges = async (prefs: UserPreferences): Promise<D
             contents: prompt,
             config: { responseMimeType: "application/json" }
         });
-        const json = JSON.parse(response.text || "[]");
+        
+        const json = safeJsonParse(response.text, []);
         return json.map((item: any, index: number) => ({
             id: `daily_${Date.now()}_${index}`,
             description: item.description,
@@ -449,7 +435,7 @@ export const analyzeUserProgress = async (
         });
 
         storageService.deductCreditOrUsage(userId);
-        const json = JSON.parse(response.text || "{}");
+        const json = safeJsonParse(response.text, {});
         return {
             newMemory: json.newMemory || currentMemory,
             xpEarned: json.xpEarned || 15,
@@ -466,8 +452,6 @@ export const generatePracticalExercises = async (
   
   return executeWithRetry(async (modelName) => {
       if (!aiClient) initializeGenAI();
-      if (!aiClient) throw new Error("AI Client not initialized");
-
       const recentTopics = history.slice(-5).map(m => m.text).join(" ");
       
       const prompt = `
@@ -486,7 +470,7 @@ export const generatePracticalExercises = async (
         }]
       `;
 
-      const response = await aiClient.models.generateContent({
+      const response = await aiClient!.models.generateContent({
         model: modelName,
         contents: prompt,
         config: { 
@@ -497,22 +481,17 @@ export const generatePracticalExercises = async (
 
       storageService.deductCreditOrUsage(profile.id);
       
-      let jsonStr = response.text || "[]";
-      jsonStr = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
-      
-      const json = JSON.parse(jsonStr);
+      const json = safeJsonParse(response.text, []);
       return json.map((item: any, idx: number) => ({ ...item, id: `ex_${Date.now()}_${idx}` }));
   }, profile.id);
 };
 
-// --- Roleplay Logic ---
-
 export interface RoleplayResponse {
     aiReply: string;
-    correction?: string;
+    correction?: string | null;
+    explanation?: string | null;
     score?: number;
     feedback?: string;
-    explanation?: string;
 }
 
 export const generateRoleplayResponse = async (
@@ -529,8 +508,6 @@ export const generateRoleplayResponse = async (
 
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
-        if (!aiClient) throw new Error("AI Client not initialized");
-
         const context = history.map(m => `${m.role === 'user' ? 'Student' : 'Partner'}: ${m.text}`).join('\n');
         
         let prompt = `
@@ -588,7 +565,7 @@ export const generateRoleplayResponse = async (
             `;
         }
 
-        const response = await aiClient.models.generateContent({
+        const response = await aiClient!.models.generateContent({
             model: modelName,
             contents: prompt,
             config: { 
@@ -597,7 +574,7 @@ export const generateRoleplayResponse = async (
             }
         });
 
-        return JSON.parse(response.text || "{}") as RoleplayResponse;
+        return safeJsonParse(response.text, {});
     }, userProfile.id);
 };
 
@@ -609,7 +586,7 @@ export const generateLanguageFlag = async (name: string) => {
             contents: `Return flag emoji and ISO code for language "${name}". JSON: { "code": "string", "flag": "string" }`,
             config: { responseMimeType: "application/json" }
         });
-        return JSON.parse(response.text || `{"code": "${name}", "flag": "🏳️"}`);
+        return safeJsonParse(response.text, { code: name, flag: "🏳️" });
     }, 'system');
 };
 
@@ -633,13 +610,10 @@ export const generateVocabularyFromHistory = async (userId: string, history: Cha
 
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
-        if (!aiClient) throw new Error("AI not init");
-
         const user = storageService.getUserById(userId);
         const targetLang = user?.preferences?.targetLanguage || "Target Language";
         const explanationLang = user?.preferences?.explanationLanguage || "Français";
 
-        // Filter last 20 messages to keep context relevant
         const recentHistory = history.slice(-20).map(m => m.text).join("\n");
 
         const prompt = `
@@ -656,7 +630,7 @@ export const generateVocabularyFromHistory = async (userId: string, history: Cha
             ]
         `;
 
-        const response = await aiClient.models.generateContent({
+        const response = await aiClient!.models.generateContent({
             model: modelName,
             contents: prompt,
             config: { responseMimeType: "application/json" }
@@ -664,7 +638,7 @@ export const generateVocabularyFromHistory = async (userId: string, history: Cha
 
         storageService.deductCreditOrUsage(userId);
 
-        const json = JSON.parse(response.text || "[]");
+        const json = safeJsonParse(response.text, []);
         return json.map((item: any, index: number) => ({
             id: `auto_${Date.now()}_${index}`,
             word: item.word,
