@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useMemo } from 'react';
 import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target } from 'lucide-react';
 import LiveChatDemo from './LiveChatDemo';
@@ -39,8 +40,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
       
       const formattedStatic = staticLangs.map(l => ({
           code: l,
-          baseName: l.split(' ')[0],
-          flag: l.split(' ')[1] || '🏳️'
+          // Fix: cast to string to use split()
+          baseName: (l as string).split(' ')[0],
+          flag: (l as string).split(' ')[1] || '🏳️'
       }));
 
       // Merge and take top 5

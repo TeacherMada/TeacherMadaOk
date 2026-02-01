@@ -21,6 +21,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   // Fetch Admin languages on mount
   useEffect(() => {
       const loadSettings = async () => {
+          // Fix: fetchSystemSettings is now available
           await storageService.fetchSystemSettings(); 
           const settings = storageService.getSystemSettings();
           setCustomLangs(settings.customLanguages || []);
@@ -34,8 +35,8 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
       const staticLangs = Object.values(TargetLanguage);
       const formattedStatic = staticLangs.map(l => ({
           code: l,
-          baseName: l.split(' ')[0],
-          flag: l.split(' ')[1] || '🏳️'
+          baseName: (l as string).split(' ')[0],
+          flag: (l as string).split(' ')[1] || '🏳️'
       }));
       return [...formattedStatic, ...customLangs];
   }, [customLangs]);
@@ -233,7 +234,6 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
                   onClick={() => handleExplanationSelect(lang)}
                   className="p-6 border dark:border-slate-700 rounded-2xl hover:border-indigo-500 dark:hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-all flex flex-col items-center justify-center text-center group"
                 >
-                  {/* Cast to string to fix split errors on unknown */}
                   <span className="text-4xl mb-4 group-hover:scale-110 transition-transform">{(lang as string).split(' ').pop()}</span>
                   <span className="font-bold text-slate-700 dark:text-slate-200">{(lang as string).split(' ')[0]}</span>
                 </button>

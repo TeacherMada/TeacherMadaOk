@@ -1,7 +1,12 @@
+
+export type UserRole = 'user' | 'admin';
+export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
+
+// Enums for language learning
 export enum TargetLanguage {
   English = 'Anglais 🇬🇧',
   French = 'Français 🇫🇷',
-  Chinese = 'Chinois 🇨🇳',
+  Chinese = 'Chinois (Mandarin) 🇨🇳',
   Spanish = 'Espagnol 🇪🇸',
   German = 'Allemand 🇩🇪'
 }
@@ -18,22 +23,22 @@ export enum LearningMode {
   Pronunciation = '🎧 Prononciation / Audio'
 }
 
-export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
-
-/**
- * Fix for Onboarding.tsx: Added missing LanguageLevel type.
- */
 export type LanguageLevel = string;
 
-/**
- * Fix for constants.ts and Onboarding.tsx: Added missing LevelDescriptor interface.
- */
 export interface LevelDescriptor {
-  code: string;
+  code: LanguageLevel;
   title: string;
   description: string;
   skills: string[];
   example: string;
+}
+
+export interface VocabularyItem {
+  id: string;
+  word: string;
+  translation: string;
+  mastered: boolean;
+  addedAt: number;
 }
 
 export interface UserPreferences {
@@ -41,8 +46,8 @@ export interface UserPreferences {
   level: string;
   explanationLanguage: string;
   mode: string;
-  fontSize?: 'small' | 'normal' | 'large' | 'xl';
-  voiceName?: VoiceName;
+  fontSize: 'small' | 'normal' | 'large' | 'xl';
+  voiceName: VoiceName;
 }
 
 export interface ChatMessage {
@@ -52,52 +57,37 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-export interface VocabularyItem {
-  id: string;
-  word: string;
-  translation: string;
-  context?: string;
-  mastered: boolean;
-  addedAt: number;
-}
-
 export interface UserProfile {
   id: string;
   username: string;
   email?: string;
-  phoneNumber?: string; 
   password?: string;
-  role: 'user' | 'admin';
+  role: UserRole;
   createdAt: number;
   preferences: UserPreferences | null;
   stats: {
     xp: number;
     streak: number;
     lessonsCompleted: number;
-    progressByLevel: Record<string, number>; 
   };
   vocabulary: VocabularyItem[];
-  aiMemory: string; 
   credits: number;
   freeUsage: {
     lastResetWeek: string;
     count: number;
   };
+  aiMemory: string;
   isSuspended?: boolean;
-  /**
-   * Fix for storageService.ts: Added missing hasSeenTutorial property.
-   */
-  hasSeenTutorial?: boolean;
+  needsAssessment?: boolean;
 }
 
 export interface AdminRequest {
   id: string;
   userId: string;
   username: string;
-  type: 'credit' | 'message' | 'password_reset';
+  type: 'credit' | 'password_reset' | 'message';
   amount?: number;
   message?: string;
-  contactInfo?: string;
   status: 'pending' | 'approved' | 'rejected';
   createdAt: number;
 }
@@ -111,10 +101,7 @@ export interface SystemSettings {
     orange: string;
   };
   creditPrice: number;
-  customLanguages?: { code: string; baseName: string; flag: string; }[];
-  /**
-   * Added to support transaction reference storage used in AdminDashboard.
-   */
+  customLanguages?: { code: string; baseName: string; flag: string }[];
   validTransactionRefs?: string[];
 }
 
@@ -125,10 +112,4 @@ export interface ExerciseItem {
   options?: string[];
   correctAnswer: string;
   explanation: string;
-}
-
-export interface VoiceCallSummary {
-  score: number;
-  feedback: string;
-  tip: string;
 }

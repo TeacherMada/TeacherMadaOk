@@ -1,87 +1,19 @@
+
 import { UserProfile, UserPreferences, LevelDescriptor } from './types';
 
-export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
-  'A1': {
-    code: 'A1',
-    title: 'Débutant / Introductif',
-    description: 'Peut comprendre et utiliser des expressions familières et quotidiennes.',
-    skills: ['Se présenter', 'Poser des questions simples', 'Communiquer basiquement'],
-    example: 'Ex: "Bonjour, je m\'appelle Jean."'
-  },
-  'A2': {
-    code: 'A2',
-    title: 'Élémentaire',
-    description: 'Peut comprendre des phrases isolées et des expressions fréquentes.',
-    skills: ['Échanger des infos simples', 'Décrire son environnement'],
-    example: 'Ex: "Je voudrais un café s\'il vous plaît."'
-  },
-  'B1': {
-    code: 'B1',
-    title: 'Indépendant',
-    description: 'Peut se débrouiller dans la plupart des situations en voyage.',
-    skills: ['Raconter un événement', 'Donner son opinion'],
-    example: 'Ex: "Je pense que ce film était très intéressant."'
-  },
-  'B2': {
-    code: 'B2',
-    title: 'Avancé',
-    description: 'Peut comprendre le contenu essentiel de sujets complexes.',
-    skills: ['Communiquer avec aisance', 'S\'exprimer de façon claire'],
-    example: 'Ex: "Bien que je comprenne votre point de vue..." '
-  },
-  'C1': {
-    code: 'C1',
-    title: 'Autonome',
-    description: 'Peut comprendre une large gamme de textes longs.',
-    skills: ['S\'exprimer couramment', 'Usage efficace de la langue'],
-    example: 'Ex: "Il est impératif de souligner l\'importance de..." '
-  },
-  'C2': {
-    code: 'C2',
-    title: 'Maîtrise',
-    description: 'Peut comprendre sans effort pratiquement tout.',
-    skills: ['S\'exprimer très précisément', 'Résumer des faits'],
-    example: 'Ex: "Nonobstant les aléas de la conjoncture..." '
-  },
-  'HSK 1': {
-    code: 'HSK 1',
-    title: 'Débutant Chinois',
-    description: 'Bases du Mandarin.',
-    skills: ['150 mots courants', 'Questions basiques'],
-    example: 'Ex: "你好 (Nǐ hǎo)"'
-  }
-};
-
 export const SYSTEM_PROMPT_TEMPLATE = (profile: UserProfile, prefs: UserPreferences) => `
-ROLE:
-Tu es TeacherMada, un professeur de langues d'excellence. 
-Ton but est de faire progresser l'élève avec une pédagogie structurée.
+Tu es TeacherMada, un professeur de langues expert.
+Ton but : Faire progresser l'élève (${profile.username}) en ${prefs.targetLanguage}.
 
-INTERDICTION STRICTE :
-NE JAMAIS GÉNÉRER DE CODE INFORMATIQUE (HTML, CSS, JS, Python, etc.) ou de blocs de code (triple backticks). 
-Tu es un professeur de LANGUES HUMAINES. Réponds toujours en texte pédagogique normal.
-
-CONTEXTE:
-- Élève: ${profile.username}
-- Langue Cible: ${prefs.targetLanguage}
-- Niveau: ${prefs.level}
-- Langue Explication: ${prefs.explanationLanguage}
-- Mode: ${prefs.mode}
-
-STRUCTURE DE COURS (Si mode = Cours):
-1. ## 🟢 LEÇON [Numéro] : [Titre]
-2. ### 🎯 OBJECTIF
-3. ### 📖 THÉORIE (Explications en ${prefs.explanationLanguage})
-4. ### 🧾 VOCABULAIRE
-5. ### 📐 GRAMMAIRE
-6. ### 💬 EXEMPLE
-7. ### ✍️ EXERCICE
-
-SOIS ENCOURAGEANT.
+REGLES:
+- Langue d'explication: ${prefs.explanationLanguage}.
+- Structure de cours stricte : Titre (##), Objectif, Vocabulaire, Grammaire, Exercice.
+- INTERDICTION de générer du code informatique.
+- Sois bref et encourageant.
 `;
 
-export const INITIAL_GREETING_FR = "Bonjour. Je suis TeacherMada. Prêt à commencer ?";
-export const INITIAL_GREETING_MG = "Manao ahoana. TeacherMada eto. Vonona hianatra ve ianao ?";
+export const INITIAL_GREETING_FR = "Bonjour ! Je suis TeacherMada. Prêt pour votre première leçon ?";
+export const INITIAL_GREETING_MG = "Manao ahoana ! TeacherMada eto. Vonona hianatra ve ianao ?";
 
 export const ADMIN_CONTACTS = {
   telma: "034 93 102 68",
@@ -90,3 +22,15 @@ export const ADMIN_CONTACTS = {
 };
 
 export const CREDIT_PRICE_ARIARY = 50;
+
+export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
+    'A1': { code: 'A1', title: 'Débutant / A1', description: 'Peut comprendre des expressions familières.', skills: ['Se présenter', 'Poser des questions simples'], example: 'Bonjour, comment ça va ?' },
+    'A2': { code: 'A2', title: 'Élémentaire / A2', description: 'Peut communiquer lors de tâches simples.', skills: ['Décrire son environnement', 'Parler de son passé'], example: 'Hier, je suis allé au marché.' },
+    'B1': { code: 'B1', title: 'Intermédiaire / B1', description: 'Peut se débrouiller dans la plupart des situations.', skills: ['Raconter un événement', 'Donner son opinion'], example: 'Je pense que ce livre est intéressant.' },
+    'B2': { code: 'B2', title: 'Intermédiaire Avancé / B2', description: 'Peut comprendre l\'essentiel de sujets concrets.', skills: ['Argumenter', 'Comprendre des textes complexes'], example: 'Bien que ce soit difficile, nous devons essayer.' },
+    'C1': { code: 'C1', title: 'Autonome / C1', description: 'Peut comprendre une large gamme de textes longs.', skills: ['S\'exprimer spontanément', 'Nuancer son discours'], example: 'Il est impératif que nous prenions en compte ces variables.' },
+    'C2': { code: 'C2', title: 'Maîtrise / C2', description: 'Peut comprendre sans effort pratiquement tout ce qu\'il lit ou entend.', skills: ['Restituer des faits', 'Saisir des nuances fines'], example: 'Le raffinement de sa prose témoigne d\'une maîtrise absolue.' },
+    'HSK 1': { code: 'HSK 1', title: 'Débutant / HSK 1', description: 'Compréhension de phrases très simples.', skills: ['150 mots de base', 'Saluer'], example: 'Nǐ hǎo.' },
+    'HSK 2': { code: 'HSK 2', title: 'Élémentaire / HSK 2', description: 'Utilisation simple et directe.', skills: ['300 mots', 'Situations quotidiennes'], example: 'Wǒ xǐhuān hē chá.' },
+    'HSK 3': { code: 'HSK 3', title: 'Intermédiaire / HSK 3', description: 'Communication de base.', skills: ['600 mots', 'Vie courante et travail'], example: 'Wǒ huì shuō yīdiǎn Zhōngwén.' }
+};

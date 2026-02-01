@@ -1,71 +1,78 @@
+
 import { UserProfile, ChatMessage, UserPreferences, SystemSettings, AdminRequest } from "../types";
 
-const CURRENT_USER_KEY = 'smart_teacher_current_user_id';
-const SETTINGS_KEY = 'smart_teacher_system_settings';
-const REQUESTS_KEY = 'smart_teacher_admin_requests';
+const CURRENT_USER_KEY = 'tm_current_user_id';
+const SETTINGS_KEY = 'tm_system_settings';
+const REQUESTS_KEY = 'tm_admin_requests';
 
-const getMadagascarCurrentWeek = (): string => {
-  const now = new Date();
-  const madaTime = new Date(now.toLocaleString("en-US", { timeZone: "Indian/Antananarivo" }));
-  const day = madaTime.getDay() || 7; 
-  if (day !== 1) madaTime.setHours(-24 * (day - 1));
-  madaTime.setHours(0, 0, 0, 0);
-  return madaTime.toISOString().split('T')[0];
+const getMonday = (): string => {
+  const d = new Date();
+  const day = d.getDay(), diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.setDate(diff)).toISOString().split('T')[0];
+};
+
+const DEFAULT_SETTINGS: SystemSettings = {
+  apiKeys: [], activeModel: 'gemini-3-flash-preview',
+  adminContact: { telma: "034 93 102 68", airtel: "033 38 784 20", orange: "032 69 790 17" },
+  creditPrice: 50,
+  customLanguages: [],
+  validTransactionRefs: []
 };
 
 export const storageService = {
   login: async (id: string, pass?: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
-    storageService.seedAdmin();
     const users = await storageService.getAllUsers();
-    const found = users.find(u => u.username === id || u.email === id);
+    const found = users.find(u => u.username.toLowerCase() === id.toLowerCase() || u.email?.toLowerCase() === id.toLowerCase());
+    
     if (!found) return { success: false, error: "Utilisateur introuvable." };
+    if (found.isSuspended) return { success: false, error: "Compte suspendu." };
     if (pass && found.password !== pass) return { success: false, error: "Mot de passe incorrect." };
+    
     localStorage.setItem(CURRENT_USER_KEY, found.id);
     return { success: true, user: storageService.getUserById(found.id)! };
   },
 
+  // Fix: Add support for 4 arguments as used in AuthScreen.tsx
   register: async (username: string, password?: string, email?: string, phoneNumber?: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
     const users = await storageService.getAllUsers();
-    if (users.find(u => u.username === username)) return { success: false, error: "Pseudo déjà pris." };
+    if (users.find(u => u.username.toLowerCase() === username.toLowerCase())) return { success: false, error: "Nom déjà pris." };
     
     const newUser: UserProfile = {
       id: crypto.randomUUID(),
-      username, password, email, phoneNumber,
+      username, password, email,
       role: 'user',
       createdAt: Date.now(),
       preferences: null,
-      stats: { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {} },
+      stats: { xp: 0, streak: 1, lessonsCompleted: 0 },
       vocabulary: [],
-      aiMemory: "Nouveau.",
       credits: 5,
-      freeUsage: { lastResetWeek: getMadagascarCurrentWeek(), count: 0 }
+      freeUsage: { lastResetWeek: getMonday(), count: 0 },
+      aiMemory: "Nouveau."
     };
     storageService.saveUserProfile(newUser);
     localStorage.setItem(CURRENT_USER_KEY, newUser.id);
     return { success: true, user: newUser };
   },
 
-  getCurrentUser: () => {
-    const id = localStorage.getItem(CURRENT_USER_KEY);
-    return id ? storageService.getUserById(id) : null;
-  },
-
   getUserById: (id: string): UserProfile | null => {
     const data = localStorage.getItem(`user_data_${id}`);
     if (!data) return null;
     try {
-        const user = JSON.parse(data);
-        if (!user.vocabulary) user.vocabulary = [];
-        if (!user.stats.progressByLevel) user.stats.progressByLevel = {};
-        return user;
-    } catch(e) { return null; }
+      const user = JSON.parse(data);
+      // Correction TS18048 : Garantie des tableaux
+      if (!user.vocabulary) user.vocabulary = [];
+      if (!user.stats) user.stats = { xp: 0, streak: 1, lessonsCompleted: 0 };
+      return user;
+    } catch { return null; }
   },
 
   getAllUsers: async (): Promise<UserProfile[]> => {
     const users: UserProfile[] = [];
     for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key?.startsWith('user_data_')) users.push(JSON.parse(localStorage.getItem(key)!));
+      const key = localStorage.key(i);
+      if (key?.startsWith('user_data_')) {
+        users.push(JSON.parse(localStorage.getItem(key)!));
+      }
     }
     return users;
   },
@@ -75,17 +82,34 @@ export const storageService = {
   },
 
   logout: () => localStorage.removeItem(CURRENT_USER_KEY),
-
-  canPerformRequest: (userId: string) => {
-    const user = storageService.getUserById(userId);
-    if (!user) return { allowed: false };
-    if (user.role === 'admin' || user.credits > 0 || user.freeUsage.count < 3) return { allowed: true };
-    return { allowed: false };
+  getCurrentUser: () => {
+    const id = localStorage.getItem(CURRENT_USER_KEY);
+    return id ? storageService.getUserById(id) : null;
   },
 
-  deductCreditOrUsage: (userId: string) => {
+  // Fix: canPerformRequest now returns an object with 'allowed' property as expected by UI
+  canPerformRequest: (userId: string): { allowed: boolean; reason?: string } => {
     const user = storageService.getUserById(userId);
-    if (!user || user.role === 'admin') return user;
+    if (!user) return { allowed: false, reason: 'blocked' };
+    if (user.role === 'admin') return { allowed: true };
+    if (user.freeUsage.count < 3) return { allowed: true, reason: 'free_tier' };
+    if (user.credits > 0) return { allowed: true, reason: 'credits' };
+    return { allowed: false, reason: 'insufficient' };
+  },
+
+  deductCredit: (userId: string) => {
+    const user = storageService.getUserById(userId);
+    if (!user || user.role === 'admin') return;
+    if (user.freeUsage.count < 3) user.freeUsage.count++;
+    else if (user.credits > 0) user.credits--;
+    storageService.saveUserProfile(user);
+  },
+
+  // Fix: Add missing deductCreditOrUsage used by DialogueSession
+  deductCreditOrUsage: (userId: string): UserProfile | null => {
+    const user = storageService.getUserById(userId);
+    if (!user) return null;
+    if (user.role === 'admin') return user;
     if (user.freeUsage.count < 3) user.freeUsage.count++;
     else if (user.credits > 0) user.credits--;
     else return null;
@@ -93,68 +117,81 @@ export const storageService = {
     return user;
   },
 
-  addCredits: async (userId: string, amt: number) => {
-      const u = storageService.getUserById(userId);
-      if (u) { u.credits += amt; storageService.saveUserProfile(u); }
+  // Fix: Add missing addCredits for AdminDashboard
+  addCredits: async (userId: string, amount: number) => {
+    const user = storageService.getUserById(userId);
+    if (user) {
+        user.credits += amount;
+        storageService.saveUserProfile(user);
+    }
   },
 
-  sendAdminRequest: async (userId: string, username: string, type: any, amount?: number, message?: string, contactInfo?: string) => {
-      const requests = JSON.parse(localStorage.getItem(REQUESTS_KEY) || '[]');
-      const newReq = { id: `req_${Date.now()}`, userId, username, type, amount, message, contactInfo, status: 'pending', createdAt: Date.now() };
-      localStorage.setItem(REQUESTS_KEY, JSON.stringify([newReq, ...requests]));
-      return { status: 'pending' };
+  saveChatHistory: (userId: string, messages: ChatMessage[], lang: string) => {
+    localStorage.setItem(`chat_${userId}_${lang.replace(/\s/g, '')}`, JSON.stringify(messages));
   },
 
-  getAdminRequests: async () => JSON.parse(localStorage.getItem(REQUESTS_KEY) || '[]'),
-
-  resolveRequest: async (id: string, status: 'approved' | 'rejected') => {
-      const requests = await storageService.getAdminRequests();
-      const req = requests.find((r: any) => r.id === id);
-      if (req && req.status === 'pending') {
-          req.status = status;
-          if (status === 'approved' && req.type === 'credit' && req.amount) await storageService.addCredits(req.userId, req.amount);
-          localStorage.setItem(REQUESTS_KEY, JSON.stringify(requests));
-      }
+  getChatHistory: (userId: string, lang: string): ChatMessage[] => {
+    const data = localStorage.getItem(`chat_${userId}_${lang.replace(/\s/g, '')}`);
+    return data ? JSON.parse(data) : [];
   },
 
   getSystemSettings: (): SystemSettings => {
-    return JSON.parse(localStorage.getItem(SETTINGS_KEY) || JSON.stringify({
-        apiKeys: [], activeModel: 'gemini-3-flash-preview',
-        adminContact: { telma: "0349310268", airtel: "0333878420", orange: "0326979017" },
-        creditPrice: 50
-    }));
+    const data = localStorage.getItem(SETTINGS_KEY);
+    return data ? JSON.parse(data) : DEFAULT_SETTINGS;
   },
 
-  updateSystemSettings: async (s: SystemSettings) => localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)),
-
-  updatePreferences: (id: string, p: UserPreferences) => {
-    const u = storageService.getUserById(id);
-    if (u) { u.preferences = p; storageService.saveUserProfile(u); }
+  // Fix: Add missing fetchSystemSettings
+  fetchSystemSettings: async () => {
+    return storageService.getSystemSettings();
   },
 
-  saveChatHistory: (id: string, msgs: ChatMessage[], lang: string) => {
-    localStorage.setItem(`chat_${id}_${lang.replace(/\s+/g, '')}`, JSON.stringify(msgs));
+  // Fix: Add missing updateSystemSettings
+  updateSystemSettings: async (settings: SystemSettings) => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   },
 
-  getChatHistory: (id: string, lang: string): ChatMessage[] => {
-    return JSON.parse(localStorage.getItem(`chat_${id}_${lang.replace(/\s+/g, '')}`) || '[]');
+  // Fix: Add missing sendAdminRequest
+  sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'password_reset' | 'message', amount?: number, message?: string, contact?: string): Promise<{status: 'pending' | 'approved'}> => {
+      const requests = await storageService.getAdminRequests();
+      const settings = storageService.getSystemSettings();
+      const isAutoApproved = settings.validTransactionRefs?.some(ref => message?.includes(ref));
+      
+      const newRequest: AdminRequest = {
+          id: `req_${Date.now()}`,
+          userId,
+          username,
+          type,
+          amount,
+          message: message + (contact ? ` (Contact: ${contact})` : ''),
+          status: isAutoApproved ? 'approved' : 'pending',
+          createdAt: Date.now()
+      };
+      
+      if (isAutoApproved && type === 'credit' && amount) {
+          await storageService.addCredits(userId, amount);
+      }
+
+      requests.push(newRequest);
+      localStorage.setItem(REQUESTS_KEY, JSON.stringify(requests));
+      return { status: newRequest.status as 'pending' | 'approved' };
   },
 
-  seedAdmin: () => {
-    if (!localStorage.getItem('user_data_admin_0349310268')) {
-        storageService.saveUserProfile({
-            id: 'admin_0349310268', username: '0349310268', password: '777v', role: 'admin', createdAt: Date.now(),
-            preferences: null, stats: { xp: 9999, streak: 999, lessonsCompleted: 999, progressByLevel: {} },
-            vocabulary: [], aiMemory: "ADMIN", credits: 999999, freeUsage: { lastResetWeek: getMadagascarCurrentWeek(), count: 0 }
-        });
-    }
+  // Fix: Add missing getAdminRequests
+  getAdminRequests: async (): Promise<AdminRequest[]> => {
+      const data = localStorage.getItem(REQUESTS_KEY);
+      return data ? JSON.parse(data) : [];
   },
-  
-  fetchSystemSettings: async () => {},
-  syncProfileFromCloud: async (id: string) => null,
-  loadChatHistoryFromCloud: async (id: string, l: string) => [],
-  markTutorialSeen: (id: string) => {
-      const u = storageService.getUserById(id);
-      if (u) { u.hasSeenTutorial = true; storageService.saveUserProfile(u); }
+
+  // Fix: Add missing resolveRequest
+  resolveRequest: async (requestId: string, status: 'approved' | 'rejected') => {
+      const requests = await storageService.getAdminRequests();
+      const req = requests.find(r => r.id === requestId);
+      if (req && req.status === 'pending') {
+          req.status = status;
+          if (status === 'approved' && req.type === 'credit' && req.amount) {
+              await storageService.addCredits(req.userId, req.amount);
+          }
+          localStorage.setItem(REQUESTS_KEY, JSON.stringify(requests));
+      }
   }
 };
