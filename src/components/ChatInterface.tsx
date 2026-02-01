@@ -89,11 +89,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const progressData = useMemo(() => {
       const currentLang = preferences.targetLanguage;
-      const currentLevel = preferences.level;
-      const courseKey = `${currentLang}-${currentLevel}`;
+      const currentLevel = preferences.level.split(' ')[0] || 'A1';
+      const nextLevel = NEXT_LEVEL_MAP[currentLevel] || 'Expert';
+      
+      const courseKey = `${currentLang}-${preferences.level}`;
       const lessonsDone = user.stats.progressByLevel?.[courseKey] || 0;
-      const percentage = Math.min((lessonsDone / 50) * 100, 100);
-      return { lessonsDone, percentage };
+      const percentage = Math.min((lessonsDone / TOTAL_LESSONS_PER_LEVEL) * 100, 100);
+      
+      return { currentLevel, nextLevel, percentage, lessonsDone };
   }, [user.stats.progressByLevel, preferences.targetLanguage, preferences.level]);
 
   const lastLessonInChat = useMemo(() => {
@@ -265,8 +268,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
     
     // Optimistic Update
-    setMessages(prev => [...prev, userMsg]);
-    storageService.saveChatHistory(user.id, [...messages, userMsg], preferences.targetLanguage);
+    const newHistory = [...messages, userMsg];
+    setMessages(newHistory);
+    storageService.saveChatHistory(user.id, newHistory, preferences.targetLanguage);
     
     setInput('');
     setGeneratedImage(null);
@@ -279,16 +283,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       let finalResponseText = "";
       
       if (isCallActive) {
-          // Pass 'messages' (current history BEFORE userMsg) to prevent duplication in prompt
-          finalResponseText = await generateVoiceChatResponse(textToSend, user.id, messages);
+          // Pass 'messages' (current history BEFORE userMsg) to prevent duplication in prompt if necessary,
+          // but better to pass 'newHistory' for context continuity.
+          finalResponseText = await generateVoiceChatResponse(textToSend, user.id, newHistory);
       } else {
           // Pass 'messages' (current history BEFORE userMsg) to prevent duplication in prompt
+          // NOTE: We pass 'messages' (the state before update) effectively as context, 
+          // or 'newHistory' if we want the AI to see the latest user message in history array.
+          // sendMessageToGemini handles standard generation.
           finalResponseText = await sendMessageToGemini(textToSend, user.id, messages);
       }
       
       const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: finalResponseText, timestamp: Date.now() };
-      setMessages(prev => [...prev, aiMsg]);
-      storageService.saveChatHistory(user.id, [...messages, userMsg, aiMsg], preferences.targetLanguage);
+      const finalHistory = [...newHistory, aiMsg];
+      setMessages(finalHistory);
+      storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage);
       
       if (isCallActive) handleSpeak(finalResponseText);
       const updated = storageService.getUserById(user.id);
@@ -312,6 +321,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const handleTranslateInput = async () => {
     if (!input.trim()) return;
     setIsTranslating(true);
+    setShowMenu(false);
     try {
         const translation = await translateText(input, preferences.targetLanguage, user.id);
         setInput(translation);
@@ -353,6 +363,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // --- Training Mode Handlers ---
   const handleStartTraining = async () => {
       setShowSmartOptions(false);
+      setShowMenu(false);
       setIsTrainingMode(true);
       setExercises([]);
       setExerciseError(false);
@@ -550,7 +561,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         <div className="flex-1 flex items-center justify-end gap-2">
              <button onClick={() => setShowPaymentModal(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/50`}>
                   <Coins className={`w-3.5 h-3.5 text-amber-500 group-hover:rotate-12 transition-transform`} />
-                  <span className={`text-xs font-bold text-indigo-900 dark:text-indigo-100 hidden sm:inline`}>{user.role === 'admin' ? '∞' : user.credits}</span>
+                  <span className={`text-xs font-bold text-indigo-900 dark:text-indigo-100`}>{user.role === 'admin' ? '∞' : user.credits}</span>
              </button>
              <div className="relative">
                  <button onClick={() => setShowMenu(!showMenu)} className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}><Menu className="w-5 h-5" /></button>
@@ -578,10 +589,63 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                              </div>
                          </div>
                         
+                         {/* Quick Tools in Menu */}
+                         <div className="grid grid-cols-2 gap-2 mb-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">
+                             <button onClick={() => { setShowMenu(false); setInput('Traduis: '); textareaRef.current?.focus(); }} className="flex flex-col items-center gap-1 p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-colors">
+                                 <Languages className="w-5 h-5 text-blue-500"/>
+                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">Traduction</span>
+                             </button>
+                             <button onClick={handleStartTraining} className="flex flex-col items-center gap-1 p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-colors">
+                                 <BrainCircuit className="w-5 h-5 text-orange-500"/>
+                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">Exercice</span>
+                             </button>
+                             <button onClick={handleStartCall} className="flex flex-col items-center gap-1 p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-colors">
+                                 <Phone className="w-5 h-5 text-purple-500"/>
+                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">Appel</span>
+                             </button>
+                             <button onClick={() => { setShowMenu(false); setIsDialogueActive(true); }} className="flex flex-col items-center gap-1 p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-colors">
+                                 <MessageCircle className="w-5 h-5 text-emerald-500"/>
+                                 <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">Dialogue</span>
+                             </button>
+                         </div>
+
+                         {/* Lesson Controls Grid */}
+                         <div className="grid grid-cols-2 gap-2 mb-2">
+                             <button onClick={() => { setShowSummaryResultModal(false); setShowMenu(true); }} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                                 <div className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <BookOpen className="w-5 h-5 text-indigo-500"/>
+                                 </div>
+                                 <div className="w-full">
+                                    <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Résumé</span>
+                                    <div className="flex items-center justify-center gap-1 mt-1">
+                                        <input type="number" placeholder="#" value={summaryInputVal} onChange={e => setSummaryInputVal(e.target.value)} onClick={e => e.stopPropagation()} className="w-8 text-center bg-transparent border-b border-slate-300 dark:border-slate-600 text-xs focus:border-indigo-500 outline-none"/>
+                                        <div onClick={(e) => { e.stopPropagation(); handleValidateSummary(); }} className="text-[10px] font-black text-indigo-600 cursor-pointer">GO</div>
+                                    </div>
+                                 </div>
+                             </button>
+
+                             <button className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                                 <div className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <RotateCcw className="w-5 h-5 text-emerald-500"/>
+                                 </div>
+                                 <div className="w-full">
+                                    <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Aller à</span>
+                                    <div className="flex items-center justify-center gap-1 mt-1">
+                                        <input type="number" placeholder="#" value={jumpInputVal} onChange={e => setJumpInputVal(e.target.value)} onClick={e => e.stopPropagation()} className="w-8 text-center bg-transparent border-b border-slate-300 dark:border-slate-600 text-xs focus:border-emerald-500 outline-none"/>
+                                        <div onClick={(e) => { e.stopPropagation(); handleValidateJump(); }} className="text-[10px] font-black text-emerald-600 cursor-pointer">GO</div>
+                                    </div>
+                                 </div>
+                             </button>
+                         </div>
+
                          <div className="grid grid-cols-2 gap-2 mb-2 border-t border-slate-100 dark:border-slate-800 pt-2">
                              <button onClick={toggleTheme} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-center gap-2 transition-colors">
                                  {isDarkMode ? <Sun className="w-4 h-4 text-amber-500"/> : <Moon className="w-4 h-4 text-indigo-500"/>}
                                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Thème</span>
+                             </button>
+                             <button onClick={handleToggleExplanationLang} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                 <Languages className="w-4 h-4 text-purple-500"/>
+                                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{preferences.explanationLanguage.split(' ')[0]}</span>
                              </button>
                          </div>
                      </div>
@@ -638,6 +702,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       {/* Input Area */}
       <div id="input-area" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 p-3 md:p-4 sticky bottom-0">
+        
+        {/* Progress Bar A1 -> A2 */}
+        <div className="max-w-4xl mx-auto mb-3 px-2">
+            <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 px-1 uppercase tracking-wide">
+                <span className="text-indigo-500 dark:text-indigo-400">{progressData.currentLevel}</span>
+                <span className="text-slate-300 dark:text-slate-600">{Math.round(progressData.percentage)}%</span>
+                <span>{progressData.nextLevel}</span>
+            </div>
+            <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative shadow-inner">
+                <div 
+                    className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 animate-gradient-x absolute top-0 left-0 transition-all duration-1000 ease-out"
+                    style={{ width: `${progressData.percentage}%` }}
+                ></div>
+            </div>
+        </div>
+
         <div className="max-w-4xl mx-auto relative flex items-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-[26px] border border-slate-200 dark:border-slate-700 p-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/50">
             <textarea
                 ref={textareaRef}
@@ -649,7 +729,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 className="w-full bg-transparent text-slate-800 dark:text-white rounded-xl pl-4 py-3 text-base focus:outline-none resize-none max-h-32 scrollbar-hide self-center disabled:opacity-50"
             />
             <div className="flex items-center gap-1 pb-1 pr-1">
-                 <button onClick={handleTranslateInput} disabled={!input.trim() || isTranslating} className="p-2 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50"><Languages className={`w-5 h-5 ${isTranslating ? 'animate-spin text-indigo-600' : ''}`} /></button>
+                 {/* Voice Call Icon - Prominent */}
+                 <button onClick={handleStartCall} disabled={isLoading} className="p-2 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 border border-purple-100 dark:border-purple-900/50 shadow-sm" title="Appel Vocal">
+                     <Phone className="w-5 h-5"/>
+                 </button>
+
                  <button onClick={toggleListening} className={`p-2 rounded-full ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-200'}`}><Mic className="w-5 h-5" /></button>
                  <button onClick={() => handleSend()} disabled={!input.trim() || isLoading || isAnalyzing} className={`p-2.5 rounded-full text-white transition-all shadow-md transform hover:scale-105 active:scale-95 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700`}><Send className="w-4 h-4" /></button>
             </div>

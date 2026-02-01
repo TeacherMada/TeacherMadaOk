@@ -8,7 +8,6 @@ let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
-// Updated to gemini-3-flash-preview as per prompt instructions for basic text tasks
 const PRIMARY_MODEL = 'gemini-3-flash-preview'; 
 
 const FALLBACK_CHAIN = [
@@ -60,8 +59,7 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
 
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
-    // Prefer PRIMARY_MODEL if settings model is not explicitly set or is old default
-    if (!settings.activeModel || settings.activeModel === 'gemini-2.0-flash') return PRIMARY_MODEL;
+    if (!settings.activeModel) return PRIMARY_MODEL;
     return settings.activeModel;
 };
 
@@ -112,7 +110,6 @@ const executeWithRetry = async <T>(
         return await operation(modelName);
     } catch (error: any) {
         const msg = error.message || JSON.stringify(error);
-        
         if (msg.includes("API_KEY_MISSING")) throw new Error("Configuration API manquante.");
 
         const isQuotaError = msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted');
@@ -126,7 +123,6 @@ const executeWithRetry = async <T>(
                 return executeWithRetry(operation, userId, attempt + 1, fallbackIndex);
             } 
             if (fallbackIndex < FALLBACK_CHAIN.length - 1) {
-                // If model not found or quota exhausted on all keys, switch model
                 initializeGenAI(true); 
                 return executeWithRetry(operation, userId, 0, fallbackIndex + 1);
             }
@@ -187,7 +183,7 @@ export const sendMessageToGemini = async (
             config: {
                 systemInstruction: systemInstruction,
                 temperature: 0.7, 
-                maxOutputTokens: 2000, // Ensure long lessons are not cut off
+                maxOutputTokens: 4000, // Ensure long lessons are not cut off
             },
             history: historyPayload,
         });

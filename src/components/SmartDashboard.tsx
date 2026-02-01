@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState } from 'react';
 import { UserProfile, ChatMessage } from '../types';
 import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Type, Coins, CreditCard, ChevronRight, Check, Shield, Download, Upload, Loader2, Sparkles, Plus, Trash2 } from 'lucide-react';
