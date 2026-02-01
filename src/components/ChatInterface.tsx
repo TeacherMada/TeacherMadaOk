@@ -71,7 +71,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const preferences = user.preferences!;
 
-  // Added textSizeClass computation
   const getTextSizeClass = () => {
       switch (fontSize) {
           case 'small': return 'text-sm';
@@ -82,7 +81,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
   const textSizeClass = getTextSizeClass();
 
-  // Initialization & cleanup
   useEffect(() => {
     return () => {
         stopAudio();
@@ -91,7 +89,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     };
   }, []);
 
-  // --- Audio Visualization Logic ---
   useEffect(() => {
       if (!isCallActive || !canvasRef.current) return;
       
@@ -119,10 +116,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               gradient.addColorStop(1, '#a855f7');
               
               ctx.fillStyle = gradient;
-              // Round rect for bars
-              const radius = 2;
               ctx.beginPath();
-              ctx.roundRect(x + 2, y, barWidth - 4, bars[i], radius);
+              ctx.roundRect(x + 2, y, barWidth - 4, bars[i], 2);
               ctx.fill();
           });
           animationId = requestAnimationFrame(render);
@@ -131,7 +126,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       return () => cancelAnimationFrame(animationId);
   }, [isCallActive, isListening, isPlayingAudio, isLoading]);
 
-  // Voice Call Timer & Auto-Deduct
   useEffect(() => {
       let interval: any;
       if (isCallActive && !isCallConnecting) {
@@ -156,6 +150,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       }
       if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
       return audioContextRef.current;
+  };
+
+  /**
+   * Manual PCM 16-bit Decoder
+   * Fixes silent audio by avoiding native decodeAudioData on raw PCM
+   */
+  const decodePCM = (data: Uint8Array, ctx: AudioContext): AudioBuffer => {
+      const dataInt16 = new Int16Array(data.buffer);
+      const frameCount = dataInt16.length;
+      const buffer = ctx.createBuffer(1, frameCount, 24000);
+      const channelData = buffer.getChannelData(0);
+
+      for (let i = 0; i < frameCount; i++) {
+          channelData[i] = dataInt16[i] / 32768.0;
+      }
+      return buffer;
   };
 
   const stopListening = () => {
@@ -183,7 +193,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const transcript = Array.from(e.results).map((r: any) => r[0].transcript).join('');
       setInterimTranscript(transcript);
 
-      // Silence detection to trigger AI reply
       if (isCallActive) {
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = setTimeout(() => {
@@ -199,7 +208,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     recognition.start();
   };
 
-  // Added toggleListening helper
   const toggleListening = () => {
     if (isListening) stopListening();
     else startListening();
@@ -221,8 +229,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           setIsCallConnecting(false);
           const isMg = preferences.explanationLanguage.includes('Mada');
           const greeting = isMg 
-            ? `Allô ${user.username} ! Manao ahoana ? Vonona hiresaka amin'ny ${preferences.targetLanguage} ve ianao ?`
-            : `Allô ${user.username} ! Je suis prêt pour notre session en ${preferences.targetLanguage}. De quoi voulez-vous parler ?`;
+            ? `Allô ${user.username} ! Manao ahoana ? Vonona hiresaka ve ianao ?`
+            : `Allô ${user.username} ! Je suis prêt pour notre session. De quoi voulez-vous parler ?`;
           handleSpeak(greeting);
       }, 1500);
   };
@@ -286,12 +294,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setIsPlayingAudio(true);
     
     try {
-        const rawAudioBuffer = await generateSpeech(text, user.id, user.preferences?.voiceName);
-        if (rawAudioBuffer) {
+        const pcmData = await generateSpeech(text, user.id, user.preferences?.voiceName);
+        if (pcmData) {
             const ctx = await getAudioContext();
-            const decoded = await ctx.decodeAudioData(rawAudioBuffer);
+            const audioBuffer = decodePCM(pcmData, ctx);
             const source = ctx.createBufferSource();
-            source.buffer = decoded;
+            source.buffer = audioBuffer;
             source.connect(ctx.destination);
             activeSourceRef.current = source;
             source.onended = () => { 
@@ -304,6 +312,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             if (isCallActive) startListening();
         }
     } catch (error) {
+        console.error("Audio Playback Error:", error);
         setIsPlayingAudio(false);
         if (isCallActive) startListening();
     }
@@ -331,13 +340,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       {showPaymentModal && <PaymentModal user={user} onClose={() => setShowPaymentModal(false)} />}
       {isDialogueActive && <DialogueSession user={user} onClose={() => setIsDialogueActive(false)} onUpdateUser={onUpdateUser} notify={notify} />}
 
-      {/* Voice Call UI - PREMIUM OVERLAY */}
       {isCallActive && (
           <div className="fixed inset-0 z-[200] bg-slate-950 flex flex-col items-center justify-between p-8 text-white animate-fade-in font-sans overflow-hidden">
-              {/* Background Glow */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none"></div>
 
-              {/* Call Header */}
               <div className="w-full flex justify-between items-center z-10">
                   <button onClick={handleEndCall} className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors"><ChevronDown className="w-6 h-6 text-slate-400"/></button>
                   <div className="flex flex-col items-center">
@@ -350,7 +356,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   <button onClick={() => setShowVoiceSettings(!showVoiceSettings)} className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors"><Sliders className="w-5 h-5 text-slate-400"/></button>
               </div>
 
-              {/* Central Visualizer */}
               <div className="flex flex-col items-center justify-center w-full z-10 flex-1">
                   <div className="relative mb-8">
                       <div className={`w-32 h-32 rounded-[2.5rem] bg-gradient-to-br from-indigo-500 to-purple-600 p-1 shadow-2xl transition-transform duration-500 ${isPlayingAudio ? 'scale-110 rotate-3' : 'scale-100 rotate-0'}`}>
@@ -368,7 +373,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                       <canvas ref={canvasRef} width={300} height={100} className="w-full h-full" />
                   </div>
 
-                  {/* Real-time Subtitles */}
                   <div className="mt-8 px-6 text-center h-16 max-w-sm">
                       {interimTranscript && <p className="text-lg font-bold text-indigo-300 animate-fade-in line-clamp-2">"{interimTranscript}"</p>}
                       {!interimTranscript && isPlayingAudio && <p className="text-sm italic text-slate-400 animate-pulse">TeacherMada vous parle...</p>}
@@ -376,7 +380,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   </div>
               </div>
 
-              {/* Call Controls */}
               <div className="w-full max-w-md grid grid-cols-3 gap-4 pb-8 z-10">
                   <button onClick={() => setIsMuted(!isMuted)} className="flex flex-col items-center gap-2">
                       <div className={`p-5 rounded-full transition-all ${isMuted ? 'bg-white text-slate-900' : 'bg-white/5 text-white border border-white/10 hover:bg-white/10'}`}>
@@ -398,7 +401,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   </button>
               </div>
 
-              {/* Voice Settings Dropdown */}
               {showVoiceSettings && (
                   <div className="absolute inset-0 bg-slate-950/95 z-50 p-8 flex flex-col animate-slide-up">
                       <div className="flex justify-between items-center mb-8">
@@ -425,7 +427,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           </div>
       )}
 
-      {/* Standard Header */}
       <header className="fixed top-0 left-0 right-0 z-40 bg-white/90 dark:bg-slate-900/95 backdrop-blur-md shadow-sm h-14 md:h-16 px-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
         <div className="flex items-center gap-2">
           <button onClick={onChangeMode} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all shrink-0">
@@ -448,7 +449,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </div>
       </header>
       
-      {/* Messages Feed */}
       <div id="chat-feed" ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 md:p-4 space-y-6 pt-20 pb-4 scrollbar-hide">
         {messages.map((msg) => (
             <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}>
@@ -456,7 +456,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 mx-2 ${msg.role === 'user' ? 'bg-indigo-100' : 'bg-white border p-1'}`}>
                         {msg.role === 'user' ? <User className="w-4 h-4 text-indigo-600" /> : <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" />}
                     </div>
-                    {/* Fixed missing textSizeClass error */}
                     <div className={`px-4 py-3 rounded-2xl shadow-sm ${textSizeClass} transition-all duration-300 ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-slate-200 text-slate-800 rounded-tl-none border border-slate-100 dark:border-slate-700'}`}>
                          {msg.role === 'user' ? <p className="whitespace-pre-wrap">{msg.text}</p> : (
                             <>
@@ -479,7 +478,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Chat Footer */}
       <div id="input-area" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 p-3 md:p-4 sticky bottom-0">
         <div className="max-w-4xl mx-auto flex items-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-[26px] border border-slate-200 dark:border-slate-700 p-2 shadow-sm">
             <textarea
@@ -493,7 +491,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             />
             <div className="flex items-center gap-1 pb-1 pr-1">
                  <button onClick={handleStartCall} className="p-2 rounded-full text-purple-500 hover:bg-purple-100 dark:hover:bg-purple-900/30"><Phone className="w-5 h-5"/></button>
-                 {/* Fixed missing toggleListening error */}
                  <button onClick={toggleListening} className={`p-2 rounded-full ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400'}`}><Mic className="w-5 h-5" /></button>
                  <button onClick={() => handleSend()} disabled={!input.trim() || isLoading} className="p-2.5 rounded-full bg-indigo-600 text-white shadow-md hover:bg-indigo-700 disabled:opacity-50"><Send className="w-4 h-4" /></button>
             </div>

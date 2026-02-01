@@ -14,7 +14,7 @@ const getApiKey = (): string => {
 const getAiClient = () => new GoogleGenAI({ apiKey: getApiKey() });
 
 const TEXT_MODEL = 'gemini-3-flash-preview';
-const VOICE_FAST_MODEL = 'gemini-flash-lite-latest'; // Ultra fast for calls
+const VOICE_FAST_MODEL = 'gemini-flash-lite-latest'; 
 const TTS_MODEL = 'gemini-2.5-flash-preview-tts';
 const IMAGE_MODEL = 'gemini-2.5-flash-image';
 
@@ -67,7 +67,7 @@ export const generateVoiceChatResponse = async (
     `;
 
     const response = await ai.models.generateContent({
-        model: VOICE_FAST_MODEL, // Lite model for lower latency
+        model: VOICE_FAST_MODEL,
         contents: [...sanitizeHistory(history, 6), { role: 'user', parts: [{ text: message }] }],
         config: {
             systemInstruction,
@@ -79,41 +79,46 @@ export const generateVoiceChatResponse = async (
     return response.text || "Je vous écoute.";
 };
 
-export const generateSpeech = async (text: string, userId: string, voice?: VoiceName): Promise<ArrayBuffer | null> => {
+export const generateSpeech = async (text: string, userId: string, voice?: VoiceName): Promise<Uint8Array | null> => {
     const ai = getAiClient();
     const user = storageService.getUserById(userId);
     const voiceToUse = voice || user?.preferences?.voiceName || 'Kore';
     
+    // Remove markdown markers for cleaner audio
     const cleanText = text.replace(/[*#_`~]/g, '').trim();
     if (!cleanText) return null;
 
-    const response = await ai.models.generateContent({
-        model: TTS_MODEL,
-        contents: [{ parts: [{ text: cleanText }] }],
-        config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-                voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: voiceToUse }
+    try {
+        const response = await ai.models.generateContent({
+            model: TTS_MODEL,
+            contents: [{ parts: [{ text: cleanText }] }],
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: voiceToUse }
+                    }
                 }
             }
+        });
+
+        const base64Data = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+        if (!base64Data) return null;
+
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
         }
-    });
-
-    const base64Data = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-    if (!base64Data) return null;
-
-    const binaryString = atob(base64Data);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+        return bytes;
+    } catch (e) {
+        console.error("TTS Error:", e);
+        return null;
     }
-    return bytes.buffer;
 };
 
 export const startChatSession = async (profile: UserProfile, prefs: UserPreferences, history: ChatMessage[]) => null;
 
-// Added getLessonSummary
 export const getLessonSummary = async (lessonNumber: number, context: string, userId: string): Promise<string> => {
     const ai = getAiClient();
     const prompt = `Génère un résumé concis pour la LEÇON ${lessonNumber}. Contexte: ${context}. Format Markdown strict.`;
