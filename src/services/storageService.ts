@@ -8,7 +8,7 @@ const SETTINGS_KEY = 'smart_teacher_system_settings';
 const DEFAULT_SETTINGS: SystemSettings = {
   // @ts-ignore
   apiKeys: [import.meta.env.VITE_GOOGLE_API_KEY || ''],
-  activeModel: 'gemini-2.0-flash', 
+  activeModel: 'gemini-3-flash-preview', 
   adminContact: {
     telma: "034 93 102 68",
     airtel: "033 38 784 20",
@@ -434,8 +434,8 @@ export const storageService = {
   },
 
   markTutorialSeen: (userId: string) => {
-    const user = storageService.getUserById(userId);
-    if (user) { user.hasSeenTutorial = true; storageService.saveUserProfile(user); }
+      const user = storageService.getUserById(userId);
+      if (user) { user.hasSeenTutorial = true; storageService.saveUserProfile(user); }
   },
 
   seedAdmin: async () => {
