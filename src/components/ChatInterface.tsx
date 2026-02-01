@@ -265,15 +265,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const scrollToBottom = () => { 
       if (chatContainerRef.current) {
           const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-          if (scrollHeight - scrollTop - clientHeight < 150) {
+          // Only scroll if user is already near bottom to avoid annoying jumps while reading previous messages
+          if (scrollHeight - scrollTop - clientHeight < 200) {
               messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
           }
       }
   };
 
   useEffect(() => { 
+      // Force scroll on new message or mode change
       if (!isTrainingMode && !isDialogueActive && !searchQuery) scrollToBottom(); 
-  }, [messages, isTrainingMode, isDialogueActive, isLoading]);
+  }, [messages.length, isTrainingMode, isDialogueActive, isLoading]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -440,46 +442,69 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     
     setIsSending(true);
 
-    // 1. Prepare UI Update
+    // 1. Prepare UI Update - User Message
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
     const historyForAI = [...messages]; 
 
-    const updatedMessages = [...messages, userMsg];
+    // 2. Prepare Placeholder for Streaming - AI Message
+    // This allows the user to see "something is happening" immediately
+    const tempAiId = (Date.now() + 1).toString();
+    const placeholderMsg: ChatMessage = { id: tempAiId, role: 'model', text: '', timestamp: Date.now() };
+
+    // Update state with both messages
+    const updatedMessages = [...messages, userMsg, placeholderMsg];
     setMessages(updatedMessages);
-    storageService.saveChatHistory(user.id, updatedMessages, preferences.targetLanguage);
+    
+    // Save user message to history immediately
+    storageService.saveChatHistory(user.id, [...messages, userMsg], preferences.targetLanguage);
     
     setInput('');
     setVoiceTextInput('');
     setGeneratedImage(null);
-    setIsLoading(true);
+    setIsLoading(true); // Sets typing indicator if using that state, or spinner
     onMessageSent();
 
     try {
-      let responseText = "";
+      let finalResponseText = "";
       
       if (isCallActive) {
-          responseText = await generateVoiceChatResponse(textToSend, user.id, historyForAI);
+          // Voice Mode doesn't stream visually the same way to keep audio cohesive
+          finalResponseText = await generateVoiceChatResponse(textToSend, user.id, historyForAI);
+          
+          // Update the placeholder with full text
+          setMessages(prev => prev.map(m => m.id === tempAiId ? { ...m, text: finalResponseText } : m));
       } else {
+          // Text Mode - REAL STREAMING
           const res = await sendMessageToGeminiStream(textToSend, user.id, historyForAI, (chunk) => {
-              // Basic streaming for non-voice: just update messages state progressively
-              // For now, simpler to just await full response in this simplified component logic,
-              // or handle full string return if not refactored fully.
-              // Assuming we use the full text promise for simplicity here.
+              setMessages(currentMsgs => {
+                  const lastMsg = currentMsgs[currentMsgs.length - 1];
+                  // Only update if the last message is indeed our placeholder
+                  if (lastMsg && lastMsg.id === tempAiId) {
+                      return [
+                          ...currentMsgs.slice(0, -1),
+                          { ...lastMsg, text: lastMsg.text + chunk }
+                      ];
+                  }
+                  return currentMsgs;
+              });
+              // Stop "thinking" spinner as soon as first chunk arrives
+              setIsLoading(false); 
           });
-          responseText = res.fullText;
+          finalResponseText = res.fullText;
       }
       
-      const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() };
-      const finalHistory = [...updatedMessages, aiMsg];
-      setMessages(finalHistory);
-      storageService.saveChatHistory(user.id, finalHistory, preferences.targetLanguage);
+      // Finalize history save
+      const finalHistory = [...messages, userMsg, { id: tempAiId, role: 'model', text: finalResponseText, timestamp: Date.now() }];
+      storageService.saveChatHistory(user.id, finalHistory as ChatMessage[], preferences.targetLanguage);
       
       if (isCallActive) {
-          handleSpeak(responseText);
+          handleSpeak(finalResponseText);
       }
       
       refreshUserData();
     } catch (error) {
+      // If error, remove the placeholder or show error text
+      setMessages(prev => prev.filter(m => m.id !== tempAiId));
       handleErrorAction(error);
     } finally { 
       setIsLoading(false); 
@@ -723,8 +748,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </div>
       )}
 
-      {/* ... Other Overlays ... */}
-
       {/* HEADER */}
       <header className="fixed top-0 left-0 right-0 z-40 bg-white/90 dark:bg-slate-900/95 backdrop-blur-md shadow-sm h-14 md:h-16 px-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
         
@@ -743,10 +766,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
              <ChevronDown className={`w-3 h-3 transition-transform shrink-0 ${showSmartOptions ? 'rotate-180' : ''}`} />
           </button>
 
-          {/* ... Smart Options ... */}
+          {/* Smart Options */}
           {showSmartOptions && (
               <div className="absolute top-12 left-0 md:left-10 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-2 animate-fade-in z-50">
-                  {/* ... Existing Options ... */}
                   <div className="space-y-1">
                       <button onClick={handleStartTraining} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors">
                           <BrainCircuit className="w-4 h-4 text-orange-500"/>
@@ -756,7 +778,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                           <Phone className="w-4 h-4 text-purple-500"/>
                           <span className="text-slate-700 dark:text-slate-300">Appel Vocal</span>
                       </button>
-                      {/* ... other buttons ... */}
                        <button onClick={() => { setShowSmartOptions(false); onChangeMode(); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors group">
                           <Library className="w-4 h-4 text-indigo-500"/>
                           <span className="text-slate-700 dark:text-slate-300">Autres Cours</span>
@@ -798,10 +819,59 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     <Menu className="w-5 h-5" />
                  </button>
                  
-                 {/* MENU DROPDOWN (Existing) */}
+                 {/* MENU DROPDOWN */}
                  {showMenu && (
                      <div className="absolute top-12 right-0 w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-3 animate-fade-in z-50">
-                         {/* ... Menu Content ... */}
+                         {/* Enhanced Search */}
+                         <div className="p-2 border-b border-slate-100 dark:border-slate-800 mb-2">
+                             <div className="relative flex items-center">
+                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"/>
+                                 <input 
+                                    type="text" 
+                                    placeholder="Rechercher..." 
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full bg-slate-50 dark:bg-black/20 text-sm py-2 pl-9 pr-16 rounded-lg border-none outline-none focus:ring-1 focus:ring-indigo-500"
+                                 />
+                                 {searchQuery && matchingMessages.length > 0 && (
+                                     <div className="absolute right-1 flex items-center gap-1">
+                                         <span className="text-[10px] text-slate-400 font-bold mr-1">{currentMatchIndex + 1}/{matchingMessages.length}</span>
+                                         <button onClick={handlePrevMatch} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><ChevronUp className="w-3 h-3 text-slate-500"/></button>
+                                         <button onClick={handleNextMatch} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><ChevronDown className="w-3 h-3 text-slate-500"/></button>
+                                     </div>
+                                 )}
+                             </div>
+                         </div>
+                        
+                         {/* Controls Grid */}
+                         <div className="grid grid-cols-2 gap-2 mb-2">
+                             <button onClick={() => { setShowSummaryResultModal(false); setShowMenu(true); }} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                                 <div className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <BookOpen className="w-5 h-5 text-indigo-500"/>
+                                 </div>
+                                 <div className="w-full">
+                                    <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Résumé</span>
+                                    <div className="flex items-center justify-center gap-1 mt-1">
+                                        <input type="number" placeholder="#" value={summaryInputVal} onChange={e => setSummaryInputVal(e.target.value)} onClick={e => e.stopPropagation()} className="w-8 text-center bg-transparent border-b border-slate-300 dark:border-slate-600 text-xs focus:border-indigo-500 outline-none"/>
+                                        <div onClick={(e) => { e.stopPropagation(); handleValidateSummary(); }} className="text-[10px] font-black text-indigo-600 cursor-pointer">GO</div>
+                                    </div>
+                                 </div>
+                             </button>
+
+                             <button className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                                 <div className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <RotateCcw className="w-5 h-5 text-emerald-500"/>
+                                 </div>
+                                 <div className="w-full">
+                                    <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Aller à</span>
+                                    <div className="flex items-center justify-center gap-1 mt-1">
+                                        <input type="number" placeholder="#" value={jumpInputVal} onChange={e => setJumpInputVal(e.target.value)} onClick={e => e.stopPropagation()} className="w-8 text-center bg-transparent border-b border-slate-300 dark:border-slate-600 text-xs focus:border-emerald-500 outline-none"/>
+                                        <div onClick={(e) => { e.stopPropagation(); handleValidateJump(); }} className="text-[10px] font-black text-emerald-600 cursor-pointer">GO</div>
+                                    </div>
+                                 </div>
+                             </button>
+                         </div>
+
                          <div className="grid grid-cols-2 gap-2 mb-2 border-t border-slate-100 dark:border-slate-800 pt-2">
                              <button onClick={toggleTheme} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-center gap-2 transition-colors">
                                  {isDarkMode ? <Sun className="w-4 h-4 text-amber-500"/> : <Moon className="w-4 h-4 text-indigo-500"/>}
@@ -870,6 +940,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         >
                              {msg.role === 'user' ? <p className="whitespace-pre-wrap">{msg.text}</p> : (
                                 <>
+                                    {/* Streaming Logic: Render what we have so far */}
                                     <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} highlight={searchQuery} />
                                     
                                     {/* Start Button on First Message */}
@@ -898,6 +969,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 </div>
             );
         })}
+        
+        {/* Loading Indicator */}
         {(isLoading || isAnalyzing) && (
              <div className="flex justify-start animate-fade-in">
                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1">
@@ -914,7 +987,27 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       {/* Input Area */}
       <div id="input-area" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 p-3 md:p-4 sticky bottom-0">
         
-        {/* ... (Generated Image Display) ... */}
+        {/* Generated Image Display */}
+        {(isGeneratingImage || generatedImage) && (
+            <div className="max-w-md mx-auto mb-4 relative animate-fade-in-up">
+                {isGeneratingImage ? (
+                    <div className="h-48 w-full bg-slate-100 dark:bg-slate-800 rounded-2xl flex flex-col items-center justify-center border border-slate-200 dark:border-slate-700">
+                        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-2" />
+                        <span className="text-xs font-bold text-slate-500">Création artistique en cours...</span>
+                    </div>
+                ) : (
+                    <div className="relative group">
+                         <img src={generatedImage!} alt="Concept" className="w-full h-48 object-cover rounded-2xl shadow-lg border border-white/20" />
+                         <button 
+                            onClick={() => setGeneratedImage(null)}
+                            className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-full backdrop-blur-sm transition-colors"
+                         >
+                            <X className="w-4 h-4" />
+                         </button>
+                    </div>
+                )}
+            </div>
+        )}
 
         {/* Quick Actions Toolbar */}
         <div className="max-w-4xl mx-auto mb-2 flex items-center gap-2 px-2 overflow-x-auto scrollbar-hide">
