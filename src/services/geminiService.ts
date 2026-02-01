@@ -1,26 +1,28 @@
-
 import { GoogleGenAI, Modality } from "@google/genai";
 import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, VoiceCallSummary } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
-// Helper to create a fresh client instance with the environment key
+// Helper to create a fresh client instance with rotation logic
 const getAiClient = () => {
-    // API key must be obtained exclusively from the environment variable process.env.API_KEY
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) {
-        throw new Error("API_KEY_MISSING: La variable d'environnement API_KEY est absente.");
+    // API key obtained from process.env.API_KEY (supports comma-separated list for rotation)
+    const apiKeyRaw = process.env.API_KEY || "";
+    const keys = apiKeyRaw.split(',').map(k => k.trim()).filter(Boolean);
+    
+    if (keys.length === 0) {
+        throw new Error("API_KEY_MISSING: La variable d'environnement API_KEY est absente ou vide.");
     }
+    
+    // Pick a random key from the list to handle quotas/rotation
+    const apiKey = keys[Math.floor(Math.random() * keys.length)];
+    
     // Initialization must use a named parameter
     return new GoogleGenAI({ apiKey });
 };
 
-// Use recommended model names as per guidelines
-// Basic Text Tasks: 'gemini-3-flash-preview'
+// Recommended model names
 const TEXT_MODEL = 'gemini-3-flash-preview';
-// gemini tts: 'gemini-2.5-flash-preview-tts'
 const TTS_MODEL = 'gemini-2.5-flash-preview-tts';
-// gemini flash image: 'gemini-2.5-flash-image'
 const IMAGE_MODEL = 'gemini-2.5-flash-image';
 
 const sanitizeHistory = (history: ChatMessage[]) => {
@@ -41,7 +43,6 @@ export const sendMessageToGemini = async (
 
     const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
 
-    // Call generateContent with model name and prompt/history
     const response = await ai.models.generateContent({
         model: TEXT_MODEL,
         contents: [...sanitizeHistory(history), { role: 'user', parts: [{ text: message }] }],
@@ -53,7 +54,6 @@ export const sendMessageToGemini = async (
     });
 
     storageService.deductCreditOrUsage(userId);
-    // Access .text property directly (not a method)
     return response.text || "Désolé, je n'ai pas pu générer de réponse.";
 };
 
@@ -82,7 +82,6 @@ export const generateVoiceChatResponse = async (
         }
     });
 
-    // Access .text property directly
     return response.text || "Je vous écoute.";
 };
 
@@ -104,7 +103,6 @@ export const generateSpeech = async (text: string, userId: string): Promise<Arra
         }
     });
 
-    // Extract audio data from the response part
     const base64Data = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
     if (!base64Data) return null;
 
@@ -116,7 +114,6 @@ export const generateSpeech = async (text: string, userId: string): Promise<Arra
     return bytes.buffer;
 };
 
-// Fix: startChatSession signature updated to accept arguments from App.tsx (Line 143/144 error fix)
 export const startChatSession = async (profile: UserProfile, prefs: UserPreferences, history: ChatMessage[]) => null;
 
 export const translateText = async (text: string, targetLang: string, userId: string): Promise<string> => {
@@ -162,8 +159,13 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
         config: { imageConfig: { aspectRatio: "16:9" } } as any
     });
     storageService.deductCreditOrUsage(userId);
+    
+    // FIX TS18048: Avoid direct access to potentially undefined nested properties
     const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-    return part ? `data:image/png;base64,${part.inlineData.data}` : null;
+    const imageData = part?.inlineData?.data;
+    const mimeType = part?.inlineData?.mimeType || 'image/png';
+    
+    return imageData ? `data:${mimeType};base64,${imageData}` : null;
 };
 
 export const analyzeUserProgress = async (history: ChatMessage[], memory: string, userId: string) => {
