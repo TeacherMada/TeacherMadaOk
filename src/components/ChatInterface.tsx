@@ -227,7 +227,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const toggleListening = () => { if (isListening) stopListening(); else startListening(); };
 
-  const handleStartCall = () => {
+  const handleStartCall = async () => {
       if (!storageService.canPerformRequest(user.id).allowed) {
           setShowPaymentModal(true);
           return;
@@ -240,16 +240,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setIsAnalyzingCall(false);
       
       // Warm up audio context on user click
-      getAudioContext().then(() => {
-          setTimeout(() => {
-              setIsCallConnecting(false);
-              const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
-              const greeting = isMg 
-                ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika...`
-                : `Allô ${user.username} ! 😊 Nous allons pratiquer le ${preferences.targetLanguage}...`;
-              handleSpeak(greeting);
-          }, 1500);
-      });
+      await getAudioContext();
+      
+      setTimeout(() => {
+          setIsCallConnecting(false);
+          const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
+          const greeting = isMg 
+            ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika...`
+            : `Allô ${user.username} ! 😊 Nous allons pratiquer le ${preferences.targetLanguage}...`;
+          handleSpeak(greeting);
+      }, 1500);
   };
 
   const handleSend = async (textOverride?: string) => {
@@ -283,15 +283,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       let finalResponseText = "";
       
       if (isCallActive) {
-          // Pass 'messages' (current history BEFORE userMsg) to prevent duplication in prompt if necessary,
-          // but better to pass 'newHistory' for context continuity.
           finalResponseText = await generateVoiceChatResponse(textToSend, user.id, newHistory);
       } else {
-          // Pass 'messages' (current history BEFORE userMsg) to prevent duplication in prompt
-          // NOTE: We pass 'messages' (the state before update) effectively as context, 
-          // or 'newHistory' if we want the AI to see the latest user message in history array.
-          // sendMessageToGemini handles standard generation.
-          finalResponseText = await sendMessageToGemini(textToSend, user.id, messages);
+          // IMPORTANT: Pass newHistory to service to ensure context continuity
+          finalResponseText = await sendMessageToGemini(textToSend, user.id, newHistory);
       }
       
       const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: finalResponseText, timestamp: Date.now() };
@@ -344,7 +339,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     stopListening();
     if (msgId) lastSpokenMessageId.current = msgId;
     setIsPlayingAudio(true);
-    const cleanText = text.replace(/[*#_`~]/g, '');
+    
+    // Clean text to avoid TTS issues
+    const cleanText = text.replace(/[*#_`~]/g, '').trim();
+    
     try {
         const rawAudioBuffer = await generateSpeech(cleanText, user.id);
         if (rawAudioBuffer) {
@@ -442,7 +440,28 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       } catch(e) { notify("Erreur export", 'error'); }
   };
   
-  const getLanguageDisplay = () => { const lang = preferences.targetLanguage; if (lang.includes("Chinois")) return "Chinois 🇨🇳"; const parts = lang.split(' '); return `${parts[0]} ${parts[parts.length - 1]}`; };
+  const getLanguageDisplay = () => { 
+      const lang = preferences.targetLanguage; 
+      const level = preferences.level.split(' ')[0]; // Extract A1, B2, etc.
+      
+      let flag = "🏳️";
+      let name = lang;
+      
+      if (lang.includes("Chinois")) { flag = "🇨🇳"; name = "Chinois"; }
+      else if (lang.includes("Anglais")) { flag = "🇬🇧"; name = "Anglais"; }
+      else if (lang.includes("Français")) { flag = "🇫🇷"; name = "Français"; }
+      else if (lang.includes("Espagnol")) { flag = "🇪🇸"; name = "Espagnol"; }
+      else if (lang.includes("Allemand")) { flag = "🇩🇪"; name = "Allemand"; }
+      else {
+          const parts = lang.split(' ');
+          if (parts.length > 1) {
+              name = parts[0];
+              flag = parts[parts.length - 1];
+          }
+      }
+      
+      return `${name} ${flag} ${level}`; 
+  };
   
   const handleEndCall = async () => { stopListening(); stopAudio(); closeCallOverlay(); };
   const closeCallOverlay = () => { setIsCallActive(false); setIsCallConnecting(false); setCallSummary(null); setIsMuted(false); setCallSeconds(0); setShowVoiceInput(false); };
@@ -561,7 +580,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         <div className="flex-1 flex items-center justify-end gap-2">
              <button onClick={() => setShowPaymentModal(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/50`}>
                   <Coins className={`w-3.5 h-3.5 text-amber-500 group-hover:rotate-12 transition-transform`} />
-                  <span className={`text-xs font-bold text-indigo-900 dark:text-indigo-100`}>{user.role === 'admin' ? '∞' : user.credits}</span>
+                  <span className={`text-xs font-bold text-indigo-900 dark:text-indigo-100 hidden sm:inline`}>{user.role === 'admin' ? '∞' : user.credits}</span>
              </button>
              <div className="relative">
                  <button onClick={() => setShowMenu(!showMenu)} className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}><Menu className="w-5 h-5" /></button>
@@ -664,9 +683,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       <div id="chat-feed" ref={chatContainerRef} className={`flex-1 overflow-y-auto p-3 md:p-4 space-y-4 md:space-y-6 pt-20 pb-4 scrollbar-hide`}>
         {messages.filter(msg => !searchQuery || msg.text.toLowerCase().includes(searchQuery.toLowerCase())).map((msg, index) => {
             const isCurrentMatch = matchingMessages[currentMatchIndex]?.id === msg.id;
+            const isLastModelMessage = index === messages.length - 1 && msg.role === 'model';
+
             return (
-                <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
-                    <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in flex-col`}>
+                    
+                    {/* Badge for AI Messages */}
+                    {msg.role === 'model' && (
+                        <div className="self-start ml-12 mb-1 flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
+                                {preferences.targetLanguage.split(' ')[0]} • {preferences.level.split(' ')[0]}
+                            </span>
+                        </div>
+                    )}
+
+                    <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse self-end' : 'flex-row self-start'}`}>
                         {msg.role === 'user' ? (
                             <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs shadow-sm mt-1 mx-2 border border-white dark:border-slate-800">{user.username.charAt(0).toUpperCase()}</div>
                         ) : (
@@ -678,11 +709,34 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                              {msg.role === 'user' ? <p className="whitespace-pre-wrap">{msg.text}</p> : (
                                 <>
                                     <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} highlight={searchQuery} />
-                                    {/* Action Buttons */}
-                                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50" data-html2canvas-ignore>
-                                        <button onClick={() => handleSpeak(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"><Volume2 className="w-4 h-4 text-slate-400 hover:text-indigo-500"/></button>
-                                        <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">{copiedId === msg.id ? <Check className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4 text-slate-400"/>}</button>
-                                        <button onClick={() => handleExportImage(msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><ImageIcon className="w-4 h-4 text-slate-400 hover:text-purple-500"/></button>
+                                    
+                                    {/* Start Button: Only if it's the VERY FIRST message in the entire history */}
+                                    {index === 0 && messages.length === 1 && !isLoading && (
+                                        <div className="mt-3 text-center animate-fade-in">
+                                            <button 
+                                                onClick={() => handleSend("Commence le cours")}
+                                                className="px-6 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all text-sm"
+                                            >
+                                                Commencer la leçon
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Action Buttons Layout - Reorganized */}
+                                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50" data-html2canvas-ignore>
+                                        {/* Left Side: Tools */}
+                                        <div className="flex items-center gap-1">
+                                            <button onClick={() => handleSpeak(msg.text, msg.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Écouter"><Volume2 className="w-4 h-4 text-slate-400 hover:text-indigo-500"/></button>
+                                            <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Copier">{copiedId === msg.id ? <Check className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4 text-slate-400"/>}</button>
+                                            <button onClick={() => handleExportImage(msg.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors" title="Image"><ImageIcon className="w-4 h-4 text-slate-400 hover:text-purple-500"/></button>
+                                        </div>
+                                        
+                                        {/* Right Side: Next Button (Only on last AI message) */}
+                                        {isLastModelMessage && !isLoading && (
+                                            <button onClick={() => handleSend("Suivant")} className="flex items-center gap-1 pl-3 pr-2 py-1 bg-slate-100 dark:bg-slate-700 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-full text-xs font-bold transition-colors">
+                                                Suivant <ArrowRight className="w-3 h-3"/>
+                                            </button>
+                                        )}
                                     </div>
                                 </>
                              )}

@@ -8,7 +8,8 @@ let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
-const PRIMARY_MODEL = 'gemini-3-flash-preview'; 
+// Switched to 2.0 Flash for stability and speed (fixes connection errors on previews)
+const PRIMARY_MODEL = 'gemini-2.0-flash'; 
 
 const FALLBACK_CHAIN = [
     'gemini-2.0-flash-lite-preview-02-05', 
@@ -139,7 +140,7 @@ const checkCreditsBeforeAction = (userId: string) => {
 
 const sanitizeHistory = (history: ChatMessage[]) => {
     // Keep more context for standard generation to ensure lessons follow up correctly
-    const recentHistory = history.slice(-20); 
+    const recentHistory = history.slice(-15); 
     const cleanHistory = [...recentHistory];
     
     // Ensure history starts with user message if possible, though Gemini is flexible
@@ -183,7 +184,7 @@ export const sendMessageToGemini = async (
             config: {
                 systemInstruction: systemInstruction,
                 temperature: 0.7, 
-                maxOutputTokens: 4000, // Ensure long lessons are not cut off
+                maxOutputTokens: 2000, 
             },
             history: historyPayload,
         });
@@ -211,12 +212,15 @@ export const generateVoiceChatResponse = async (
         const systemInstruction = `
             ACT: Friendly language tutor.
             USER: ${user.username}. TARGET: ${user.preferences.targetLanguage}.
-            RULES: Short spoken response. Natural. Max 2 sentences.
+            RULES: Short spoken response. Natural. Max 2 sentences. No markdown.
         `;
+        
+        // Use stricter history for voice to keep context tight
         const historyParts = sanitizeHistory(history);
+        
         const chat = aiClient!.chats.create({
             model: modelName,
-            config: { systemInstruction, temperature: 0.6, maxOutputTokens: 150 },
+            config: { systemInstruction, temperature: 0.6, maxOutputTokens: 100 },
             history: historyParts as Content[],
         });
         const result = await chat.sendMessage({ message });
@@ -259,8 +263,11 @@ export const getLessonSummary = async (lessonNumber: number, context: string, us
 export const generateSpeech = async (text: string, userId: string, voiceName: string = 'Kore'): Promise<ArrayBuffer | null> => {
     return executeWithRetry(async (modelName) => {
         if (!text || !text.trim()) return null;
+        // Use a dedicated TTS model or fallback to 2.5
+        const ttsModel = "gemini-2.5-flash-preview-tts";
+        
         const response = await aiClient!.models.generateContent({
-            model: "gemini-2.5-flash-preview-tts",
+            model: ttsModel,
             contents: [{ parts: [{ text: `Read: ${text.substring(0, 4000)}` }] }],
             config: { responseModalities: [Modality.AUDIO], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } } },
         });
