@@ -227,7 +227,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const toggleListening = () => { if (isListening) stopListening(); else startListening(); };
 
-  const handleStartCall = () => {
+  const handleStartCall = async () => {
       if (!storageService.canPerformRequest(user.id).allowed) {
           setShowPaymentModal(true);
           return;
@@ -240,16 +240,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setIsAnalyzingCall(false);
       
       // Warm up audio context on user click
-      getAudioContext().then(() => {
-          setTimeout(() => {
-              setIsCallConnecting(false);
-              const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
-              const greeting = isMg 
-                ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika...`
-                : `Allô ${user.username} ! 😊 Nous allons pratiquer le ${preferences.targetLanguage}...`;
-              handleSpeak(greeting);
-          }, 1500);
-      });
+      await getAudioContext();
+      
+      setTimeout(() => {
+          setIsCallConnecting(false);
+          const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
+          const greeting = isMg 
+            ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika...`
+            : `Allô ${user.username} ! 😊 Nous allons pratiquer le ${preferences.targetLanguage}...`;
+          handleSpeak(greeting);
+      }, 1500);
   };
 
   const handleSend = async (textOverride?: string) => {
@@ -285,7 +285,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       if (isCallActive) {
           finalResponseText = await generateVoiceChatResponse(textToSend, user.id, newHistory);
       } else {
-          finalResponseText = await sendMessageToGemini(textToSend, user.id, messages);
+          // IMPORTANT: Pass newHistory to service to ensure context continuity
+          finalResponseText = await sendMessageToGemini(textToSend, user.id, newHistory);
       }
       
       const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: finalResponseText, timestamp: Date.now() };
@@ -339,15 +340,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (msgId) lastSpokenMessageId.current = msgId;
     setIsPlayingAudio(true);
     
-    // Aggressive cleaning to remove markdown and special chars that might break TTS
-    const cleanText = text.replace(/[*#_`~\[\]]/g, '').replace(/<[^>]*>/g, '').trim();
+    // Clean text to avoid TTS issues
+    const cleanText = text.replace(/[*#_`~]/g, '').trim();
     
     try {
         const rawAudioBuffer = await generateSpeech(cleanText, user.id);
         if (rawAudioBuffer) {
             const ctx = await getAudioContext();
-            if (ctx.state === 'suspended') await ctx.resume(); // CRITICAL: Ensure audio context is running
-            
             const decoded = await ctx.decodeAudioData(rawAudioBuffer);
             const source = ctx.createBufferSource();
             source.buffer = decoded;
@@ -356,12 +355,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             source.onended = () => { setIsPlayingAudio(false); if (isCallActive) startListening(); };
             source.start(0);
         } else { setIsPlayingAudio(false); if (isCallActive) startListening(); }
-    } catch (error: any) { 
-        console.error("Speech Error:", error);
-        setIsPlayingAudio(false); 
-        if (isCallActive) startListening(); 
-        if(error.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true); 
-    }
+    } catch (error: any) { setIsPlayingAudio(false); if (isCallActive) startListening(); if(error.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true); }
   };
 
   // --- Training Mode Handlers ---
@@ -459,7 +453,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       else if (lang.includes("Espagnol")) { flag = "🇪🇸"; name = "Espagnol"; }
       else if (lang.includes("Allemand")) { flag = "🇩🇪"; name = "Allemand"; }
       else {
-          // Attempt to extract if standard format "Name Flag"
           const parts = lang.split(' ');
           if (parts.length > 1) {
               name = parts[0];
@@ -566,21 +559,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           <button onClick={() => { stopAudio(); onChangeMode(); }} disabled={isAnalyzing} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all group disabled:opacity-50 shrink-0">
              {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin text-indigo-600" /> : <ArrowLeft className="w-5 h-5 text-slate-500 dark:text-slate-400 group-hover:text-indigo-600" />}
           </button>
-          
-          {/* Enhanced Badge Button */}
           <button onClick={() => setShowSmartOptions(!showSmartOptions)} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-800 dark:text-indigo-300 rounded-full border border-indigo-100 dark:border-indigo-900/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors max-w-full overflow-hidden">
              <Globe className="w-4 h-4 shrink-0" />
              <span className="text-xs font-bold whitespace-nowrap truncate">{getLanguageDisplay()}</span>
              <ChevronDown className={`w-3 h-3 transition-transform shrink-0 ${showSmartOptions ? 'rotate-180' : ''}`} />
           </button>
-          
           {showSmartOptions && (
               <div className="absolute top-12 left-0 md:left-10 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-2 animate-fade-in z-50">
                   <div className="space-y-1">
                       <button onClick={handleStartTraining} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors"><BrainCircuit className="w-4 h-4 text-orange-500"/><span className="text-slate-700 dark:text-slate-300">Exercice Pratique</span></button>
                       <button onClick={handleStartCall} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors"><Phone className="w-4 h-4 text-purple-500"/><span className="text-slate-700 dark:text-slate-300">Appel Vocal</span></button>
-                      {/* Traduction option explicitly added to dropdown */}
-                      <button onClick={() => { setShowSmartOptions(false); setInput('Traduis: '); textareaRef.current?.focus(); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors"><Languages className="w-4 h-4 text-blue-500"/><span className="text-slate-700 dark:text-slate-300">Traduction</span></button>
                        <button onClick={() => { setShowSmartOptions(false); onChangeMode(); }} className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors group"><Library className="w-4 h-4 text-indigo-500"/><span className="text-slate-700 dark:text-slate-300">Autres Cours</span></button>
                   </div>
               </div>
@@ -698,8 +686,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             const isLastModelMessage = index === messages.length - 1 && msg.role === 'model';
 
             return (
-                <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
-                    <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in flex-col`}>
+                    
+                    {/* Badge for AI Messages */}
+                    {msg.role === 'model' && (
+                        <div className="self-start ml-12 mb-1 flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
+                                {preferences.targetLanguage.split(' ')[0]} • {preferences.level.split(' ')[0]}
+                            </span>
+                        </div>
+                    )}
+
+                    <div className={`flex max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse self-end' : 'flex-row self-start'}`}>
                         {msg.role === 'user' ? (
                             <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs shadow-sm mt-1 mx-2 border border-white dark:border-slate-800">{user.username.charAt(0).toUpperCase()}</div>
                         ) : (
@@ -712,7 +710,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 <>
                                     <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} highlight={searchQuery} />
                                     
-                                    {/* Start Button: Only if it's the VERY FIRST message in the entire history (excluding system prompt logic if stored in front, but here messages usually start with greeting) */}
+                                    {/* Start Button: Only if it's the VERY FIRST message in the entire history */}
                                     {index === 0 && messages.length === 1 && !isLoading && (
                                         <div className="mt-3 text-center animate-fade-in">
                                             <button 
