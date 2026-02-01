@@ -87,7 +87,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const recognitionRef = useRef<any>(null);
-  const shouldScrollRef = useRef(true); // Control scrolling during stream
   const lastSpokenMessageId = useRef<string | null>(null);
 
   const preferences = user.preferences!;
@@ -134,7 +133,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       if (!isTrainingMode && !isDialogueActive && !searchQuery) scrollToBottom(false); 
   }, [messages.length, isTrainingMode, isDialogueActive, isLoading]);
 
-  // Resize Textarea (Debounced slightly if needed, but standard approach is OK)
+  // Resize Textarea
   useEffect(() => {
     if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
@@ -199,7 +198,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     recognition.onerror = (e: any) => { console.error(e); setIsListening(false); };
     recognition.onresult = (e: any) => {
       const text = e.results[0][0].transcript;
-      setInput(prev => prev + (prev ? ' ' : '') + text);
+      if (isCallActive) {
+          handleSend(text);
+      } else {
+          setInput(prev => prev + (prev ? ' ' : '') + text);
+      }
     };
     
     recognitionRef.current = recognition;
@@ -495,7 +498,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         })}
         {(isLoading || isAnalyzing) && (
              <div className="flex justify-start animate-fade-in">
-                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1"><img src="/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
+                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border flex items-center justify-center mt-1 mx-2 p-1"><img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain" alt="Teacher" /></div>
                  <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-none border shadow-sm flex items-center gap-2 min-w-[120px]"><TypingIndicator /></div>
              </div>
         )}

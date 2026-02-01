@@ -8,7 +8,7 @@ let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
-// Using stable model as primary to avoid 404s
+// Primary Model: Stable production model
 const PRIMARY_MODEL = 'gemini-2.0-flash'; 
 
 const FALLBACK_CHAIN = [
@@ -54,7 +54,7 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
 
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
-    // Safety check for unstable models
+    // Safety check: if stored model is 3.0 preview (unstable), fallback to PRIMARY
     if (settings.activeModel === 'gemini-3-flash-preview') return PRIMARY_MODEL;
     return settings.activeModel || PRIMARY_MODEL;
 };
@@ -134,8 +134,7 @@ const checkCreditsBeforeAction = (userId: string) => {
 
 const sanitizeHistory = (history: ChatMessage[]) => {
     const cleanHistory = [...history];
-    // Gemini 1.5/2.0 requires strictly alternating user/model or starting with user.
-    // We remove any leading model messages.
+    // Ensure history starts with user
     while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
         cleanHistory.shift();
     }
@@ -148,6 +147,7 @@ export const startChatSession = async (profile: UserProfile, prefs: UserPreferen
   return null; 
 };
 
+// === STREAMING CHAT ===
 export const sendMessageToGeminiStream = async (
     message: string, 
     userId: string,
@@ -187,45 +187,6 @@ export const sendMessageToGeminiStream = async (
     }, userId);
 };
 
-export const generateVocabularyFromHistory = async (userId: string, history: ChatMessage[]): Promise<VocabularyItem[]> => {
-    const status = storageService.canPerformRequest(userId);
-    if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
-
-    return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
-        const user = storageService.getUserById(userId);
-        const explanationLang = user?.preferences?.explanationLanguage || "Français";
-
-        const recentHistory = history.slice(-20).map(m => m.text).join("\n");
-
-        const prompt = `
-            Analyze conversation. Extract 5 key vocabulary words used.
-            Output ONLY valid JSON array:
-            [
-                { "word": "word in target lang", "translation": "translation in ${explanationLang}", "context": "short context" }
-            ]
-        `;
-
-        const response = await aiClient!.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
-        });
-
-        storageService.deductCreditOrUsage(userId);
-
-        const json = safeJsonParse(response.text, []);
-        return json.map((item: any, index: number) => ({
-            id: `auto_${Date.now()}_${index}`,
-            word: item.word || "Mot",
-            translation: item.translation || "?",
-            context: item.context || "",
-            mastered: false,
-            addedAt: Date.now()
-        }));
-    }, userId);
-};
-
 export const sendMessageToGemini = async (message: string, userId: string): Promise<string> => {
   let fullText = '';
   // @ts-ignore
@@ -233,7 +194,11 @@ export const sendMessageToGemini = async (message: string, userId: string): Prom
   return fullText;
 };
 
-export const generateVoiceChatResponse = async (message: string, userId: string, history: ChatMessage[]): Promise<string> => {
+export const generateVoiceChatResponse = async (
+    message: string, 
+    userId: string, 
+    history: ChatMessage[]
+): Promise<string> => {
     const status = storageService.canPerformRequest(userId);
     if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
 
@@ -243,16 +208,22 @@ export const generateVoiceChatResponse = async (message: string, userId: string,
         if (!user || !user.preferences) throw new Error("User data missing");
 
         const systemInstruction = `
-            ACT: Friendly language tutor.
-            USER: ${user.username}. TARGET: ${user.preferences.targetLanguage}.
-            RULES: Short spoken response. Natural.
+            ACT: Friendly language tutor on a phone call.
+            USER: ${user.username}. LEVEL: ${user.preferences.level}. TARGET: ${user.preferences.targetLanguage}.
+            RULES: Keep it short (max 2 sentences). Speak naturally. No markdown formatting.
         `;
+
         const historyParts = sanitizeHistory(history.slice(-6));
         const chat = aiClient!.chats.create({
             model: modelName,
-            config: { systemInstruction, temperature: 0.6, maxOutputTokens: 150 },
+            config: {
+                systemInstruction: systemInstruction,
+                temperature: 0.6, 
+                maxOutputTokens: 150, 
+            },
             history: historyParts as Content[],
         });
+
         const result = await chat.sendMessage({ message });
         return result.text || "Je vous écoute.";
     }, userId);
@@ -263,7 +234,7 @@ export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId
         if (!aiClient) initializeGenAI();
         const user = storageService.getUserById(userId);
         const conversation = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
-        const prompt = `Analyze this conversation. Return JSON: { "score": number(1-10), "feedback": "string", "tip": "string" }`;
+        const prompt = `Analyze conversation. Return JSON: { "score": number(1-10), "feedback": "string", "tip": "string" }`;
         const response = await aiClient!.models.generateContent({
             model: modelName,
             contents: prompt,
@@ -327,10 +298,9 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
         });
         storageService.deductCreditOrUsage(userId);
         
-        // Fix: Use optional chaining or check for inlineData existence
+        // FIX: TS18048 - Check for existence safely
         const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-        
-        if (part?.inlineData) {
+        if (part?.inlineData?.data) {
              return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
         }
         return null;
@@ -408,4 +378,43 @@ export const generateLevelExample = async (targetLang: string, level: string): P
         const response = await aiClient!.models.generateContent({ model: modelName, contents: `Sentence in ${targetLang} level ${level}.` });
         return response.text?.trim() || "";
     }, 'system');
+};
+
+export const generateVocabularyFromHistory = async (userId: string, history: ChatMessage[]): Promise<VocabularyItem[]> => {
+    const status = storageService.canPerformRequest(userId);
+    if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
+
+    return executeWithRetry(async (modelName) => {
+        if (!aiClient) initializeGenAI();
+        const user = storageService.getUserById(userId);
+        const explanationLang = user?.preferences?.explanationLanguage || "Français";
+
+        const recentHistory = history.slice(-20).map(m => m.text).join("\n");
+
+        const prompt = `
+            Analyze conversation. Extract 5 key vocabulary words used.
+            Output ONLY valid JSON array:
+            [
+                { "word": "word in target lang", "translation": "translation in ${explanationLang}", "context": "short context" }
+            ]
+        `;
+
+        const response = await aiClient!.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+        });
+
+        storageService.deductCreditOrUsage(userId);
+
+        const json = safeJsonParse(response.text, []);
+        return json.map((item: any, index: number) => ({
+            id: `auto_${Date.now()}_${index}`,
+            word: item.word || "Mot",
+            translation: item.translation || "?",
+            context: item.context || "",
+            mastered: false,
+            addedAt: Date.now()
+        }));
+    }, userId);
 };
