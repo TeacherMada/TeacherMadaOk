@@ -5,10 +5,9 @@ import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
 let aiClient: GoogleGenAI | null = null;
-let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
-// Switched to 2.0 Flash for stability and speed (fixes connection errors on previews)
+// Switched to 2.0 Flash for stability and speed
 const PRIMARY_MODEL = 'gemini-2.0-flash'; 
 
 const FALLBACK_CHAIN = [
@@ -24,31 +23,15 @@ export interface RoleplayResponse {
     explanation?: string;
 }
 
-const getAvailableKeys = (): string[] => {
-    const settings = storageService.getSystemSettings();
-    let keys = settings.apiKeys && settings.apiKeys.length > 0 ? settings.apiKeys : [];
+const initializeGenAI = () => {
+    // STRICT: Use Render environment variable only as requested
+    const apiKey = process.env.API_KEY;
     
-    // @ts-ignore
-    const envKey = import.meta.env.VITE_GOOGLE_API_KEY;
-    if (envKey && !keys.includes(envKey)) {
-        keys.push(envKey);
-    }
-    return Array.from(new Set(keys)).filter(k => k && k.trim().length > 0);
-};
-
-const initializeGenAI = (forceNextKey: boolean = false) => {
-    const keys = getAvailableKeys();
-    if (keys.length === 0) {
-      console.error("CRITICAL: No API Keys available.");
+    if (!apiKey) {
+      console.error("CRITICAL: process.env.API_KEY is missing. Please check Render Environment Variables.");
       return null;
     }
-    if (forceNextKey) {
-        currentKeyIndex = (currentKeyIndex + 1) % keys.length;
-    } else {
-        currentKeyIndex = Math.floor(Math.random() * keys.length);
-    }
-    const apiKey = keys[currentKeyIndex];
-    if (!apiKey) return null;
+
     try {
         aiClient = new GoogleGenAI({ apiKey });
     } catch (e) {
@@ -111,20 +94,16 @@ const executeWithRetry = async <T>(
         return await operation(modelName);
     } catch (error: any) {
         const msg = error.message || JSON.stringify(error);
-        if (msg.includes("API_KEY_MISSING")) throw new Error("Configuration API manquante.");
+        if (msg.includes("API_KEY_MISSING")) throw new Error("Configuration API manquante (process.env.API_KEY).");
 
         const isQuotaError = msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted');
         const isModelError = msg.includes('404') || msg.includes('not found') || msg.includes('models/');
-        const keys = getAvailableKeys();
 
         if (isQuotaError || isModelError) {
             console.warn(`API Error (${isQuotaError ? 'Quota' : 'Model'}). Retrying...`);
-            if (isQuotaError && attempt < keys.length) {
-                initializeGenAI(true); 
-                return executeWithRetry(operation, userId, attempt + 1, fallbackIndex);
-            } 
+            
+            // Try fallback models since we only have one key
             if (fallbackIndex < FALLBACK_CHAIN.length - 1) {
-                initializeGenAI(true); 
                 return executeWithRetry(operation, userId, 0, fallbackIndex + 1);
             }
         }
