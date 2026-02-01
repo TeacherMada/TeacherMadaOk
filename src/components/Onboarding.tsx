@@ -3,8 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { TargetLanguage, ExplanationLanguage, LearningMode, UserPreferences, LanguageLevel, LevelDescriptor } from '../types';
 import { LEVEL_DEFINITIONS } from '../constants';
 import { storageService } from '../services/storageService';
-import { generateLevelExample } from '../services/geminiService';
-import { BookOpen, Languages, GraduationCap, Sun, Moon, ArrowLeft, CheckCircle2, Info, HelpCircle, Loader2, RefreshCw, PenTool } from 'lucide-react';
+import { BookOpen, Languages, GraduationCap, Sun, Moon, ArrowLeft, CheckCircle2, Info, HelpCircle, Loader2, Lightbulb } from 'lucide-react';
 
 interface OnboardingProps {
   onComplete: (prefs: UserPreferences) => void;
@@ -18,7 +17,6 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   const [selectedLevelDesc, setSelectedLevelDesc] = useState<LevelDescriptor | null>(null);
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [customLangs, setCustomLangs] = useState<any[]>([]);
-  const [isGeneratingExample, setIsGeneratingExample] = useState(false);
 
   // Fetch Admin languages on mount
   useEffect(() => {
@@ -55,7 +53,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
     setStep(2);
   };
 
-  const handleLevelSelect = async (levelCode: string) => {
+  const handleLevelSelect = (levelCode: string) => {
       const desc = LEVEL_DEFINITIONS[levelCode] || { 
           code: levelCode as LanguageLevel, 
           title: levelCode, 
@@ -63,23 +61,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
           skills: [], 
           example: "" 
       };
-      
       setSelectedLevelDesc(desc);
-      
-      // Dynamic Example Generation
-      if (prefs.targetLanguage) {
-          setIsGeneratingExample(true);
-          try {
-              const example = await generateLevelExample(prefs.targetLanguage, levelCode);
-              if (example) {
-                  setSelectedLevelDesc(prev => prev ? ({ ...prev, example }) : null);
-              }
-          } catch (e) {
-              console.warn("Failed to generate dynamic example", e);
-          } finally {
-              setIsGeneratingExample(false);
-          }
-      }
   };
 
   const confirmLevel = () => {
@@ -221,15 +203,14 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
                         ))}
                     </ul>
                     
-                    <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border-l-4 border-indigo-500 shadow-sm relative overflow-hidden">
-                        <span className="text-xs font-bold text-indigo-500 block mb-1">EXEMPLE CONCRET</span>
-                        {isGeneratingExample ? (
-                            <div className="flex items-center gap-2 text-slate-500 text-sm">
-                                <PenTool className="w-4 h-4 animate-pulse text-indigo-500"/> TeacherMada écrit...
-                            </div>
-                        ) : (
-                            <p className="text-slate-800 dark:text-slate-100 font-medium">"{selectedLevelDesc.example}"</p>
-                        )}
+                    {/* Clean Fun Fact / Tip Section */}
+                    <div className="bg-amber-50 dark:bg-amber-900/10 p-4 rounded-xl border border-amber-100 dark:border-amber-900/30">
+                        <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-xs mb-1">
+                            <Lightbulb className="w-4 h-4" /> LE SAVIEZ-VOUS ?
+                        </div>
+                        <p className="text-slate-700 dark:text-slate-300 text-sm">
+                            Une pratique régulière de 15 minutes par jour est plus efficace que 2 heures une fois par semaine.
+                        </p>
                     </div>
                 </div>
 
