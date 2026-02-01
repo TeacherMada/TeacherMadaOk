@@ -43,16 +43,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isSending, setIsSending] = useState(false); 
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showSmartOptions, setShowSmartOptions] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [imgErrors, setImgErrors] = useState<Record<string, boolean>>({});
   
-  // Voice & Call
   const [isCallActive, setIsCallActive] = useState(false);
   const [isCallConnecting, setIsCallConnecting] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -62,7 +59,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isAnalyzingCall, setIsAnalyzingCall] = useState(false);
   const [showVoiceInput, setShowVoiceInput] = useState(false);
   
-  // Others
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,12 +76,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [showTutorial, setShowTutorial] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
-  // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null); 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
-  // Fix: Use one persistent AudioContext reference
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const recognitionRef = useRef<any>(null);
@@ -99,9 +93,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const courseKey = `${currentLang}-${currentLevel}`;
       const lessonsDone = user.stats.progressByLevel?.[courseKey] || 0;
       const percentage = Math.min((lessonsDone / 50) * 100, 100);
-      const isLevelComplete = lessonsDone >= 50;
-      const nextLevelLabel = NEXT_LEVEL_MAP[currentLevel] || 'Expert';
-      return { lessonsDone, total: 50, percentage, courseKey, nextLevelLabel, isLevelComplete };
+      return { lessonsDone, percentage };
   }, [user.stats.progressByLevel, preferences.targetLanguage, preferences.level]);
 
   const lastLessonInChat = useMemo(() => {
@@ -119,10 +111,43 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     return (progressData.lessonsDone + 1).toString();
   }, [lastLessonInChat, progressData.lessonsDone]);
 
-  // Smart Auto-Scroll Logic
+  // Search Logic
+  const matchingMessages = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    return messages
+      .map((m, i) => ({ id: m.id, index: i, match: m.text.toLowerCase().includes(searchQuery.toLowerCase()) }))
+      .filter(m => m.match);
+  }, [messages, searchQuery]);
+
+  useEffect(() => {
+    setCurrentMatchIndex(0);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (matchingMessages.length > 0) {
+      const match = matchingMessages[currentMatchIndex];
+      const el = document.getElementById(`msg-${match.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [currentMatchIndex, matchingMessages]);
+
+  const handleNextMatch = () => {
+    if (matchingMessages.length === 0) return;
+    setCurrentMatchIndex(prev => (prev + 1) % matchingMessages.length);
+  };
+
+  const handlePrevMatch = () => {
+    if (matchingMessages.length === 0) return;
+    setCurrentMatchIndex(prev => (prev - 1 + matchingMessages.length) % matchingMessages.length);
+  };
+
+  // SMART AUTO-SCROLL
   const scrollToBottom = (force = false) => { 
       if (chatContainerRef.current) {
           const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+          // Only scroll if user is already near bottom (150px tolerance) OR if forced
           const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
           if (force || isNearBottom) {
               messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
@@ -141,13 +166,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, [input]);
 
-  const matchingMessages = useMemo(() => {
-    if (!searchQuery.trim()) return [];
-    return messages
-      .map((m, i) => ({ id: m.id, index: i, match: m.text.toLowerCase().includes(searchQuery.toLowerCase()) }))
-      .filter(m => m.match);
-  }, [messages, searchQuery]);
-
   const getTextSizeClass = () => {
       switch (fontSize) {
           case 'small': return 'text-sm';
@@ -158,13 +176,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
   const textSizeClass = getTextSizeClass();
 
-  // Audio Context Singleton Logic
-  const getAudioContext = () => {
+  // ROBUST AUDIO CONTEXT SINGLETON
+  const getAudioContext = async () => {
       if (!audioContextRef.current) {
           audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
       if (audioContextRef.current.state === 'suspended') {
-          audioContextRef.current.resume();
+          await audioContextRef.current.resume();
       }
       return audioContextRef.current;
   };
@@ -183,8 +201,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         return;
     }
 
-    // @ts-ignore
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       notify("Reconnaissance vocale non supportée", 'error');
       return;
@@ -192,27 +209,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = false;
-    
-    let lang = 'fr-FR';
-    if (preferences.targetLanguage.includes("Anglais")) lang = 'en-US';
-    else if (preferences.targetLanguage.includes("Espagnol")) lang = 'es-ES';
-    else if (preferences.targetLanguage.includes("Allemand")) lang = 'de-DE';
-    else if (preferences.targetLanguage.includes("Chinois")) lang = 'zh-CN';
-    
-    recognition.lang = lang;
+    recognition.lang = 'fr-FR'; 
     
     recognition.onstart = () => setIsListening(true);
     recognition.onend = () => setIsListening(false);
     recognition.onerror = (e: any) => { console.error(e); setIsListening(false); };
     recognition.onresult = (e: any) => {
       const text = e.results[0][0].transcript;
-      if (isCallActive) {
-          handleSend(text);
-      } else {
-          setInput(prev => prev + (prev ? ' ' : '') + text);
-      }
+      if (isCallActive) { handleSend(text); } else { setInput(prev => prev + (prev ? ' ' : '') + text); }
     };
-    
     recognitionRef.current = recognition;
     recognition.start();
   };
@@ -231,22 +236,24 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setCallSummary(null);
       setIsAnalyzingCall(false);
       
-      setTimeout(() => {
-          setIsCallConnecting(false);
-          const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
-          const greeting = isMg 
-            ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika...`
-            : `Allô ${user.username} ! 😊 Nous allons pratiquer le ${preferences.targetLanguage}...`;
-          
-          handleSpeak(greeting);
-      }, 1500);
+      // Warm up audio context on user click
+      getAudioContext().then(() => {
+          setTimeout(() => {
+              setIsCallConnecting(false);
+              const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
+              const greeting = isMg 
+                ? `Allô ${user.username} ! 😊 Hianatra ${preferences.targetLanguage} miaraka isika...`
+                : `Allô ${user.username} ! 😊 Nous allons pratiquer le ${preferences.targetLanguage}...`;
+              handleSpeak(greeting);
+          }, 1500);
+      });
   };
 
   const handleSend = async (textOverride?: string) => {
     stopAudio();
     const textToSend = typeof textOverride === 'string' ? textOverride : input;
     
-    if (!textToSend.trim() || isLoading || isAnalyzing || isSending) return;
+    if (!textToSend.trim() || isLoading || isAnalyzing) return;
 
     if (!storageService.canPerformRequest(user.id).allowed) {
         notify("Crédit insuffisant.", 'error');
@@ -255,7 +262,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         return;
     }
     
-    setIsSending(true);
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
     const tempAiId = (Date.now() + 1).toString();
     const historyForAI = [...messages, userMsg];
@@ -277,7 +283,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           finalResponseText = await generateVoiceChatResponse(textToSend, user.id, historyForAI);
           setMessages(prev => prev.map(m => m.id === tempAiId ? { ...m, text: finalResponseText } : m));
       } else {
-          // REACTIVE STREAMING
+          // STREAMING
           const res = await sendMessageToGeminiStream(textToSend, user.id, historyForAI, (chunk) => {
               setMessages(currentMsgs => {
                   const msgs = [...currentMsgs];
@@ -287,8 +293,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   }
                   return msgs;
               });
-              setIsLoading(false); 
-              scrollToBottom(false);
+              // Smart Scroll Trigger during stream
+              scrollToBottom(false); 
           });
           finalResponseText = res.fullText;
       }
@@ -310,7 +316,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       }
     } finally { 
       setIsLoading(false); 
-      setIsSending(false); 
     }
   };
 
@@ -334,17 +339,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     finally { setIsGeneratingImage(false); }
   };
 
-  const handleValidateSummary = async () => {
-      const num = parseInt(summaryInputVal);
-      if (isNaN(num) || num < 1) return;
-      setIsGeneratingSummary(true); setShowSummaryResultModal(true); setShowMenu(false);
-      try {
-        const summary = await getLessonSummary(num, "Résumé", user.id);
-        setSummaryContent(summary);
-      } catch(e: any) { if(e.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true); } 
-      finally { setIsGeneratingSummary(false); }
-  };
-
   const handleSpeak = async (text: string, msgId?: string) => {
     stopAudio();
     stopListening();
@@ -354,7 +348,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     try {
         const rawAudioBuffer = await generateSpeech(cleanText, user.id);
         if (rawAudioBuffer) {
-            const ctx = getAudioContext();
+            const ctx = await getAudioContext();
             const decoded = await ctx.decodeAudioData(rawAudioBuffer);
             const source = ctx.createBufferSource();
             source.buffer = decoded;
@@ -366,37 +360,56 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     } catch (error: any) { setIsPlayingAudio(false); if (isCallActive) startListening(); if(error.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true); }
   };
 
+  // --- Training Mode Handlers ---
   const handleStartTraining = async () => {
-      setShowSmartOptions(false); setIsTrainingMode(true); setExercises([]);
+      setShowSmartOptions(false);
+      setIsTrainingMode(true);
+      setExercises([]);
+      setExerciseError(false);
       try {
+          if (!storageService.canPerformRequest(user.id).allowed) {
+             throw new Error('INSUFFICIENT_CREDITS');
+          }
           setIsLoadingExercises(true);
           const gen = await generatePracticalExercises(user, messages);
+          if (gen.length === 0) throw new Error("No exercises generated");
           setExercises(gen);
-      } catch(e: any) { setExerciseError(true); if(e.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true); } 
-      finally { setIsLoadingExercises(false); }
+          
+          const updated = storageService.getUserById(user.id);
+          if(updated) onUpdateUser(updated);
+      } catch(e: any) {
+          console.error(e);
+          setExerciseError(true);
+          if(e.message === 'INSUFFICIENT_CREDITS') {
+              setShowPaymentModal(true);
+              setIsTrainingMode(false);
+          } else {
+              notify("Erreur de génération. Réessayez.", 'error');
+          }
+      } finally {
+          setIsLoadingExercises(false);
+      }
   };
 
-  const handleQuitTraining = () => { setIsTrainingMode(false); setExercises([]); };
-  const handleToggleExplanationLang = () => {
-      const newLang = preferences.explanationLanguage === ExplanationLanguage.French ? ExplanationLanguage.Malagasy : ExplanationLanguage.French;
-      const updatedUser = { ...user, preferences: { ...preferences, explanationLanguage: newLang } };
-      storageService.updatePreferences(user.id, updatedUser.preferences);
-      onUpdateUser(updatedUser);
-      notify(`Langue: ${newLang.split(' ')[0]}`, 'success');
+  const handleQuitTraining = () => {
+      setIsTrainingMode(false);
+      setExercises([]);
   };
-  const handleFontSizeChange = (size: 'small' | 'normal' | 'large' | 'xl') => {
-    const updatedUser = { ...user, preferences: { ...user.preferences!, fontSize: size } };
-    onUpdateUser(updatedUser);
-    storageService.updatePreferences(user.id, updatedUser.preferences!);
-  };
-  const handleTutorialComplete = () => { setShowTutorial(false); storageService.markTutorialSeen(user.id); onUpdateUser({ ...user, hasSeenTutorial: true }); };
+
   const handleExerciseComplete = (score: number, total: number) => { 
       setIsTrainingMode(false); 
-      const resultMsg: ChatMessage = { id: Date.now().toString(), role: 'model', text: `🎯 **Résultat Exercice**\nScore: **${score}/${total}**`, timestamp: Date.now() }; 
+      const resultMsg: ChatMessage = { id: Date.now().toString(), role: 'model', text: `🎯 **Session d'entraînement terminée !**\n\nScore : **${score}/${total}**\n\nContinuez comme ça !`, timestamp: Date.now() }; 
       setMessages([...messages, resultMsg]); 
-      storageService.saveChatHistory(user.id, [...messages, resultMsg], preferences.targetLanguage);
+      storageService.saveChatHistory(user.id, [...messages, resultMsg], preferences.targetLanguage); 
+      onMessageSent(); 
   };
-  
+
+  const handleTutorialComplete = () => { 
+      setShowTutorial(false); 
+      storageService.markTutorialSeen(user.id); 
+      onUpdateUser({ ...user, hasSeenTutorial: true }); 
+  };
+
   const stopAudio = () => { 
       if (activeSourceRef.current) { 
           try { activeSourceRef.current.stop(); } catch(e){} 
@@ -428,10 +441,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       } catch(e) { notify("Erreur export", 'error'); }
   };
   
-  const handleValidateJump = () => { const num = parseInt(jumpInputVal); setShowMenu(false); handleSend(`Aller à la leçon ${num}`); };
   const getLanguageDisplay = () => { const lang = preferences.targetLanguage; if (lang.includes("Chinois")) return "Chinois 🇨🇳"; const parts = lang.split(' '); return `${parts[0]} ${parts[parts.length - 1]}`; };
   
-  // Call Handlers
   const handleEndCall = async () => { stopListening(); stopAudio(); closeCallOverlay(); };
   const closeCallOverlay = () => { setIsCallActive(false); setIsCallConnecting(false); setCallSummary(null); setIsMuted(false); setCallSeconds(0); setShowVoiceInput(false); };
   const toggleMute = () => setIsMuted(!isMuted);
@@ -441,6 +452,31 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       {showPaymentModal && <PaymentModal user={user} onClose={() => setShowPaymentModal(false)} />}
       {showTutorial && <TutorialOverlay onComplete={handleTutorialComplete} />}
       {isDialogueActive && <DialogueSession user={user} onClose={() => setIsDialogueActive(false)} onUpdateUser={onUpdateUser} notify={notify} />}
+
+      {/* Training Overlay */}
+      {isTrainingMode && (
+          <div className="fixed inset-0 z-50 bg-white dark:bg-slate-950 flex flex-col">
+              {isLoadingExercises ? (
+                  <div className="flex-1 flex flex-col items-center justify-center space-y-4">
+                      <div className="relative">
+                          <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+                          <BrainCircuit className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 text-indigo-600" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800 dark:text-white">Génération des exercices...</h3>
+                      <p className="text-slate-500">TeacherMada analyse vos progrès.</p>
+                  </div>
+              ) : exerciseError ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                      <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
+                      <h3 className="text-xl font-bold mb-2">Erreur de génération</h3>
+                      <button onClick={handleStartTraining} className="px-6 py-2 bg-indigo-600 text-white rounded-lg">Réessayer</button>
+                      <button onClick={handleQuitTraining} className="mt-4 text-slate-500">Annuler</button>
+                  </div>
+              ) : (
+                  <ExerciseSession exercises={exercises} onClose={handleQuitTraining} onComplete={handleExerciseComplete} />
+              )}
+          </div>
+      )}
 
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-40 bg-white/90 dark:bg-slate-900/95 backdrop-blur-md shadow-sm h-14 md:h-16 px-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
@@ -471,7 +507,42 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   <Coins className={`w-3.5 h-3.5 text-amber-500 group-hover:rotate-12 transition-transform`} />
                   <span className={`text-xs font-bold text-indigo-900 dark:text-indigo-100 hidden sm:inline`}>{user.role === 'admin' ? '∞' : user.credits}</span>
              </button>
-             <button onClick={() => setShowMenu(!showMenu)} className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}><Menu className="w-5 h-5" /></button>
+             <div className="relative">
+                 <button onClick={() => setShowMenu(!showMenu)} className={`p-2 rounded-full transition-colors ${showMenu ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}><Menu className="w-5 h-5" /></button>
+                 
+                 {showMenu && (
+                     <div className="absolute top-12 right-0 w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-3 animate-fade-in z-50">
+                         {/* Enhanced Search */}
+                         <div className="p-2 border-b border-slate-100 dark:border-slate-800 mb-2">
+                             <div className="relative flex items-center">
+                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"/>
+                                 <input 
+                                    type="text" 
+                                    placeholder="Rechercher..." 
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full bg-slate-50 dark:bg-black/20 text-sm py-2 pl-9 pr-16 rounded-lg border-none outline-none focus:ring-1 focus:ring-indigo-500"
+                                 />
+                                 {searchQuery && matchingMessages.length > 0 && (
+                                     <div className="absolute right-1 flex items-center gap-1">
+                                         <span className="text-[10px] text-slate-400 font-bold mr-1">{currentMatchIndex + 1}/{matchingMessages.length}</span>
+                                         <button onClick={handlePrevMatch} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><ChevronUp className="w-3 h-3 text-slate-500"/></button>
+                                         <button onClick={handleNextMatch} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"><ChevronDown className="w-3 h-3 text-slate-500"/></button>
+                                     </div>
+                                 )}
+                             </div>
+                         </div>
+                        
+                         <div className="grid grid-cols-2 gap-2 mb-2 border-t border-slate-100 dark:border-slate-800 pt-2">
+                             <button onClick={toggleTheme} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                 {isDarkMode ? <Sun className="w-4 h-4 text-amber-500"/> : <Moon className="w-4 h-4 text-indigo-500"/>}
+                                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Thème</span>
+                             </button>
+                         </div>
+                     </div>
+                 )}
+             </div>
+             
              <button onClick={onShowProfile} className="relative w-9 h-9 ml-1 group shrink-0">
                 <div className="relative w-full h-full rounded-full bg-slate-900 text-white font-bold flex items-center justify-center border-2 border-white dark:border-slate-800 z-10 overflow-hidden">
                     <span className="z-10">{user.username.substring(0, 2).toUpperCase()}</span>
@@ -528,14 +599,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={"Message..."}
-                disabled={isLoading || isAnalyzing || isSending}
+                disabled={isLoading || isAnalyzing}
                 rows={1}
                 className="w-full bg-transparent text-slate-800 dark:text-white rounded-xl pl-4 py-3 text-base focus:outline-none resize-none max-h-32 scrollbar-hide self-center disabled:opacity-50"
             />
             <div className="flex items-center gap-1 pb-1 pr-1">
                  <button onClick={handleTranslateInput} disabled={!input.trim() || isTranslating} className="p-2 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50"><Languages className={`w-5 h-5 ${isTranslating ? 'animate-spin text-indigo-600' : ''}`} /></button>
                  <button onClick={toggleListening} className={`p-2 rounded-full ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-200'}`}><Mic className="w-5 h-5" /></button>
-                 <button onClick={() => handleSend()} disabled={!input.trim() || isLoading || isAnalyzing || isSending} className={`p-2.5 rounded-full text-white transition-all shadow-md transform hover:scale-105 active:scale-95 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700`}><Send className="w-4 h-4" /></button>
+                 <button onClick={() => handleSend()} disabled={!input.trim() || isLoading || isAnalyzing} className={`p-2.5 rounded-full text-white transition-all shadow-md transform hover:scale-105 active:scale-95 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700`}><Send className="w-4 h-4" /></button>
             </div>
         </div>
       </div>

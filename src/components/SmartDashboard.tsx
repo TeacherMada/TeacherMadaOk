@@ -1,13 +1,11 @@
 
-// ... (imports remain the same)
 import React, { useMemo, useState } from 'react';
 import { UserProfile, ChatMessage, VocabularyItem } from '../types';
-import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown, Trash2, Shield, AlertTriangle, Plus, Sparkles, Loader2, Volume2, Globe, GraduationCap, Map as MapIcon, Lock, Zap, Award, ArrowLeft } from 'lucide-react';
+import { X, Trophy, Flame, LogOut, Sun, Moon, BookOpen, CheckCircle, Calendar, Target, Edit2, Save, Brain, Type, Coins, MessageSquare, CreditCard, ChevronRight, Copy, Check, PieChart, TrendingUp, Star, Crown, Trash2, Shield, AlertTriangle, Plus, Sparkles, Loader2, Volume2, Globe, GraduationCap, Map as MapIcon, Lock, Zap, Award, ArrowLeft, Download, Upload } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { generateVocabularyFromHistory, generateSpeech } from '../services/geminiService';
 import { CREDIT_PRICE_ARIARY, ADMIN_CONTACTS, TOTAL_LESSONS_PER_LEVEL } from '../constants';
 
-// ... (Interface remains same)
 interface SmartDashboardProps {
   user: UserProfile;
   messages: ChatMessage[];
@@ -25,7 +23,6 @@ interface SmartDashboardProps {
 const SmartDashboard: React.FC<SmartDashboardProps> = ({ 
   user, messages, onClose, onUpgrade, onUpdateUser, onLogout, isDarkMode, toggleTheme, fontSize, onFontSizeChange, notify
 }) => {
-  // ... (State hooks remain same)
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<'hub' | 'parcours' | 'lessons' | 'vocab'>('parcours');
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
@@ -34,14 +31,7 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
   const [newWordForm, setNewWordForm] = useState({ word: '', translation: '', context: '' });
   const [isAddingWord, setIsAddingWord] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const cleanUsername = user.username.replace(/[^a-zA-Z0-9]/g, '');
-  const motifCode = `Crd_${cleanUsername}`.substring(0, 20);
-
-  const handleCopyMotif = () => { navigator.clipboard.writeText(motifCode); setCopied(true); setTimeout(() => setCopied(false), 2000); };
-
-  // --- DERIVED LOGIC ---
-
+  
   const activeCourses = useMemo(() => {
       if (!user.stats.progressByLevel) return [];
       return Object.entries(user.stats.progressByLevel).map(([key, count]) => {
@@ -61,47 +51,28 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
       return activeCourses.find(c => c.id === selectedCourseId) || null;
   }, [selectedCourseId, activeCourses, user.preferences]);
 
-  const skills = useMemo(() => {
-    const baseVocab = user.skills?.vocabulary || 10;
-    const baseGrammar = user.skills?.grammar || 5;
-    let bonus = 0;
-    if (currentCourse) { bonus = (currentCourse.progress / 100) * 40; } else { bonus = Math.min(user.stats.xp / 200, 20); }
-    return {
-        vocabulary: Math.min(baseVocab + bonus + 10, 100),
-        grammar: Math.min(baseGrammar + (bonus * 0.8) + 5, 100),
-        pronunciation: Math.min((user.skills?.pronunciation || 5) + (bonus * 0.6), 100),
-        listening: Math.min((user.skills?.listening || 5) + (bonus * 0.7), 100),
-    };
-  }, [user, currentCourse]);
-
-  // Robust Regex for Lesson Detection
   const completedLessons = useMemo(() => {
     const lessons: {num: number, title: string, date: number}[] = [];
-    // Regex matches: "## LEÇON 1", "## 🟢 Leçon 1", "## LESSON 1", "## Lesona 1"
     const regex = /##\s*(?:🟢|🔴|🔵|✅)?\s*(?:LEÇON|LECON|LESSON|LESONA)\s*(\d+)\s*[:|-]?\s*(.*)/i;
     
     messages.forEach(msg => {
         if (msg.role === 'model') {
-            // Check first line or headers
             const lines = msg.text.split('\n');
             for(const line of lines) {
                 const match = line.match(regex);
                 if (match) {
                      const rawTitle = match[2].trim().replace(/[*_]/g, '');
                      lessons.push({ num: parseInt(match[1]), title: rawTitle || `Leçon ${match[1]}`, date: msg.timestamp });
-                     break; // One lesson per message assumption
+                     break; 
                 }
             }
         }
     });
-    
     const uniqueLessons = new Map<number, {num: number, title: string, date: number}>();
     lessons.forEach(l => uniqueLessons.set(l.num, l));
     return Array.from(uniqueLessons.values()).sort((a, b) => b.num - a.num);
   }, [messages]);
 
-  // ... (Rest of component remains largely the same, mostly UI logic)
-  
   const handleSaveProfile = () => {
     if (!editForm.username.trim()) return;
     const updatedUser = { ...user, username: editForm.username, email: editForm.email, password: editForm.password };
@@ -112,13 +83,44 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
 
   const handleClearHistory = async () => {
       await storageService.clearChatHistory(user.id, user.preferences?.targetLanguage);
-      notify("Historique effacé. Redémarrez l'app si nécessaire.", 'success');
+      notify("Historique effacé. Redémarrez l'app.", 'success');
       setShowClearConfirm(false);
       onClose(); 
       window.location.reload(); 
   };
 
-  const handleAdminAccess = () => { window.location.reload(); };
+  const handleExportData = () => {
+      const dataStr = storageService.exportUserData();
+      const blob = new Blob([dataStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `teachermada_backup_${new Date().toISOString().split('T')[0]}.json`;
+      link.click();
+      notify("Sauvegarde téléchargée.", 'success');
+  };
+
+  const handleImportData = () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json';
+      input.onchange = (e: any) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (e) => {
+              const content = e.target?.result as string;
+              if (storageService.importUserData(content)) {
+                  notify("Données restaurées. Redémarrage...", 'success');
+                  setTimeout(() => window.location.reload(), 1500);
+              } else {
+                  notify("Fichier invalide.", 'error');
+              }
+          };
+          reader.readAsText(file);
+      };
+      input.click();
+  };
 
   const handleGenerateVocab = async () => {
       setIsGeneratingVocab(true);
@@ -126,13 +128,12 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
           const newWords = await generateVocabularyFromHistory(user.id, messages);
           if (newWords.length > 0) {
               const currentVocab = user.vocabulary || [];
-              // Avoid dupes by word
               const uniqueNew = newWords.filter(nw => !currentVocab.some(cw => cw.word.toLowerCase() === nw.word.toLowerCase()));
               const updatedUser = { ...user, vocabulary: [...uniqueNew, ...currentVocab] };
               onUpdateUser(updatedUser);
-              notify(`${uniqueNew.length} mots ajoutés à votre boîte !`, 'success');
+              notify(`${uniqueNew.length} mots ajoutés !`, 'success');
           } else {
-              notify("Pas assez de contenu récent pour extraire des mots.", 'info');
+              notify("Pas assez de contenu pour extraire des mots.", 'info');
           }
       } catch (e: any) {
           if(e.message === 'INSUFFICIENT_CREDITS') notify("Crédits insuffisants.", 'error');
@@ -181,12 +182,13 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
       } catch(e) { console.error(e); }
   };
 
-  // ... (Return JSX is kept mostly same, ensuring correct rendering of ActiveTab content)
+  const handleAdminAccess = () => { window.location.reload(); };
+
   return (
     <div className="fixed inset-0 z-[100] flex justify-end">
       <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={onClose}></div>
       <div className="relative w-full md:w-[480px] h-full bg-white/95 dark:bg-[#0F1422]/95 backdrop-blur-xl shadow-2xl flex flex-col border-l border-white/20 dark:border-white/5 overflow-hidden animate-slide-in-right">
-        {/* Header - Profile Summary */}
+        {/* Header */}
         <div className="relative bg-white dark:bg-[#131825] p-6 border-b border-slate-100 dark:border-white/5">
              <button onClick={onClose} className="absolute top-4 right-4 p-2 hover:bg-slate-100 dark:hover:bg-white/10 rounded-full transition-colors text-slate-400"><X className="w-5 h-5" /></button>
              <div className="flex items-center gap-5">
@@ -230,7 +232,8 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                         </div>
                         <button onClick={onUpgrade} className="relative z-10 w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl text-sm flex items-center justify-center gap-2 hover:bg-indigo-50 transition-all shadow-lg active:scale-95"><Coins className="w-4 h-4 text-indigo-600" /> Recharger mon compte</button>
                     </div>
-                    {/* Settings... */}
+                    
+                    {/* Settings */}
                     <div className="bg-white dark:bg-[#1A2030] rounded-[1.5rem] p-1 border border-slate-100 dark:border-white/5 shadow-sm">
                         <SettingItem icon={<Sun className="w-4 h-4"/>} label="Thème" action={<button onClick={toggleTheme} className={`w-10 h-6 rounded-full p-1 transition-colors ${isDarkMode ? 'bg-indigo-600' : 'bg-slate-200'}`}><div className={`w-4 h-4 bg-white rounded-full shadow-sm transform transition-transform ${isDarkMode ? 'translate-x-4' : 'translate-x-0'}`}></div></button>} />
                         <div className="h-px bg-slate-50 dark:bg-white/5 mx-4"></div>
@@ -247,24 +250,34 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                             )}
                         </div>
                     </div>
-                    <div className="bg-red-50 dark:bg-red-900/10 rounded-2xl p-4 border border-red-100 dark:border-red-900/30">
+
+                    {/* Data Management */}
+                    <div className="bg-slate-100 dark:bg-slate-800/50 rounded-2xl p-4 border border-slate-200 dark:border-slate-700">
+                        <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Données & Sauvegarde</h4>
+                        <div className="flex gap-2 mb-3">
+                            <button onClick={handleExportData} className="flex-1 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-bold flex items-center justify-center gap-1 hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors">
+                                <Download className="w-3 h-3"/> Exporter
+                            </button>
+                            <button onClick={handleImportData} className="flex-1 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-bold flex items-center justify-center gap-1 hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors">
+                                <Upload className="w-3 h-3"/> Importer
+                            </button>
+                        </div>
                         {!showClearConfirm ? (
-                            <button onClick={() => setShowClearConfirm(true)} className="w-full flex items-center justify-between text-red-600 dark:text-red-400 font-bold text-sm"><span className="flex items-center gap-2"><Trash2 className="w-4 h-4"/> Effacer mon historique</span><ChevronRight className="w-4 h-4"/></button>
+                            <button onClick={() => setShowClearConfirm(true)} className="w-full flex items-center justify-center gap-2 text-red-500 hover:text-red-600 font-bold text-xs"><Trash2 className="w-3 h-3"/> Effacer tout</button>
                         ) : (
-                            <div className="animate-fade-in text-center">
-                                <p className="text-xs text-red-600 dark:text-red-400 mb-3 font-bold flex items-center justify-center gap-1"><AlertTriangle className="w-3 h-3"/> Attention: Action irréversible.</p>
-                                <div className="flex gap-2"><button onClick={() => setShowClearConfirm(false)} className="flex-1 py-2 bg-white dark:bg-slate-800 text-slate-500 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700">Annuler</button><button onClick={handleClearHistory} className="flex-1 py-2 bg-red-500 text-white rounded-lg text-xs font-bold hover:bg-red-600 transition-colors">Confirmer</button></div>
+                            <div className="animate-fade-in text-center bg-red-50 dark:bg-red-900/10 p-2 rounded-lg">
+                                <p className="text-[10px] text-red-600 dark:text-red-400 mb-2 font-bold">Action irréversible.</p>
+                                <div className="flex gap-2"><button onClick={() => setShowClearConfirm(false)} className="flex-1 py-1.5 bg-white dark:bg-slate-800 text-slate-500 rounded text-[10px] font-bold">Annuler</button><button onClick={handleClearHistory} className="flex-1 py-1.5 bg-red-500 text-white rounded text-[10px] font-bold">Confirmer</button></div>
                             </div>
                         )}
                     </div>
                 </div>
             )}
 
-            {/* === TAB: VOCAB === */}
             {activeTab === 'vocab' && (
                 <div className="space-y-4 animate-fade-in">
                     <div className="flex gap-2 mb-4">
-                        <button onClick={handleGenerateVocab} disabled={isGeneratingVocab} className="flex-1 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition-all">{isGeneratingVocab ? <Loader2 className="w-4 h-4 animate-spin"/> : <Sparkles className="w-4 h-4"/>} Générer via IA</button>
+                        <button onClick={handleGenerateVocab} disabled={isGeneratingVocab} className="flex-1 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition-all">{isGeneratingVocab ? <Loader2 className="w-4 h-4 animate-spin"/> : <Sparkles className="w-4 h-4"/>} IA Auto</button>
                         <button onClick={() => setIsAddingWord(!isAddingWord)} className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"><Plus className="w-5 h-5"/></button>
                     </div>
                     {isAddingWord && (
@@ -296,7 +309,6 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                 </div>
             )}
 
-            {/* === TAB: PARCOURS & LESSONS (Simplified for brevity but fully functional) === */}
             {activeTab === 'parcours' && (
                 <div className="animate-fade-in h-full flex flex-col">
                     {!currentCourse && activeCourses.length === 0 ? (
@@ -311,7 +323,6 @@ const SmartDashboard: React.FC<SmartDashboardProps> = ({
                                         <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">{currentCourse.language}</h2>
                                         <div className="inline-block px-3 py-1 bg-indigo-100 dark:bg-indigo-900/30 rounded-full text-indigo-700 dark:text-indigo-300 text-xs font-bold mt-1 border border-indigo-200 dark:border-indigo-800">Niveau {currentCourse.level}</div>
                                     </div>
-                                    {/* ... Roadmap Visualization ... */}
                                     <div className="flex-1 overflow-y-auto px-4 pb-20 scrollbar-hide relative">
                                         <div className="absolute left-1/2 top-4 bottom-4 w-1 bg-slate-200 dark:bg-slate-800 -translate-x-1/2 rounded-full"></div>
                                         {Array.from({ length: TOTAL_LESSONS_PER_LEVEL }).map((_, idx) => {

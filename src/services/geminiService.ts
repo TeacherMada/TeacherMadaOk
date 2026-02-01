@@ -8,7 +8,6 @@ let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
-// Gemini 2.0 Flash is the most optimized for speed/quality/cost ratio currently
 const PRIMARY_MODEL = 'gemini-2.0-flash'; 
 
 const FALLBACK_CHAIN = [
@@ -55,33 +54,44 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
 
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
-    // Safety override: unstable preview models cause 404s/503s
     if (settings.activeModel === 'gemini-3-flash-preview') return PRIMARY_MODEL;
     return settings.activeModel || PRIMARY_MODEL;
 };
 
-// === ROBUST JSON PARSER ===
+// === ROBUST JSON PARSER (ANTI-CRASH) ===
 const safeJsonParse = (text: string | undefined, fallback: any) => {
     if (!text) return fallback;
     try {
         return JSON.parse(text);
     } catch (e) {
         try {
+            // Attempt to clean markdown code blocks
             let clean = text.replace(/```json/g, '').replace(/```/g, '');
-            const firstOpen = clean.indexOf('{');
-            const firstArray = clean.indexOf('[');
-            const start = (firstOpen !== -1 && (firstArray === -1 || firstOpen < firstArray)) ? firstOpen : firstArray;
-            const lastClose = clean.lastIndexOf('}');
-            const lastArray = clean.lastIndexOf(']');
-            const end = (lastClose !== -1 && (lastArray === -1 || lastClose > lastArray)) ? lastClose : lastArray;
+            // Find the first '{' or '['
+            const firstOpenBrace = clean.indexOf('{');
+            const firstOpenBracket = clean.indexOf('[');
+            
+            let start = -1;
+            if (firstOpenBrace !== -1 && firstOpenBracket !== -1) {
+                start = Math.min(firstOpenBrace, firstOpenBracket);
+            } else {
+                start = Math.max(firstOpenBrace, firstOpenBracket);
+            }
 
-            if (start !== -1 && end !== -1) {
+            // Find the last '}' or ']'
+            const lastCloseBrace = clean.lastIndexOf('}');
+            const lastCloseBracket = clean.lastIndexOf(']');
+            
+            const end = Math.max(lastCloseBrace, lastCloseBracket);
+
+            if (start !== -1 && end !== -1 && end > start) {
                 clean = clean.substring(start, end + 1);
                 return JSON.parse(clean);
             }
+            console.warn("JSON Parse failed even after cleanup.");
             return fallback;
         } catch (e2) {
-            console.error("JSON Parse Error", e2);
+            console.error("Deep JSON Parse Error", e2);
             return fallback;
         }
     }
@@ -106,7 +116,7 @@ const executeWithRetry = async <T>(
     } catch (error: any) {
         const msg = error.message || JSON.stringify(error);
         
-        if (msg.includes("API_KEY_MISSING")) throw new Error("Configuration API manquante. Contactez l'admin.");
+        if (msg.includes("API_KEY_MISSING")) throw new Error("Configuration API manquante.");
 
         const isQuotaError = msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted');
         const isModelError = msg.includes('404') || msg.includes('not found') || msg.includes('models/');
@@ -133,13 +143,9 @@ const checkCreditsBeforeAction = (userId: string) => {
     return true;
 };
 
-// === CONTEXT OPTIMIZATION ===
-// We don't send the full history. We send the last 15 turns to save data and tokens.
 const sanitizeHistory = (history: ChatMessage[]) => {
-    const recentHistory = history.slice(-15); // Keep context relevant
+    const recentHistory = history.slice(-15); 
     const cleanHistory = [...recentHistory];
-    
-    // Gemini 2.0 strict rule: Must alternate User/Model and start with User
     while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
         cleanHistory.shift();
     }
@@ -155,7 +161,6 @@ export const startChatSession = async (
   return null; 
 };
 
-// === STREAMING IMPLEMENTATION ===
 export const sendMessageToGeminiStream = async (
     message: string, 
     userId: string,
@@ -177,7 +182,7 @@ export const sendMessageToGeminiStream = async (
             config: {
                 systemInstruction: systemInstruction,
                 temperature: 0.7, 
-                maxOutputTokens: 1000, // Limit output for speed
+                maxOutputTokens: 1000, 
             },
             history: historyPayload,
         });
@@ -195,11 +200,10 @@ export const sendMessageToGeminiStream = async (
             storageService.deductCreditOrUsage(userId);
             return { fullText };
         } catch (streamError) {
-            console.warn("Stream failed, falling back to standard request", streamError);
-            // Fallback to non-streaming if stream dies (Network blip)
+            console.warn("Stream failed, fallback to standard", streamError);
             const result = await chat.sendMessage({ message });
-            const text = result.text || "Désolé, erreur de connexion.";
-            onChunk(text); // Send full text as one chunk
+            const text = result.text || "Erreur de connexion.";
+            onChunk(text); 
             storageService.deductCreditOrUsage(userId);
             return { fullText: text };
         }
@@ -267,13 +271,8 @@ export const getLessonSummary = async (lessonNumber: number, context: string, us
 };
 
 export const generateSpeech = async (text: string, userId: string, voiceName: string = 'Kore'): Promise<ArrayBuffer | null> => {
-    // Only check credits, don't deduct for simple TTS to improve UX, or handle deduct internally
-    // const status = storageService.canPerformRequest(userId);
-    // if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
-    
     return executeWithRetry(async (modelName) => {
         if (!text || !text.trim()) return null;
-        // Use specialized TTS model
         const response = await aiClient!.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
             contents: [{ parts: [{ text: `Read: ${text.substring(0, 4000)}` }] }],

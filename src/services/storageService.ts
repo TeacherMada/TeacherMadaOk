@@ -5,14 +5,12 @@ const CURRENT_USER_KEY = 'smart_teacher_current_user_id';
 const SETTINGS_KEY = 'smart_teacher_system_settings';
 const REQUESTS_KEY = 'smart_teacher_admin_requests';
 
-// --- DATA SANITIZATION ---
-// Récupération sécurisée de la clé API pour Vite
 // @ts-ignore
 const ENV_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY || '';
 
 const DEFAULT_SETTINGS: SystemSettings = {
   apiKeys: ENV_API_KEY ? [ENV_API_KEY] : [],
-  activeModel: 'gemini-2.0-flash', // STABLE PRODUCTION MODEL
+  activeModel: 'gemini-2.0-flash',
   adminContact: {
     telma: "034 93 102 68",
     airtel: "033 38 784 20",
@@ -23,7 +21,6 @@ const DEFAULT_SETTINGS: SystemSettings = {
   validTransactionRefs: []
 };
 
-// --- Helper: Timezone Management ---
 const getMadagascarCurrentWeek = (): string => {
   const now = new Date();
   const madaTime = new Date(now.toLocaleString("en-US", { timeZone: "Indian/Antananarivo" }));
@@ -35,20 +32,15 @@ const getMadagascarCurrentWeek = (): string => {
 
 export const storageService = {
   
-  // --- Auth & User Management ---
-  
   login: async (identifier: string, password?: string): Promise<{ success: boolean, user?: UserProfile, error?: string }> => {
     storageService.seedAdmin();
-
     let foundUser: UserProfile | null = null;
-    
     try {
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           if (key?.startsWith('user_data_')) {
             const rawData = localStorage.getItem(key);
             if (!rawData) continue;
-            
             const userData = JSON.parse(rawData) as UserProfile;
             if (
                 userData.username.toLowerCase() === identifier.toLowerCase() || 
@@ -60,7 +52,6 @@ export const storageService = {
           }
         }
     } catch (e) {
-        console.error("Storage corrupt", e);
         return { success: false, error: "Données locales corrompues." };
     }
 
@@ -120,28 +111,21 @@ export const storageService = {
   getUserById: (userId: string): UserProfile | null => {
       const data = localStorage.getItem(`user_data_${userId}`);
       if (!data) return null;
-      
       try {
           let user = JSON.parse(data) as UserProfile;
           const currentWeek = getMadagascarCurrentWeek();
           let needsSave = false;
-
           if (!user.freeUsage) { user.freeUsage = { lastResetWeek: currentWeek, count: 0 }; needsSave = true; }
           if (!user.stats) { user.stats = { xp: 0, streak: 1, lessonsCompleted: 0, progressByLevel: {} }; needsSave = true; }
           if (!user.vocabulary) { user.vocabulary = []; needsSave = true; }
           if (!user.stats.progressByLevel) { user.stats.progressByLevel = {}; needsSave = true; }
-
           if (user.freeUsage.lastResetWeek !== currentWeek) {
               user.freeUsage = { lastResetWeek: currentWeek, count: 0 };
               needsSave = true;
           }
-
           if (needsSave) storageService.saveUserProfile(user);
           return user;
-      } catch (e) {
-          console.error("Error parsing user", e);
-          return null;
-      }
+      } catch (e) { return null; }
   },
 
   getAllUsers: async (): Promise<UserProfile[]> => {
@@ -159,10 +143,8 @@ export const storageService = {
     const user = storageService.getUserById(userId);
     if (!user) return { allowed: false, reason: 'blocked' };
     if (user.role === 'admin') return { allowed: true, reason: 'credits' };
-
     if (user.freeUsage.count < 3) return { allowed: true, reason: 'free_tier' };
     if (user.credits > 0) return { allowed: true, reason: 'credits' };
-
     return { allowed: false, reason: 'blocked' };
   },
 
@@ -170,7 +152,6 @@ export const storageService = {
     const user = storageService.getUserById(userId);
     if (!user) return null;
     if (user.role === 'admin') return user;
-
     if (user.freeUsage.count < 3) {
         user.freeUsage.count += 1;
     } else if (user.credits > 0) {
@@ -178,7 +159,6 @@ export const storageService = {
     } else {
         return null; 
     }
-
     storageService.saveUserProfile(user);
     return user;
   },
@@ -191,14 +171,12 @@ export const storageService = {
     }
   },
 
-  // --- FIXED: Async safe handling ---
   sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'message' | 'password_reset', amount?: number, message?: string, contactInfo?: string): Promise<{status: 'pending' | 'approved' | 'rejected'}> => {
       let finalStatus: 'pending' | 'approved' | 'rejected' = 'pending';
       const settings = storageService.getSystemSettings();
       const validRefs = settings.validTransactionRefs || [];
       
       let matchedRef: string | null = null;
-
       if (type === 'credit' && amount && message) {
           matchedRef = validRefs.find(ref => message.toUpperCase().includes(ref.toUpperCase())) || null;
           if (matchedRef) {
@@ -210,9 +188,7 @@ export const storageService = {
           }
       }
 
-      // CRITICAL FIX: Await first, then create new array
       const currentRequests = await storageService.getAdminRequests();
-      
       const newRequest: AdminRequest = {
           id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           userId,
@@ -225,7 +201,6 @@ export const storageService = {
           createdAt: Date.now()
       };
       
-      // Create new array with spread to avoid mutation issues
       const updatedRequests = [newRequest, ...currentRequests];
       localStorage.setItem(REQUESTS_KEY, JSON.stringify(updatedRequests));
       
@@ -240,11 +215,9 @@ export const storageService = {
   resolveRequest: async (requestId: string, status: 'approved' | 'rejected') => {
       const requests = await storageService.getAdminRequests();
       const index = requests.findIndex(r => r.id === requestId);
-      
       if (index !== -1) {
           const req = requests[index];
           if (req.status !== 'pending') return;
-
           req.status = status;
           if (status === 'approved' && req.type === 'credit' && req.amount) {
               await storageService.addCredits(req.userId, req.amount);
@@ -256,7 +229,6 @@ export const storageService = {
   seedAdmin: async () => {
     const adminId = 'admin_0349310268';
     const existing = localStorage.getItem(`user_data_${adminId}`);
-    
     if (!existing) {
         const adminUser: UserProfile = {
             id: adminId,
@@ -337,6 +309,28 @@ export const storageService = {
   clearChatHistory: async (userId: string, language?: string) => {
       const langKey = language ? language.replace(/[^a-zA-Z0-9]/g, '') : 'default';
       localStorage.removeItem(`chat_history_${userId}_${langKey}`);
+  },
+
+  // --- EXPORT / IMPORT FEATURES ---
+  exportUserData: () => {
+    const data: Record<string, string | null> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('smart_teacher_') || key.startsWith('user_data_') || key.startsWith('chat_history_'))) {
+            data[key] = localStorage.getItem(key);
+        }
+    }
+    return JSON.stringify(data);
+  },
+
+  importUserData: (jsonString: string) => {
+      try {
+          const data = JSON.parse(jsonString);
+          Object.keys(data).forEach(key => {
+              if (data[key]) localStorage.setItem(key, data[key]);
+          });
+          return true;
+      } catch (e) { return false; }
   },
 
   fetchSystemSettings: async () => {},
