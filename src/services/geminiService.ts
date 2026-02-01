@@ -1,10 +1,9 @@
-
 import { GoogleGenAI, Modality } from "@google/genai";
 import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, VoiceCallSummary, VoiceName } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
-// Pool de modèles optimisé pour la stabilité et la vitesse
+// Pool de modèles pour la redondance
 const TEXT_MODELS = [
     'gemini-3-flash-preview',
     'gemini-flash-lite-latest',
@@ -12,9 +11,16 @@ const TEXT_MODELS = [
 ];
 
 const getApiKey = (): string => {
+    // Récupération depuis l'environnement Render (format: KEY1,KEY2,...)
     const rawKey = process.env.API_KEY || "";
     const keys = rawKey.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 5);
-    if (keys.length === 0) throw new Error("API_KEY_MISSING");
+    
+    if (keys.length === 0) {
+        console.error("CRITICAL: API_KEY_MISSING. Check Render Environment Variables.");
+        throw new Error("API_KEY_MISSING");
+    }
+    
+    // Rotation simple pour répartir la charge
     return keys[Math.floor(Math.random() * keys.length)];
 };
 
@@ -24,31 +30,23 @@ async function executeWithFallback<T>(operation: (modelName: string) => Promise<
     let lastError: any;
     for (const modelName of pool) {
         try {
-            // Timeout court pour ne pas bloquer l'utilisateur
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 15000);
-            
-            const result = await operation(modelName);
-            clearTimeout(timeout);
-            return result;
+            // Tentative d'exécution
+            return await operation(modelName);
         } catch (error: any) {
             lastError = error;
-            const errorMsg = error.message?.toLowerCase() || "";
-            // Si c'est un problème de quota, de réseau ou de timeout, on essaie le modèle suivant
-            if (
-                errorMsg.includes('429') || 
-                errorMsg.includes('quota') || 
-                errorMsg.includes('fetch') || 
-                errorMsg.includes('network') ||
-                errorMsg.includes('aborted')
-            ) {
-                console.warn(`Fallback: Problème avec ${modelName}, basculement sur le modèle suivant...`);
+            const msg = error.message?.toLowerCase() || "";
+            
+            // Si c'est une erreur de quota ou de réseau, on bascule
+            if (msg.includes('429') || msg.includes('quota') || msg.includes('fetch') || msg.includes('network')) {
+                console.warn(`Réseau/Quota instable sur ${modelName}, tentative de basculement...`);
+                // Petit délai pour laisser le réseau respirer
+                await new Promise(r => setTimeout(r, 500));
                 continue;
             }
             throw error;
         }
     }
-    throw new Error("Toutes les tentatives de connexion ont échoué. Vérifiez votre connexion internet.");
+    throw new Error("Connexion impossible. Vérifiez votre réseau ou contactez l'admin.");
 }
 
 export const sendMessageToGemini = async (message: string, userId: string, history: ChatMessage[]): Promise<string> => {
@@ -64,7 +62,8 @@ export const sendMessageToGemini = async (message: string, userId: string, histo
                 { role: 'user', parts: [{ text: message }] }
             ],
             config: { 
-                systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!) + "\nIMPORTANT: NE JAMAIS ENVOYER DE BLOCS DE CODE (```). RÉPONDS UNIQUEMENT EN TEXTE PÉDAGOGIQUE.",
+                systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!) + 
+                "\n\nSTRICTE INTERDICTION: Ne jamais envoyer de blocs de code informatique ( triple backticks ). Réponds exclusivement en texte clair et pédagogique.",
                 temperature: 0.7 
             }
         });
@@ -86,8 +85,7 @@ export const generateVoiceChatResponse = async (message: string, userId: string,
                 { role: 'user', parts: [{ text: message }] }
             ],
             config: {
-                systemInstruction: `Tu es TeacherMada en APPEL VOCAL. 
-                CONSIGNES: Réponds très court (1-2 phrases). Pas de listes. Pas de code. Pas de markdown spécial. Langue: ${user.preferences?.targetLanguage}.`,
+                systemInstruction: `Tu es TeacherMada en APPEL VOCAL. CONSIGNES: Réponses très courtes (1-2 phrases). Pas de listes. JAMAIS DE CODE. Pas de markdown. Langue: ${user.preferences?.targetLanguage}.`,
                 maxOutputTokens: 100,
                 temperature: 0.5
             }
@@ -102,8 +100,8 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
         const user = storageService.getUserById(userId);
         const voiceToUse = voice || user?.preferences?.voiceName || 'Kore';
         
-        // Nettoyage agressif pour la synthèse
-        const cleanText = text.replace(/[*#_`~]/g, '').trim().substring(0, 1000);
+        // Nettoyage pour éviter que le TTS ne lise des symboles bizarres
+        const cleanText = text.replace(/[*#_`~]/g, '').trim();
         if (!cleanText) return null;
 
         const response = await ai.models.generateContent({
@@ -127,7 +125,7 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
         }
         return bytes;
     } catch (e) {
-        console.error("TTS Error:", e);
+        console.error("TTS API Error:", e);
         return null;
     }
 };
@@ -137,7 +135,7 @@ export const translateText = async (text: string, targetLang: string, userId: st
         const ai = getAiClient();
         const res = await ai.models.generateContent({
             model,
-            contents: `Translate to ${targetLang}, plain text only: "${text}"`,
+            contents: `Translate to ${targetLang}, text only: "${text}"`,
         });
         return res.text?.trim() || text;
     });
@@ -145,7 +143,7 @@ export const translateText = async (text: string, targetLang: string, userId: st
 
 export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId: string): Promise<VoiceCallSummary> => {
     const ai = getAiClient();
-    const prompt = `Analyse cette session orale. JSON: {score, feedback, tip}. Conversation: ${JSON.stringify(history.slice(-6))}`;
+    const prompt = `Analyse session orale JSON: {score, feedback, tip}. Conversation: ${JSON.stringify(history.slice(-6))}`;
     const res = await ai.models.generateContent({
         model: 'gemini-1.5-flash',
         contents: prompt,
@@ -154,11 +152,10 @@ export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId
     try {
         return JSON.parse(res.text || '{"score":7, "feedback":"Bien", "tip":"Continue"}');
     } catch {
-        return { score: 7, feedback: "Bon travail", tip: "Continuez à pratiquer !" };
+        return { score: 7, feedback: "Bon travail", tip: "Continuez !" };
     }
 };
 
-// Added explanation to fix property missing error in DialogueSession
 export interface RoleplayResponse { aiReply: string; correction?: string; explanation?: string; score?: number; feedback?: string; }
 export const generateRoleplayResponse = async (h: any, s: any, u: any, c?: boolean, init?: boolean): Promise<RoleplayResponse> => {
     const reply = await sendMessageToGemini("Continue le dialogue", u.id, h);
