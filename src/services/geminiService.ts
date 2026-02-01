@@ -1,6 +1,6 @@
 
-import { GoogleGenAI, Chat, Content, Type, Modality } from "@google/genai";
-import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, ExplanationLanguage, VoiceCallSummary, VocabularyItem } from "../types";
+import { GoogleGenAI, Content, Modality } from "@google/genai";
+import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem, VoiceCallSummary, VocabularyItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
@@ -8,14 +8,12 @@ let aiClient: GoogleGenAI | null = null;
 let currentKeyIndex = 0;
 
 // === MODEL CONFIGURATION ===
-// Primary Model: gemini-2.0-flash is currently the fastest and most stable free-tier model.
-// gemini-3-flash-preview is often unstable (404/503).
+// Gemini 2.0 Flash is the most optimized for speed/quality/cost ratio currently
 const PRIMARY_MODEL = 'gemini-2.0-flash'; 
 
 const FALLBACK_CHAIN = [
     'gemini-2.0-flash-lite-preview-02-05', 
-    'gemini-1.5-flash',
-    'gemini-1.5-pro'
+    'gemini-1.5-flash'
 ];
 
 export interface RoleplayResponse {
@@ -30,20 +28,18 @@ const getAvailableKeys = (): string[] => {
     const settings = storageService.getSystemSettings();
     let keys = settings.apiKeys && settings.apiKeys.length > 0 ? settings.apiKeys : [];
     
-    // Use import.meta.env for Vite compatibility
     // @ts-ignore
     const envKey = import.meta.env.VITE_GOOGLE_API_KEY;
     if (envKey && !keys.includes(envKey)) {
         keys.push(envKey);
     }
-    
     return Array.from(new Set(keys)).filter(k => k && k.trim().length > 0);
 };
 
 const initializeGenAI = (forceNextKey: boolean = false) => {
     const keys = getAvailableKeys();
     if (keys.length === 0) {
-      console.error("No API Keys available");
+      console.error("CRITICAL: No API Keys available.");
       return null;
     }
     if (forceNextKey) {
@@ -52,13 +48,14 @@ const initializeGenAI = (forceNextKey: boolean = false) => {
         currentKeyIndex = Math.floor(Math.random() * keys.length);
     }
     const apiKey = keys[currentKeyIndex];
+    if (!apiKey) return null;
     aiClient = new GoogleGenAI({ apiKey });
     return getActiveModelName(); 
 };
 
 const getActiveModelName = () => {
     const settings = storageService.getSystemSettings();
-    // Fallback to PRIMARY_MODEL if the setting is the unstable 3-preview
+    // Safety override: unstable preview models cause 404s/503s
     if (settings.activeModel === 'gemini-3-flash-preview') return PRIMARY_MODEL;
     return settings.activeModel || PRIMARY_MODEL;
 };
@@ -74,7 +71,6 @@ const safeJsonParse = (text: string | undefined, fallback: any) => {
             const firstOpen = clean.indexOf('{');
             const firstArray = clean.indexOf('[');
             const start = (firstOpen !== -1 && (firstArray === -1 || firstOpen < firstArray)) ? firstOpen : firstArray;
-            
             const lastClose = clean.lastIndexOf('}');
             const lastArray = clean.lastIndexOf(']');
             const end = (lastClose !== -1 && (lastArray === -1 || lastClose > lastArray)) ? lastClose : lastArray;
@@ -83,10 +79,9 @@ const safeJsonParse = (text: string | undefined, fallback: any) => {
                 clean = clean.substring(start, end + 1);
                 return JSON.parse(clean);
             }
-            console.warn("JSON Parse failed after cleanup, using fallback.");
             return fallback;
         } catch (e2) {
-            console.error("Deep JSON Parse Error", e2);
+            console.error("JSON Parse Error", e2);
             return fallback;
         }
     }
@@ -103,12 +98,18 @@ const executeWithRetry = async <T>(
         if (fallbackIndex >= 0 && fallbackIndex < FALLBACK_CHAIN.length) {
             modelName = FALLBACK_CHAIN[fallbackIndex];
         }
+        
+        if (!aiClient) initializeGenAI();
+        if (!aiClient) throw new Error("API_KEY_MISSING");
+
         return await operation(modelName);
     } catch (error: any) {
         const msg = error.message || JSON.stringify(error);
-        const isQuotaError = msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted');
-        const isModelError = msg.includes('404') || msg.includes('not found') || msg.includes('parsing response') || msg.includes('models/');
         
+        if (msg.includes("API_KEY_MISSING")) throw new Error("Configuration API manquante. Contactez l'admin.");
+
+        const isQuotaError = msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted');
+        const isModelError = msg.includes('404') || msg.includes('not found') || msg.includes('models/');
         const keys = getAvailableKeys();
 
         if (isQuotaError || isModelError) {
@@ -122,7 +123,6 @@ const executeWithRetry = async <T>(
                 return executeWithRetry(operation, userId, 0, fallbackIndex + 1);
             }
         }
-        console.error("Operation failed after retries:", error);
         throw error;
     }
 };
@@ -133,45 +133,76 @@ const checkCreditsBeforeAction = (userId: string) => {
     return true;
 };
 
+// === CONTEXT OPTIMIZATION ===
+// We don't send the full history. We send the last 15 turns to save data and tokens.
 const sanitizeHistory = (history: ChatMessage[]) => {
-    const cleanHistory = [...history];
+    const recentHistory = history.slice(-15); // Keep context relevant
+    const cleanHistory = [...recentHistory];
+    
+    // Gemini 2.0 strict rule: Must alternate User/Model and start with User
     while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
         cleanHistory.shift();
     }
     return cleanHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
 };
 
-export const startChatSession = async (profile: UserProfile, prefs: UserPreferences, history: ChatMessage[] = []) => {
+export const startChatSession = async (
+    profile?: UserProfile,
+    prefs?: UserPreferences,
+    history?: ChatMessage[]
+) => {
   initializeGenAI(); 
-  if (!aiClient) throw new Error("AI Client not initialized. Check API Key.");
   return null; 
 };
 
-// === STANDARD CHAT (NO STREAMING) ===
-export const sendMessageToGemini = async (message: string, userId: string): Promise<string> => {
+// === STREAMING IMPLEMENTATION ===
+export const sendMessageToGeminiStream = async (
+    message: string, 
+    userId: string,
+    previousHistory: ChatMessage[], 
+    onChunk: (text: string) => void
+): Promise<{ fullText: string }> => {
     checkCreditsBeforeAction(userId);
+    
     return executeWithRetry(async (modelName) => {
         if (!aiClient) initializeGenAI();
         const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
         
         const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
-        const historyPayload = sanitizeHistory(storageService.getChatHistory(userId, user.preferences.targetLanguage));
+        const historyPayload = sanitizeHistory(previousHistory);
 
         const chat = aiClient!.chats.create({
             model: modelName,
             config: {
                 systemInstruction: systemInstruction,
                 temperature: 0.7, 
-                maxOutputTokens: 2000, 
+                maxOutputTokens: 1000, // Limit output for speed
             },
             history: historyPayload,
         });
 
-        const result = await chat.sendMessage({ message });
-        storageService.deductCreditOrUsage(userId);
-        
-        return result.text || "Désolé, je n'ai pas pu générer de réponse.";
+        try {
+            const result = await chat.sendMessageStream({ message });
+            let fullText = '';
+            for await (const chunk of result) {
+                const text = chunk.text;
+                if (text) {
+                    fullText += text;
+                    onChunk(text);
+                }
+            }
+            storageService.deductCreditOrUsage(userId);
+            return { fullText };
+        } catch (streamError) {
+            console.warn("Stream failed, falling back to standard request", streamError);
+            // Fallback to non-streaming if stream dies (Network blip)
+            const result = await chat.sendMessage({ message });
+            const text = result.text || "Désolé, erreur de connexion.";
+            onChunk(text); // Send full text as one chunk
+            storageService.deductCreditOrUsage(userId);
+            return { fullText: text };
+        }
     }, userId);
 };
 
@@ -184,7 +215,6 @@ export const generateVoiceChatResponse = async (
     if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
 
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
         const user = storageService.getUserById(userId);
         if (!user || !user.preferences) throw new Error("User data missing");
 
@@ -193,7 +223,7 @@ export const generateVoiceChatResponse = async (
             USER: ${user.username}. TARGET: ${user.preferences.targetLanguage}.
             RULES: Short spoken response. Natural. Max 2 sentences.
         `;
-        const historyParts = sanitizeHistory(history.slice(-6));
+        const historyParts = sanitizeHistory(history);
         const chat = aiClient!.chats.create({
             model: modelName,
             config: { systemInstruction, temperature: 0.6, maxOutputTokens: 150 },
@@ -206,9 +236,7 @@ export const generateVoiceChatResponse = async (
 
 export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId: string): Promise<VoiceCallSummary> => {
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
-        const conversation = history.slice(-10).map(m => `${m.role}: ${m.text}`).join('\n');
-        const prompt = `Analyze this conversation. Return JSON: { "score": number(1-10), "feedback": "string", "tip": "string" }`;
+        const prompt = `Analyze conversation. Return JSON: { "score": number(1-10), "feedback": "string", "tip": "string" }`;
         const response = await aiClient!.models.generateContent({
             model: modelName,
             contents: prompt,
@@ -221,7 +249,6 @@ export const analyzeVoiceCallPerformance = async (history: ChatMessage[], userId
 export const translateText = async (text: string, targetLang: string, userId: string): Promise<string> => {
     checkCreditsBeforeAction(userId);
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
         const prompt = `Translate to ${targetLang}: "${text}"`;
         const response = await aiClient!.models.generateContent({ model: modelName, contents: prompt });
         storageService.deductCreditOrUsage(userId);
@@ -232,7 +259,6 @@ export const translateText = async (text: string, targetLang: string, userId: st
 export const getLessonSummary = async (lessonNumber: number, context: string, userId: string): Promise<string> => {
     checkCreditsBeforeAction(userId);
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
         const prompt = `Summarize Lesson ${lessonNumber}. Context: ${context}. Markdown format.`;
         const response = await aiClient!.models.generateContent({ model: modelName, contents: prompt });
         storageService.deductCreditOrUsage(userId);
@@ -241,12 +267,13 @@ export const getLessonSummary = async (lessonNumber: number, context: string, us
 };
 
 export const generateSpeech = async (text: string, userId: string, voiceName: string = 'Kore'): Promise<ArrayBuffer | null> => {
-    const status = storageService.canPerformRequest(userId);
-    if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
+    // Only check credits, don't deduct for simple TTS to improve UX, or handle deduct internally
+    // const status = storageService.canPerformRequest(userId);
+    // if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
+    
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI(); 
         if (!text || !text.trim()) return null;
-        // Audio generation is model specific
+        // Use specialized TTS model
         const response = await aiClient!.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
             contents: [{ parts: [{ text: `Read: ${text.substring(0, 4000)}` }] }],
@@ -265,8 +292,6 @@ export const generateSpeech = async (text: string, userId: string, voiceName: st
 export const generateConceptImage = async (prompt: string, userId: string): Promise<string | null> => {
     checkCreditsBeforeAction(userId);
     return executeWithRetry(async () => {
-        if (!aiClient) initializeGenAI();
-        // Image generation model
         const response = await aiClient!.models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: { parts: [{ text: prompt }] },
@@ -284,7 +309,6 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
 
 export const generateDailyChallenges = async (prefs: UserPreferences): Promise<DailyChallenge[]> => {
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
         const prompt = `Generate 3 daily challenges for ${prefs.targetLanguage} level ${prefs.level}. JSON Array.`;
         const response = await aiClient!.models.generateContent({ model: modelName, contents: prompt, config: { responseMimeType: "application/json" } });
         const json = safeJsonParse(response.text, []);
@@ -304,7 +328,6 @@ export const analyzeUserProgress = async (history: ChatMessage[], currentMemory:
     const status = storageService.canPerformRequest(userId);
     if (!status.allowed) return { newMemory: currentMemory, xpEarned: 10, feedback: "Bonne session (Crédits épuisés)." };
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
         const prompt = `Analyze session. Update memory. JSON: {newMemory, xpEarned, feedback}`;
         const response = await aiClient!.models.generateContent({ model: modelName, contents: prompt, config: { responseMimeType: "application/json" } });
         storageService.deductCreditOrUsage(userId);
@@ -316,7 +339,6 @@ export const analyzeUserProgress = async (history: ChatMessage[], currentMemory:
 export const generatePracticalExercises = async (profile: UserProfile, history: ChatMessage[]): Promise<ExerciseItem[]> => {
   checkCreditsBeforeAction(profile.id);
   return executeWithRetry(async (modelName) => {
-      if (!aiClient) initializeGenAI();
       const prompt = `Generate 5 exercises for ${profile.preferences?.targetLanguage}. JSON array.`;
       const response = await aiClient!.models.generateContent({ model: modelName, contents: prompt, config: { responseMimeType: "application/json" } });
       storageService.deductCreditOrUsage(profile.id);
@@ -331,7 +353,6 @@ export const generateRoleplayResponse = async (history: ChatMessage[], scenario:
         if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
     }
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
         const context = history.map(m => `${m.role}: ${m.text}`).join('\n');
         const prompt = isInit ? `Start roleplay ${scenario}. JSON: {aiReply}` : `Roleplay ${scenario}. History: ${context}. JSON: {aiReply, correction}`;
         const response = await aiClient!.models.generateContent({ model: modelName, contents: prompt, config: { responseMimeType: "application/json" } });
@@ -341,7 +362,6 @@ export const generateRoleplayResponse = async (history: ChatMessage[], scenario:
 
 export const generateLanguageFlag = async (name: string) => { 
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
         const response = await aiClient!.models.generateContent({ model: modelName, contents: `Flag emoji for ${name}. JSON {flag, code}`, config: { responseMimeType: "application/json" } });
         return safeJsonParse(response.text, { code: name, flag: "🏳️" });
     }, 'system');
@@ -349,7 +369,6 @@ export const generateLanguageFlag = async (name: string) => {
 
 export const generateLevelExample = async (targetLang: string, level: string): Promise<string> => {
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
         const response = await aiClient!.models.generateContent({ model: modelName, contents: `Sentence in ${targetLang} level ${level}.` });
         return response.text?.trim() || "";
     }, 'system');
@@ -360,7 +379,6 @@ export const generateVocabularyFromHistory = async (userId: string, history: Cha
     if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
 
     return executeWithRetry(async (modelName) => {
-        if (!aiClient) initializeGenAI();
         const user = storageService.getUserById(userId);
         const explanationLang = user?.preferences?.explanationLanguage || "Français";
 

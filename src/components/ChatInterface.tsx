@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, User, Mic, Volume2, ArrowLeft, Loader2, Copy, Check, ArrowRight, Phone, Globe, ChevronDown, MicOff, BookOpen, Search, AlertTriangle, X, Sun, Moon, Languages, Coins, Lock, BrainCircuit, Menu, FileText, Type, RotateCcw, MessageCircle, Image as ImageIcon, Library, PhoneOff, VolumeX, Trophy, Info, ChevronUp, Keyboard, Star } from 'lucide-react';
 import { UserProfile, ChatMessage, ExerciseItem, ExplanationLanguage, TargetLanguage, VoiceCallSummary } from '../types';
-import { sendMessageToGemini, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
+import { sendMessageToGeminiStream, generateSpeech, generatePracticalExercises, getLessonSummary, translateText, generateConceptImage, generateVoiceChatResponse, analyzeVoiceCallPerformance } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import { TOTAL_LESSONS_PER_LEVEL, NEXT_LEVEL_MAP } from '../constants';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -61,7 +61,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [callSummary, setCallSummary] = useState<VoiceCallSummary | null>(null);
   const [isAnalyzingCall, setIsAnalyzingCall] = useState(false);
   const [showVoiceInput, setShowVoiceInput] = useState(false);
-  const [voiceTextInput, setVoiceTextInput] = useState('');
   
   // Others
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
@@ -85,6 +84,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null); 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // Fix: Use one persistent AudioContext reference
+  const audioContextRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const recognitionRef = useRef<any>(null);
   const lastSpokenMessageId = useRef<string | null>(null);
@@ -128,12 +130,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       }
   };
 
-  // Only scroll on new messages if we are near bottom
   useEffect(() => { 
       if (!isTrainingMode && !isDialogueActive && !searchQuery) scrollToBottom(false); 
   }, [messages.length, isTrainingMode, isDialogueActive, isLoading]);
 
-  // Resize Textarea
   useEffect(() => {
     if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
@@ -141,7 +141,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, [input]);
 
-  // Search Logic
   const matchingMessages = useMemo(() => {
     if (!searchQuery.trim()) return [];
     return messages
@@ -149,7 +148,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       .filter(m => m.match);
   }, [messages, searchQuery]);
 
-  // Font Size Helper
   const getTextSizeClass = () => {
       switch (fontSize) {
           case 'small': return 'text-sm';
@@ -160,7 +158,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
   const textSizeClass = getTextSizeClass();
 
-  // Voice Functions
+  // Audio Context Singleton Logic
+  const getAudioContext = () => {
+      if (!audioContextRef.current) {
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      if (audioContextRef.current.state === 'suspended') {
+          audioContextRef.current.resume();
+      }
+      return audioContextRef.current;
+  };
+
   const stopListening = () => {
     if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch(e){}
@@ -249,18 +257,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     
     setIsSending(true);
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
+    const tempAiId = (Date.now() + 1).toString();
     const historyForAI = [...messages, userMsg];
 
-    setMessages(prev => [...prev, userMsg]);
-    storageService.saveChatHistory(user.id, [...messages, userMsg], preferences.targetLanguage);
+    setMessages(prev => [...prev, userMsg, { id: tempAiId, role: 'model', text: '', timestamp: Date.now() }]);
+    storageService.saveChatHistory(user.id, historyForAI, preferences.targetLanguage);
     
     setInput('');
-    setVoiceTextInput('');
     setGeneratedImage(null);
     setIsLoading(true);
     onMessageSent();
     
-    // Force scroll once user sends
     setTimeout(() => scrollToBottom(true), 100);
 
     try {
@@ -268,13 +275,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       
       if (isCallActive) {
           finalResponseText = await generateVoiceChatResponse(textToSend, user.id, historyForAI);
+          setMessages(prev => prev.map(m => m.id === tempAiId ? { ...m, text: finalResponseText } : m));
       } else {
-          // Utilisation STANDARD (Pas de Stream) pour stabilité
-          finalResponseText = await sendMessageToGemini(textToSend, user.id);
+          // REACTIVE STREAMING
+          const res = await sendMessageToGeminiStream(textToSend, user.id, historyForAI, (chunk) => {
+              setMessages(currentMsgs => {
+                  const msgs = [...currentMsgs];
+                  const lastMsgIndex = msgs.findIndex(m => m.id === tempAiId);
+                  if (lastMsgIndex !== -1) {
+                      msgs[lastMsgIndex] = { ...msgs[lastMsgIndex], text: msgs[lastMsgIndex].text + chunk };
+                  }
+                  return msgs;
+              });
+              setIsLoading(false); 
+              scrollToBottom(false);
+          });
+          finalResponseText = res.fullText;
       }
       
-      const finalHistory = [...messages, userMsg, { id: (Date.now() + 1).toString(), role: 'model', text: finalResponseText, timestamp: Date.now() }];
-      setMessages(finalHistory as ChatMessage[]);
+      const finalHistory = [...messages, userMsg, { id: tempAiId, role: 'model', text: finalResponseText, timestamp: Date.now() }];
       storageService.saveChatHistory(user.id, finalHistory as ChatMessage[], preferences.targetLanguage);
       
       if (isCallActive) handleSpeak(finalResponseText);
@@ -282,6 +301,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       if(updated) onUpdateUser(updated);
 
     } catch (error: any) {
+      setMessages(prev => prev.filter(m => m.id !== tempAiId));
       if (error.message.includes('INSUFFICIENT_CREDITS')) {
          setShowPaymentModal(true);
          notify("Crédits insuffisants.", 'error');
@@ -334,7 +354,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     try {
         const rawAudioBuffer = await generateSpeech(cleanText, user.id);
         if (rawAudioBuffer) {
-            const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const ctx = getAudioContext();
             const decoded = await ctx.decodeAudioData(rawAudioBuffer);
             const source = ctx.createBufferSource();
             source.buffer = decoded;
@@ -376,14 +396,24 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setMessages([...messages, resultMsg]); 
       storageService.saveChatHistory(user.id, [...messages, resultMsg], preferences.targetLanguage);
   };
-  const stopAudio = () => { if (activeSourceRef.current) try { activeSourceRef.current.stop(); } catch(e){} activeSourceRef.current = null; setIsPlayingAudio(false); };
+  
+  const stopAudio = () => { 
+      if (activeSourceRef.current) { 
+          try { activeSourceRef.current.stop(); } catch(e){} 
+          activeSourceRef.current = null; 
+      } 
+      setIsPlayingAudio(false); 
+  };
+  
   const handleCopy = async (text: string, id: string) => { try { await navigator.clipboard.writeText(text); setCopiedId(id); setTimeout(() => setCopiedId(null), 2000); } catch (err) {} };
+  
   const handleExportPDF = (text: string) => {
      const doc = new jsPDF();
      doc.setFontSize(10);
      doc.text(text.replace(/[*#]/g, ''), 10, 10);
      doc.save(`lecon_${Date.now()}.pdf`);
   };
+  
   const handleExportImage = (msgId: string) => { 
       const element = document.getElementById(`msg-content-${msgId}`);
       if (!element) return;
@@ -397,6 +427,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           });
       } catch(e) { notify("Erreur export", 'error'); }
   };
+  
   const handleValidateJump = () => { const num = parseInt(jumpInputVal); setShowMenu(false); handleSend(`Aller à la leçon ${num}`); };
   const getLanguageDisplay = () => { const lang = preferences.targetLanguage; if (lang.includes("Chinois")) return "Chinois 🇨🇳"; const parts = lang.split(' '); return `${parts[0]} ${parts[parts.length - 1]}`; };
   

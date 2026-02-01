@@ -36,8 +36,8 @@ export enum LearningMode {
 }
 
 export interface UserPreferences {
-  targetLanguage: string; // Changed from enum to string to allow dynamic languages
-  level: string; // Changed to string for flexibility (A1, HSK 1, etc.)
+  targetLanguage: string;
+  level: string;
   explanationLanguage: ExplanationLanguage;
   mode: LearningMode;
   fontSize?: 'small' | 'normal' | 'large' | 'xl';
@@ -77,8 +77,7 @@ export interface UserProfile {
   stats: {
     xp: number;
     streak: number;
-    lessonsCompleted: number; // Total global
-    // Clé: "TargetLang-Level" (ex: "Anglais 🇬🇧-A1"), Valeur: Numéro de la dernière leçon finie
+    lessonsCompleted: number;
     progressByLevel: Record<string, number>; 
     weakPoints?: string[]; 
     interests?: string[]; 
@@ -95,8 +94,6 @@ export interface UserProfile {
   aiMemory: string; 
   isPremium: boolean;
   hasSeenTutorial?: boolean;
-  
-  // Credit System
   credits: number;
   freeUsage: {
     lastResetWeek: string;
