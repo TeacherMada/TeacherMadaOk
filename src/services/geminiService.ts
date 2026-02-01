@@ -116,7 +116,7 @@ const checkCreditsBeforeAction = (userId: string) => {
 
 const sanitizeHistory = (history: ChatMessage[]) => {
     const cleanHistory = [...history];
-    // Remove initial model messages (TeacherMada greeting)
+    // Remove initial model messages (TeacherMada greeting) until a user message is found
     while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
         cleanHistory.shift();
     }

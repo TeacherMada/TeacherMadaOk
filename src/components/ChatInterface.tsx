@@ -30,7 +30,6 @@ interface ChatInterfaceProps {
   notify: (message: string, type: 'success' | 'error' | 'info') => void;
 }
 
-// --- TYPING INDICATOR COMPONENT ---
 const TypingIndicator = () => (
   <div className="flex items-center space-x-1 h-6 p-1">
     <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
@@ -66,7 +65,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isListening, setIsListening] = useState(false);
   const [imgErrors, setImgErrors] = useState<Record<string, boolean>>({});
   
-  // Voice Call State
   const [isCallActive, setIsCallActive] = useState(false);
   const [isCallConnecting, setIsCallConnecting] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -75,27 +73,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [callSummary, setCallSummary] = useState<VoiceCallSummary | null>(null);
   const [isAnalyzingCall, setIsAnalyzingCall] = useState(false);
   
-  // Voice Call Input State
   const [showVoiceInput, setShowVoiceInput] = useState(false);
   const [voiceTextInput, setVoiceTextInput] = useState('');
   
   const ringbackOscillatorRef = useRef<OscillatorNode | null>(null);
 
-  // Image Gen State
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
-  // Search State
   const [searchQuery, setSearchQuery] = useState('');
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
 
-  // Training Mode State
   const [isTrainingMode, setIsTrainingMode] = useState(false);
   const [exercises, setExercises] = useState<ExerciseItem[]>([]);
   const [isLoadingExercises, setIsLoadingExercises] = useState(false);
   const [exerciseError, setExerciseError] = useState(false);
 
-  // Dialogue Mode State
   const [isDialogueActive, setIsDialogueActive] = useState(false);
   
   const [showSummaryResultModal, setShowSummaryResultModal] = useState(false);
@@ -106,7 +99,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [jumpInputVal, setJumpInputVal] = useState('');
   const [showTutorial, setShowTutorial] = useState(false);
   
-  // Payment Modal State
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -118,7 +110,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const recognitionRef = useRef<any>(null);
   const preferences = user.preferences!;
 
-  // --- SMART PROGRESS CALCULATION (Per Language) ---
   const progressData = useMemo(() => {
       const currentLang = preferences.targetLanguage;
       const currentLevel = preferences.level;
@@ -126,11 +117,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       
       const lessonsDone = user.stats.progressByLevel?.[courseKey] || 0;
       
-      // La barre est pleine à 50 leçons
       const percentage = Math.min((lessonsDone / 50) * 100, 100);
       const isLevelComplete = lessonsDone >= 50;
-      
-      // Determine target level label
       const nextLevelLabel = NEXT_LEVEL_MAP[currentLevel] || 'Expert';
 
       return { 
@@ -143,7 +131,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       };
   }, [user.stats.progressByLevel, preferences.targetLanguage, preferences.level]);
 
-  // --- LESSON NUMBER LOGIC ---
   const lastLessonInChat = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role === 'model') {
@@ -159,7 +146,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     return (progressData.lessonsDone + 1).toString();
   }, [lastLessonInChat, progressData.lessonsDone]);
 
-  // Dynamic Loading Text Logic for Voice Call
   useEffect(() => {
       let timer1: any, timer2: any;
       if (isLoading && isCallActive) {
@@ -172,7 +158,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       return () => { clearTimeout(timer1); clearTimeout(timer2); };
   }, [isLoading, isCallActive]);
 
-  // Search Logic
   const matchingMessages = useMemo(() => {
     if (!searchQuery.trim()) return [];
     return messages
@@ -203,7 +188,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
   const textSizeClass = getTextSizeClass();
 
-  // --- Speech Recognition Logic ---
   const stopListening = () => {
     if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch(e){}
@@ -220,7 +204,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       return;
     }
     const recognition = new SpeechRecognition();
-    recognition.continuous = false; // False is more stable on mobile
+    recognition.continuous = false;
     recognition.interimResults = false;
     
     let lang = 'fr-FR';
@@ -234,9 +218,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     recognition.onstart = () => setIsListening(true);
     recognition.onend = () => {
         setIsListening(false);
-        // Auto-restart if in call and not processing (Stability Fix)
         if (isCallActive && !isLoading && !isPlayingAudio) {
-            // Small delay to prevent tight loops
             setTimeout(() => {
                 if(isCallActive && !isListening) startListening();
             }, 300); 
@@ -261,11 +243,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const toggleListening = () => { isListening ? stopListening() : startListening(); };
 
-  // SMART SCROLL
   const scrollToBottom = () => { 
       if (chatContainerRef.current) {
           const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-          // Only scroll if user is already near bottom to avoid annoying jumps while reading previous messages
           if (scrollHeight - scrollTop - clientHeight < 200) {
               messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
           }
@@ -273,7 +253,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   useEffect(() => { 
-      // Force scroll on new message or mode change
       if (!isTrainingMode && !isDialogueActive && !searchQuery) scrollToBottom(); 
   }, [messages.length, isTrainingMode, isDialogueActive, isLoading]);
 
@@ -310,7 +289,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
      }
   };
 
-  // --- Call Handlers ---
   useEffect(() => {
       let interval: any;
       if (isCallActive && !isCallConnecting && !callSummary) {
@@ -386,17 +364,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       setIsAnalyzingCall(false);
       playRingbackTone();
       
-      // Artificial connection delay for realism
       setTimeout(() => {
           stopRingback();
           setIsCallConnecting(false);
-          
-          // Personalized TeacherMada Greeting
           const isMg = preferences.explanationLanguage === ExplanationLanguage.Malagasy;
           const greeting = isMg 
             ? `Salama ${user.username} ! TeacherMada eto. Vonona hiresaka amin'ny ${preferences.targetLanguage} ve ianao ?`
             : `Bonjour ${user.username}, ici TeacherMada ! On pratique un peu ton ${preferences.targetLanguage} ? Je t'écoute.`;
-          
           handleSpeak(greeting);
       }, 3500);
   };
@@ -431,7 +405,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const toggleMute = () => setIsMuted(!isMuted);
 
-  // --- CORE HANDLER ---
   const handleSend = async (textOverride?: string) => {
     stopAudio();
     const textToSend = typeof textOverride === 'string' ? textOverride : input;
@@ -447,58 +420,51 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     
     setIsSending(true);
 
-    // 1. Prepare UI Update - User Message
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
-    const historyForAI = [...messages]; 
-
-    // 2. Prepare Placeholder for Streaming - AI Message
-    // This allows the user to see "something is happening" immediately
+    
+    // Optimistic Update
     const tempAiId = (Date.now() + 1).toString();
     const placeholderMsg: ChatMessage = { id: tempAiId, role: 'model', text: '', timestamp: Date.now() };
+    const historyForAI = [...messages];
 
-    // Update state with both messages
     const updatedMessages = [...messages, userMsg, placeholderMsg];
     setMessages(updatedMessages);
     
-    // Save user message to history immediately
+    // Save partial state
     storageService.saveChatHistory(user.id, [...messages, userMsg], preferences.targetLanguage);
     
     setInput('');
     setVoiceTextInput('');
     setGeneratedImage(null);
-    setIsLoading(true); // Sets typing indicator if using that state, or spinner
+    setIsLoading(true);
     onMessageSent();
 
     try {
       let finalResponseText = "";
       
       if (isCallActive) {
-          // Voice Mode doesn't stream visually the same way to keep audio cohesive
+          // Voice Mode (No Visual Streaming to keep it simple, audio is king)
           finalResponseText = await generateVoiceChatResponse(textToSend, user.id, historyForAI);
-          
-          // Update the placeholder with full text
           setMessages(prev => prev.map(m => m.id === tempAiId ? { ...m, text: finalResponseText } : m));
       } else {
-          // Text Mode - REAL STREAMING
+          // Text Mode - Streaming!
           const res = await sendMessageToGeminiStream(textToSend, user.id, historyForAI, (chunk) => {
               setMessages(currentMsgs => {
-                  const lastMsg = currentMsgs[currentMsgs.length - 1];
-                  // Only update if the last message is indeed our placeholder
-                  if (lastMsg && lastMsg.id === tempAiId) {
-                      return [
-                          ...currentMsgs.slice(0, -1),
-                          { ...lastMsg, text: lastMsg.text + chunk }
-                      ];
+                  const msgs = [...currentMsgs];
+                  const lastMsgIndex = msgs.findIndex(m => m.id === tempAiId);
+                  if (lastMsgIndex !== -1) {
+                      msgs[lastMsgIndex] = { 
+                          ...msgs[lastMsgIndex], 
+                          text: msgs[lastMsgIndex].text + chunk 
+                      };
                   }
-                  return currentMsgs;
+                  return msgs;
               });
-              // Stop "thinking" spinner as soon as first chunk arrives
-              setIsLoading(false); 
+              setIsLoading(false); // Stop loading spinner as soon as first token arrives
           });
           finalResponseText = res.fullText;
       }
       
-      // Finalize history save
       const finalHistory = [...messages, userMsg, { id: tempAiId, role: 'model', text: finalResponseText, timestamp: Date.now() }];
       storageService.saveChatHistory(user.id, finalHistory as ChatMessage[], preferences.targetLanguage);
       
@@ -508,7 +474,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       
       refreshUserData();
     } catch (error) {
-      // If error, remove the placeholder or show error text
       setMessages(prev => prev.filter(m => m.id !== tempAiId));
       handleErrorAction(error);
     } finally { 
@@ -553,7 +518,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const handleSpeak = async (text: string, msgId?: string) => {
     stopAudio();
-    stopListening(); // Stop input while AI speaks
+    stopListening();
     
     if (msgId) lastSpokenMessageId.current = msgId;
     setIsPlayingAudio(true);
@@ -571,7 +536,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             activeSourceRef.current = source;
             source.onended = () => {
                 setIsPlayingAudio(false);
-                // Resume listening if in call
                 if (isCallActive) startListening();
             };
             source.start(0);
@@ -945,7 +909,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         >
                              {msg.role === 'user' ? <p className="whitespace-pre-wrap">{msg.text}</p> : (
                                 <>
-                                    {/* Streaming Logic: Render what we have so far */}
                                     <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} highlight={searchQuery} />
                                     
                                     {/* Start Button on First Message */}
