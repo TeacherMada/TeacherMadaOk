@@ -187,8 +187,6 @@ export const sendMessageToGeminiStream = async (
     }, userId);
 };
 
-// ... (Rest of functions use similar pattern, only generateVocabulary needs explicit fix for regex parsing)
-
 export const generateVocabularyFromHistory = async (userId: string, history: ChatMessage[]): Promise<VocabularyItem[]> => {
     const status = storageService.canPerformRequest(userId);
     if (!status.allowed) throw new Error("INSUFFICIENT_CREDITS");
@@ -228,7 +226,6 @@ export const generateVocabularyFromHistory = async (userId: string, history: Cha
     }, userId);
 };
 
-// Export all other existing functions...
 export const sendMessageToGemini = async (message: string, userId: string): Promise<string> => {
   let fullText = '';
   // @ts-ignore
@@ -329,8 +326,14 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
             config: { imageConfig: { aspectRatio: "16:9" } } as any
         });
         storageService.deductCreditOrUsage(userId);
+        
+        // Fix: Use optional chaining or check for inlineData existence
         const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-        return part ? `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}` : null;
+        
+        if (part?.inlineData) {
+             return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+        }
+        return null;
     }, userId);
 };
 
