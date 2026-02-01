@@ -235,6 +235,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           reply = await sendMessageToGemini(textToSend, user.id, updatedHistory);
       }
       
+      // Sécurité : retrait manuel du code si l'IA en génère par erreur
       const safeReply = reply.replace(/```[\s\S]*?```/g, '').trim();
 
       const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: safeReply, timestamp: Date.now() };
@@ -245,12 +246,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       if (isCallActive) setAiLastReply(safeReply);
 
       // --- AUTO PLAY IA ---
+      // On lance la voix automatiquement pour chaque réponse de l'IA
       handleSpeak(safeReply);
 
       const updated = storageService.getUserById(user.id);
       if(updated) onUpdateUser(updated);
     } catch (error: any) {
-      notify(error.message || "Erreur de connexion.", 'error');
+      notify(error.message || "Erreur de réseau.", 'error');
     } finally { 
       setIsLoading(false); 
     }
@@ -392,7 +394,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </div>
       </header>
       
-      {/* Messages - Responsive Fix */}
+      {/* Messages - Responsive Mobile Fix */}
       <div id="chat-feed" ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 md:p-6 space-y-5 pt-16 pb-4 scrollbar-hide">
         {messages.map((msg) => (
             <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}>

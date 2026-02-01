@@ -3,31 +3,38 @@ import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
-// Pool de modèles pour assurer la continuité du service
+// Pool de modèles pour la résilience
 const MODEL_POOL = [
     'gemini-3-flash-preview',
     'gemini-flash-lite-latest',
     'gemini-1.5-flash'
 ];
 
+/**
+ * Récupère la ou les clés API depuis l'environnement.
+ * Gère le format multi-clés (rotation) et les variables préfixées par VITE_.
+ */
 const getApiKey = (): string => {
-    // La clé API est récupérée exclusivement depuis process.env.API_KEY.
-    // Note : Pour Vite, assurez-vous que votre variable est bien injectée dans process.env.API_KEY
+    // @ts-ignore - Accès aux variables d'environnement Vite
+    const viteKey = import.meta.env?.VITE_GOOGLE_API_KEY;
     // @ts-ignore
-    const envKey = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : undefined;
-    const rawKeys: string = envKey || "";
+    const viteAltKey = import.meta.env?.VITE_API_KEY;
+    // @ts-ignore - Fallback process.env pour certains environnements de build
+    const processKey = (typeof process !== 'undefined' && process.env) ? (process.env.API_KEY || process.env.VITE_GOOGLE_API_KEY) : undefined;
     
-    // Nettoyage et filtrage des clés (format : "KEY1,KEY2,KEY3")
+    const rawKeys: string = viteKey || viteAltKey || processKey || "";
+    
+    // Nettoyage et typage explicite pour éviter TS7006
     const keys = rawKeys.split(',')
         .map((k: string) => k.trim())
         .filter((k: string) => k.length > 5);
     
     if (keys.length === 0) {
-        console.error("CRITICAL: API_KEY_MISSING. La variable process.env.API_KEY est vide.");
+        console.error("CRITICAL: API_KEY_MISSING. Vérifiez VITE_GOOGLE_API_KEY dans vos variables d'environnement.");
         throw new Error("API_KEY_MISSING: Aucune clé valide trouvée dans l'environnement.");
     }
     
-    // Rotation aléatoire pour distribuer la charge
+    // Rotation aléatoire pour distribuer le quota
     return keys[Math.floor(Math.random() * keys.length)];
 };
 
@@ -36,22 +43,22 @@ async function executeWithFallback<T>(operation: (ai: GoogleGenAI, modelName: st
     
     for (const model of MODEL_POOL) {
         try {
-            // On crée une nouvelle instance avec une clé aléatoire du pool à chaque essai
+            // Création d'une nouvelle instance avec une clé rotative à chaque essai
             const ai = new GoogleGenAI({ apiKey: getApiKey() });
             return await operation(ai, model);
         } catch (error: any) {
             lastError = error;
             const msg = error.message?.toLowerCase() || "";
             
-            // Si quota dépassé ou erreur réseau, on passe au modèle/clé suivant
-            if (msg.includes('429') || msg.includes('quota') || msg.includes('fetch') || msg.includes('network') || msg.includes('aborted')) {
-                console.warn(`Tentative de repli (fallback) car le modèle ${model} a échoué.`);
+            // Retry sur erreurs de quota (429) ou instabilité réseau
+            if (msg.includes('429') || msg.includes('quota') || msg.includes('fetch') || msg.includes('network')) {
+                console.warn(`Instabilité sur ${model}, rotation de clé et basculement...`);
                 continue;
             }
             throw error;
         }
     }
-    throw lastError || new Error("Service indisponible. Vérifiez votre connexion.");
+    throw lastError || new Error("Service IA temporairement indisponible.");
 }
 
 export const sendMessageToGemini = async (message: string, userId: string, history: ChatMessage[]): Promise<string> => {
@@ -67,7 +74,7 @@ export const sendMessageToGemini = async (message: string, userId: string, histo
             ],
             config: { 
                 systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!) + 
-                "\n\n🚨 RÈGLE : Ne jamais envoyer de code informatique ou de blocs ```. Réponds uniquement en texte pédagogique.",
+                "\n\n🚨 RÈGLE CRITIQUE : Interdiction formelle d'envoyer du code informatique ou des blocs ```. Réponds exclusivement en texte pédagogique fluide.",
                 temperature: 0.7 
             }
         });
@@ -88,7 +95,7 @@ export const generateVoiceChatResponse = async (message: string, userId: string,
                 { role: 'user', parts: [{ text: message }] }
             ],
             config: {
-                systemInstruction: `Tu es TeacherMada en APPEL VOCAL. Réponds en 1 phrase courte. Pas de markdown. Langue: ${user.preferences?.targetLanguage}.`,
+                systemInstruction: `Tu es TeacherMada. APPEL VOCAL. Réponse courte (1 phrase). Pas de markdown. Langue: ${user.preferences?.targetLanguage}.`,
                 maxOutputTokens: 100,
                 temperature: 0.5
             }
@@ -103,6 +110,7 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
         const user = storageService.getUserById(userId);
         const voiceToUse = voice || user?.preferences?.voiceName || 'Kore';
         
+        // Nettoyage Markdown pour le TTS
         const cleanText = text.replace(/[*#_`~]/g, '').trim().substring(0, 800);
         if (!cleanText) return null;
 
@@ -127,7 +135,7 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
         }
         return bytes;
     } catch (e) {
-        console.error("Erreur TTS:", e);
+        console.error("TTS Error:", e);
         return null;
     }
 };
