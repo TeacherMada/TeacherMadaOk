@@ -10,7 +10,7 @@ const ENV_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY || '';
 
 const DEFAULT_SETTINGS: SystemSettings = {
   apiKeys: ENV_API_KEY ? [ENV_API_KEY] : [],
-  activeModel: 'gemini-2.0-flash',
+  activeModel: 'gemini-2.0-flash', // Optimized for speed/cost
   adminContact: {
     telma: "034 93 102 68",
     airtel: "033 38 784 20",
@@ -31,6 +31,8 @@ const getMadagascarCurrentWeek = (): string => {
 };
 
 export const storageService = {
+  
+  // --- Auth & User Management ---
   
   login: async (identifier: string, password?: string): Promise<{ success: boolean, user?: UserProfile, error?: string }> => {
     storageService.seedAdmin();
@@ -176,6 +178,7 @@ export const storageService = {
       const settings = storageService.getSystemSettings();
       const validRefs = settings.validTransactionRefs || [];
       
+      // Auto-validate if reference matches known pattern
       let matchedRef: string | null = null;
       if (type === 'credit' && amount && message) {
           matchedRef = validRefs.find(ref => message.toUpperCase().includes(ref.toUpperCase())) || null;
@@ -188,6 +191,7 @@ export const storageService = {
           }
       }
 
+      // Safe Async Fetch & Update
       const currentRequests = await storageService.getAdminRequests();
       const newRequest: AdminRequest = {
           id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,

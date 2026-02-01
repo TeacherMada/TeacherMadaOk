@@ -447,6 +447,47 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const closeCallOverlay = () => { setIsCallActive(false); setIsCallConnecting(false); setCallSummary(null); setIsMuted(false); setCallSeconds(0); setShowVoiceInput(false); };
   const toggleMute = () => setIsMuted(!isMuted);
 
+  const handleValidateSummary = async () => {
+      const num = parseInt(summaryInputVal);
+      if (isNaN(num) || num < 1) return;
+      if (!storageService.canPerformRequest(user.id).allowed) {
+        setShowPaymentModal(true);
+        return;
+      }
+      setSummaryInputVal('');
+      setIsGeneratingSummary(true); setShowSummaryResultModal(true); setShowMenu(false);
+      const context = messages.slice(-10).map(m => m.text).join('\n');
+      try {
+        const summary = await getLessonSummary(num, context, user.id);
+        setSummaryContent(summary);
+      } catch(e: any) {
+        setSummaryContent("Erreur : Crédits insuffisants ou problème technique.");
+        if(e.message === 'INSUFFICIENT_CREDITS') setShowPaymentModal(true);
+      } finally {
+        setIsGeneratingSummary(false);
+      }
+  };
+
+  const handleValidateJump = () => { const num = parseInt(jumpInputVal); const regex = new RegExp(`##\\s*(?:🟢|🔴|🔵)?\\s*(?:LEÇON|LECON|LESSON|LESONA)\\s*${num}`, 'i'); const targetMsg = messages.find(m => m.role === 'model' && m.text.match(regex)); if (targetMsg) { setShowMenu(false); setJumpInputVal(''); document.getElementById(`msg-${targetMsg.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } else { notify(`⚠️ Leçon ${num} introuvable.`, 'error'); } };
+
+  const handleToggleExplanationLang = () => {
+      const newLang = preferences.explanationLanguage === ExplanationLanguage.French 
+        ? ExplanationLanguage.Malagasy 
+        : ExplanationLanguage.French;
+      
+      const updatedPrefs = { ...preferences, explanationLanguage: newLang };
+      const updatedUser = { ...user, preferences: updatedPrefs };
+      storageService.updatePreferences(user.id, updatedPrefs);
+      onUpdateUser(updatedUser);
+      notify(`Explications en : ${newLang.split(' ')[0]}`, 'success');
+  };
+
+  const handleFontSizeChange = (size: 'small' | 'normal' | 'large' | 'xl') => {
+    const updatedUser = { ...user, preferences: { ...user.preferences!, fontSize: size } };
+    onUpdateUser(updatedUser);
+    storageService.updatePreferences(user.id, updatedUser.preferences!);
+  };
+
   return (
     <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
       {showPaymentModal && <PaymentModal user={user} onClose={() => setShowPaymentModal(false)} />}
@@ -476,6 +517,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   <ExerciseSession exercises={exercises} onClose={handleQuitTraining} onComplete={handleExerciseComplete} />
               )}
           </div>
+      )}
+
+      {showSummaryResultModal && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-lg p-6 shadow-xl border border-slate-100 max-h-[80vh] flex flex-col">
+                <div className="flex justify-between items-center mb-4 pb-2 border-b">
+                    <h3 className="font-bold flex items-center gap-2 text-slate-800 dark:text-white"><BookOpen className="text-indigo-500"/> Résumé</h3>
+                    <button onClick={() => setShowSummaryResultModal(false)}><X className="text-slate-500"/></button>
+                </div>
+                <div className="flex-1 overflow-y-auto scrollbar-hide">
+                    {isGeneratingSummary ? <div className="text-center py-10"><Loader2 className="animate-spin mx-auto text-indigo-500 mb-2"/>Génération...</div> : <MarkdownRenderer content={summaryContent}/>}
+                </div>
+            </div>
+        </div>
       )}
 
       {/* Header */}
@@ -533,11 +588,57 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                              </div>
                          </div>
                         
+                         {/* Lesson Controls Grid */}
+                         <div className="grid grid-cols-2 gap-2 mb-2">
+                             <button onClick={() => { setShowSummaryResultModal(false); setShowMenu(true); }} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                                 <div className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <BookOpen className="w-5 h-5 text-indigo-500"/>
+                                 </div>
+                                 <div className="w-full">
+                                    <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Résumé</span>
+                                    <div className="flex items-center justify-center gap-1 mt-1">
+                                        <input type="number" placeholder="#" value={summaryInputVal} onChange={e => setSummaryInputVal(e.target.value)} onClick={e => e.stopPropagation()} className="w-8 text-center bg-transparent border-b border-slate-300 dark:border-slate-600 text-xs focus:border-indigo-500 outline-none"/>
+                                        <div onClick={(e) => { e.stopPropagation(); handleValidateSummary(); }} className="text-[10px] font-black text-indigo-600 cursor-pointer">GO</div>
+                                    </div>
+                                 </div>
+                             </button>
+
+                             <button className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex flex-col items-center justify-center text-center gap-2 group">
+                                 <div className="p-2 bg-white dark:bg-slate-700 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                                    <RotateCcw className="w-5 h-5 text-emerald-500"/>
+                                 </div>
+                                 <div className="w-full">
+                                    <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Aller à</span>
+                                    <div className="flex items-center justify-center gap-1 mt-1">
+                                        <input type="number" placeholder="#" value={jumpInputVal} onChange={e => setJumpInputVal(e.target.value)} onClick={e => e.stopPropagation()} className="w-8 text-center bg-transparent border-b border-slate-300 dark:border-slate-600 text-xs focus:border-emerald-500 outline-none"/>
+                                        <div onClick={(e) => { e.stopPropagation(); handleValidateJump(); }} className="text-[10px] font-black text-emerald-600 cursor-pointer">GO</div>
+                                    </div>
+                                 </div>
+                             </button>
+                         </div>
+
                          <div className="grid grid-cols-2 gap-2 mb-2 border-t border-slate-100 dark:border-slate-800 pt-2">
                              <button onClick={toggleTheme} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-center gap-2 transition-colors">
                                  {isDarkMode ? <Sun className="w-4 h-4 text-amber-500"/> : <Moon className="w-4 h-4 text-indigo-500"/>}
                                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Thème</span>
                              </button>
+                             <button onClick={handleToggleExplanationLang} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                 <Languages className="w-4 h-4 text-purple-500"/>
+                                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{preferences.explanationLanguage.split(' ')[0]}</span>
+                             </button>
+                         </div>
+
+                         <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                            <div className="flex items-center gap-2 text-xs font-bold mb-2 text-slate-500 dark:text-slate-400 uppercase">
+                                <Type className="w-3 h-3"/> Taille Texte
+                            </div>
+                            <div className="flex bg-white dark:bg-slate-700 rounded-lg p-1 gap-1">
+                                {(['small', 'normal', 'large', 'xl'] as const).map(s => (
+                                    <button key={s} onClick={() => handleFontSizeChange(s)} className={`flex-1 text-[10px] py-1.5 rounded-md font-bold transition-all ${fontSize === s ? 'bg-indigo-600 shadow text-white' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-600'}`}>
+                                        {s === 'small' ? 'A' : s === 'normal' ? 'A+' : 'A++'}
+                                    </button>
+                                ))}
+                            </div>
                          </div>
                      </div>
                  )}
@@ -571,8 +672,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     <MarkdownRenderer content={msg.text} onPlayAudio={(t) => handleSpeak(t)} highlight={searchQuery} />
                                     {/* Action Buttons */}
                                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50" data-html2canvas-ignore>
-                                        <button onClick={() => handleSpeak(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"><Volume2 className="w-4 h-4 text-slate-400 hover:text-indigo-500"/></button>
-                                        <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">{copiedId === msg.id ? <Check className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4 text-slate-400"/>}</button>
+                                        <button onClick={() => handleSpeak(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><Volume2 className="w-4 h-4 text-slate-400 hover:text-indigo-500"/></button>
+                                        <button onClick={() => handleCopy(msg.text, msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">{copiedId === msg.id ? <Check className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4 text-slate-400"/>}</button>
                                         <button onClick={() => handleExportImage(msg.id)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><ImageIcon className="w-4 h-4 text-slate-400 hover:text-purple-500"/></button>
                                     </div>
                                 </>

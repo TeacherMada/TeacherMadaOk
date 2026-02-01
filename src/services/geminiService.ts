@@ -67,28 +67,18 @@ const safeJsonParse = (text: string | undefined, fallback: any) => {
         try {
             // Attempt to clean markdown code blocks
             let clean = text.replace(/```json/g, '').replace(/```/g, '');
-            // Find the first '{' or '['
-            const firstOpenBrace = clean.indexOf('{');
-            const firstOpenBracket = clean.indexOf('[');
+            const firstOpen = clean.indexOf('{');
+            const firstArray = clean.indexOf('[');
             
-            let start = -1;
-            if (firstOpenBrace !== -1 && firstOpenBracket !== -1) {
-                start = Math.min(firstOpenBrace, firstOpenBracket);
-            } else {
-                start = Math.max(firstOpenBrace, firstOpenBracket);
-            }
-
-            // Find the last '}' or ']'
-            const lastCloseBrace = clean.lastIndexOf('}');
-            const lastCloseBracket = clean.lastIndexOf(']');
-            
-            const end = Math.max(lastCloseBrace, lastCloseBracket);
+            const start = (firstOpen !== -1 && (firstArray === -1 || firstOpen < firstArray)) ? firstOpen : firstArray;
+            const lastClose = clean.lastIndexOf('}');
+            const lastArray = clean.lastIndexOf(']');
+            const end = Math.max(lastClose, lastArray);
 
             if (start !== -1 && end !== -1 && end > start) {
                 clean = clean.substring(start, end + 1);
                 return JSON.parse(clean);
             }
-            console.warn("JSON Parse failed even after cleanup.");
             return fallback;
         } catch (e2) {
             console.error("Deep JSON Parse Error", e2);
@@ -115,7 +105,6 @@ const executeWithRetry = async <T>(
         return await operation(modelName);
     } catch (error: any) {
         const msg = error.message || JSON.stringify(error);
-        
         if (msg.includes("API_KEY_MISSING")) throw new Error("Configuration API manquante.");
 
         const isQuotaError = msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted');
@@ -161,6 +150,7 @@ export const startChatSession = async (
   return null; 
 };
 
+// === STREAMING ENABLED ===
 export const sendMessageToGeminiStream = async (
     message: string, 
     userId: string,
