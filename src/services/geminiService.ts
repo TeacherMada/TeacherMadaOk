@@ -3,7 +3,7 @@ import { UserProfile, UserPreferences, ChatMessage, DailyChallenge, ExerciseItem
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
-// Pool de modèles pour assurer la continuité
+// Pool de modèles pour assurer la continuité du service
 const MODEL_POOL = [
     'gemini-3-flash-preview',
     'gemini-flash-lite-latest',
@@ -11,16 +11,23 @@ const MODEL_POOL = [
 ];
 
 const getApiKey = (): string => {
-    // Récupération depuis l'environnement (format: "KEY1,KEY2,KEY3")
-    const rawKeys = process.env.API_KEY || "";
-    const keys = rawKeys.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 5);
+    // La clé API est récupérée exclusivement depuis process.env.API_KEY.
+    // Note : Pour Vite, assurez-vous que votre variable est bien injectée dans process.env.API_KEY
+    // @ts-ignore
+    const envKey = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : undefined;
+    const rawKeys: string = envKey || "";
+    
+    // Nettoyage et filtrage des clés (format : "KEY1,KEY2,KEY3")
+    const keys = rawKeys.split(',')
+        .map((k: string) => k.trim())
+        .filter((k: string) => k.length > 5);
     
     if (keys.length === 0) {
-        console.error("CRITICAL: API_KEY_MISSING. Vérifiez les variables d'environnement.");
-        throw new Error("API_KEY_MISSING: Aucune clé valide trouvée.");
+        console.error("CRITICAL: API_KEY_MISSING. La variable process.env.API_KEY est vide.");
+        throw new Error("API_KEY_MISSING: Aucune clé valide trouvée dans l'environnement.");
     }
     
-    // Rotation aléatoire
+    // Rotation aléatoire pour distribuer la charge
     return keys[Math.floor(Math.random() * keys.length)];
 };
 
@@ -29,21 +36,22 @@ async function executeWithFallback<T>(operation: (ai: GoogleGenAI, modelName: st
     
     for (const model of MODEL_POOL) {
         try {
+            // On crée une nouvelle instance avec une clé aléatoire du pool à chaque essai
             const ai = new GoogleGenAI({ apiKey: getApiKey() });
             return await operation(ai, model);
         } catch (error: any) {
             lastError = error;
             const msg = error.message?.toLowerCase() || "";
             
-            // Fallback si quota ou erreur réseau
-            if (msg.includes('429') || msg.includes('quota') || msg.includes('fetch') || msg.includes('network')) {
-                console.warn(`Basculement de modèle/clé car ${model} est instable.`);
+            // Si quota dépassé ou erreur réseau, on passe au modèle/clé suivant
+            if (msg.includes('429') || msg.includes('quota') || msg.includes('fetch') || msg.includes('network') || msg.includes('aborted')) {
+                console.warn(`Tentative de repli (fallback) car le modèle ${model} a échoué.`);
                 continue;
             }
             throw error;
         }
     }
-    throw new Error("Connexion réseau instable. Veuillez réessayer.");
+    throw lastError || new Error("Service indisponible. Vérifiez votre connexion.");
 }
 
 export const sendMessageToGemini = async (message: string, userId: string, history: ChatMessage[]): Promise<string> => {
@@ -59,7 +67,7 @@ export const sendMessageToGemini = async (message: string, userId: string, histo
             ],
             config: { 
                 systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!) + 
-                "\n\n🚨 INTERDICTION: Ne jamais envoyer de code informatique ou de blocs ```. Réponds exclusivement en texte clair.",
+                "\n\n🚨 RÈGLE : Ne jamais envoyer de code informatique ou de blocs ```. Réponds uniquement en texte pédagogique.",
                 temperature: 0.7 
             }
         });
@@ -80,7 +88,7 @@ export const generateVoiceChatResponse = async (message: string, userId: string,
                 { role: 'user', parts: [{ text: message }] }
             ],
             config: {
-                systemInstruction: `Tu es TeacherMada. APPEL VOCAL. Réponses ultra-courtes (1 phrase). Pas de markdown. Langue: ${user.preferences?.targetLanguage}.`,
+                systemInstruction: `Tu es TeacherMada en APPEL VOCAL. Réponds en 1 phrase courte. Pas de markdown. Langue: ${user.preferences?.targetLanguage}.`,
                 maxOutputTokens: 100,
                 temperature: 0.5
             }
@@ -119,7 +127,7 @@ export const generateSpeech = async (text: string, userId: string, voice?: Voice
         }
         return bytes;
     } catch (e) {
-        console.error("TTS Error:", e);
+        console.error("Erreur TTS:", e);
         return null;
     }
 };

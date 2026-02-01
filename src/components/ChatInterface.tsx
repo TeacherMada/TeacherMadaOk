@@ -198,7 +198,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           setIsCallConnecting(false);
           const isMg = preferences.explanationLanguage.includes('Mada');
           const greeting = isMg 
-            ? `Manao ahoana ! TeacherMada eto. Inona no hianarantsika androany ?`
+            ? `Salama ! TeacherMada eto. Vonona hiresaka ve ianao ?`
             : `Bonjour ! C'est TeacherMada. De quoi souhaites-tu discuter ?`;
           handleSpeak(greeting);
       }, 1500);
@@ -235,7 +235,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           reply = await sendMessageToGemini(textToSend, user.id, updatedHistory);
       }
       
-      // Sécurité : retrait de tout code markdown accidentel
       const safeReply = reply.replace(/```[\s\S]*?```/g, '').trim();
 
       const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: safeReply, timestamp: Date.now() };
@@ -245,7 +244,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       
       if (isCallActive) setAiLastReply(safeReply);
 
-      // --- AUTO PLAY AUDIO IA ---
+      // --- AUTO PLAY IA ---
       handleSpeak(safeReply);
 
       const updated = storageService.getUserById(user.id);
