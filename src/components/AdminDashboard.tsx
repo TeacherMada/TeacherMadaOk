@@ -2,8 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, SystemSettings, AdminRequest } from '../types';
 import { storageService } from '../services/storageService';
-import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle, AlertTriangle, Globe, Banknote } from 'lucide-react';
-import { generateLanguageFlag } from '../services/geminiService';
+import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle, AlertTriangle, Globe, Banknote, Flag } from 'lucide-react';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
@@ -22,9 +21,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
   const [newApiKey, setNewApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   
-  // Custom Language State
+  // Custom Language State (MANUAL ADDITION)
   const [newLangName, setNewLangName] = useState('');
-  const [addingLang, setAddingLang] = useState(false);
+  const [newLangFlag, setNewLangFlag] = useState('');
 
   // Auto-Validation State
   const [newTransactionRef, setNewTransactionRef] = useState('');
@@ -113,24 +112,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
   };
 
   const handleAddLanguage = async () => {
-      if (!newLangName.trim()) return;
-      setAddingLang(true);
+      if (!newLangName.trim() || !newLangFlag.trim()) {
+          notify("Nom et Drapeau requis.", 'error');
+          return;
+      }
+      
       try {
-          const generated = await generateLanguageFlag(newLangName);
-          const newLang = { code: generated.code, baseName: newLangName, flag: generated.flag };
+          // Construct Manual Language Object
+          // Code generation: simple slug from name (e.g. "Italien" -> "Italien 🇮🇹")
+          const code = `${newLangName} ${newLangFlag}`;
+          const newLang = { code: code, baseName: newLangName, flag: newLangFlag };
           
           const updatedSettings = {
               ...settings,
               customLanguages: [...(settings.customLanguages || []), newLang]
           };
+          
           setSettings(updatedSettings);
           await storageService.updateSystemSettings(updatedSettings);
+          
           setNewLangName('');
-          notify(`Langue ${generated.code} ajoutée !`, 'success');
+          setNewLangFlag('');
+          notify(`Langue ${newLangName} ajoutée !`, 'success');
       } catch (e) {
-          notify("Erreur IA lors de l'ajout de la langue.", 'error');
-      } finally {
-          setAddingLang(false);
+          notify("Erreur lors de l'ajout.", 'error');
       }
   };
 
@@ -403,20 +408,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onLogout, 
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 md:p-6 space-y-6">
                 <h3 className="text-lg font-bold flex items-center gap-2"><Globe className="w-5 h-5 text-indigo-500" /> Gestion des Langues Supplémentaires</h3>
                 
-                <div className="flex flex-col md:flex-row gap-2">
-                    <input 
-                        type="text" 
-                        value={newLangName}
-                        onChange={(e) => setNewLangName(e.target.value)}
-                        placeholder="Ex: Portugais, Italien..."
-                        className="flex-1 p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
+                <div className="flex flex-col md:flex-row gap-2 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <div className="flex-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Nom de la Langue</label>
+                        <input 
+                            type="text" 
+                            value={newLangName}
+                            onChange={(e) => setNewLangName(e.target.value)}
+                            placeholder="Ex: Portugais"
+                            className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                    </div>
+                    <div className="w-full md:w-32">
+                        <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Drapeau</label>
+                        <div className="relative">
+                            <input 
+                                type="text" 
+                                value={newLangFlag}
+                                onChange={(e) => setNewLangFlag(e.target.value)}
+                                placeholder="🇵🇹"
+                                className="w-full p-3 pl-9 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                            <Flag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"/>
+                        </div>
+                    </div>
                     <button 
                         onClick={handleAddLanguage} 
-                        disabled={addingLang || !newLangName.trim()}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 disabled:opacity-50"
+                        disabled={!newLangName.trim() || !newLangFlag.trim()}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-bold flex items-center justify-center gap-2 disabled:opacity-50 self-end h-[46px]"
                     >
-                        {addingLang ? 'Génération IA...' : 'Ajouter Langue'} <Plus className="w-4 h-4"/>
+                        Ajouter <Plus className="w-4 h-4"/>
                     </button>
                 </div>
 
