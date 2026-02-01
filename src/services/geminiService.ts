@@ -137,6 +137,17 @@ export const startChatSession = async (
   return null; 
 };
 
+// === HELPER: Sanitize History for Gemini ===
+// Removes initial messages until a 'user' message is found.
+// This fixes "History must start with a user turn" error when history starts with a Model greeting.
+const sanitizeHistory = (history: ChatMessage[]) => {
+    const cleanHistory = [...history];
+    while (cleanHistory.length > 0 && cleanHistory[0].role !== 'user') {
+        cleanHistory.shift();
+    }
+    return cleanHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+};
+
 export const sendMessageToGeminiStream = async (
     message: string, 
     userId: string,
@@ -150,7 +161,9 @@ export const sendMessageToGeminiStream = async (
         if (!user || !user.preferences) throw new Error("User data missing");
         
         const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
-        const historyPayload = previousHistory.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+        
+        // FIX APPLIED HERE: Filter history
+        const historyPayload = sanitizeHistory(previousHistory);
 
         const chat = aiClient!.chats.create({
             model: modelName,
@@ -215,12 +228,11 @@ export const generateVoiceChatResponse = async (
             4. Speak naturally.
         `;
 
-        const historyParts = history.slice(-6).map(msg => ({
-            role: msg.role,
-            parts: [{ text: msg.text }]
-        }));
+        // FIX APPLIED HERE: Filter history
+        let recentHistory = history.slice(-6);
+        const historyParts = sanitizeHistory(recentHistory);
 
-        const chat = aiClient.chats.create({
+        const chat = aiClient!.chats.create({
             model: modelName,
             config: {
                 systemInstruction: systemInstruction,
@@ -359,6 +371,7 @@ export const generateConceptImage = async (prompt: string, userId: string): Prom
         if (!aiClient) initializeGenAI();
         if (!aiClient) throw new Error("AI Client not initialized");
 
+        // Use a model optimized for low-latency image generation
         const imageModel = 'gemini-2.5-flash-image';
         
         // CORRECTION: Utilisation d'un objet 'any' pour contourner la vérification de type stricte de TS
