@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { UserProfile, ChatMessage, VocabularyItem } from "../types";
+import { UserProfile, ChatMessage, VocabularyItem, ExerciseItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
@@ -104,6 +104,52 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
 
     } catch (e) {
         console.error("Vocabulary extraction error", e);
+        return [];
+    }
+};
+
+// --- EXERCISE GENERATION ---
+export const generateExerciseFromHistory = async (history: ChatMessage[], user: UserProfile): Promise<ExerciseItem[]> => {
+    if (!storageService.canRequest(user.id)) return [];
+
+    const ai = getClient();
+    const context = history.slice(-10).map(m => m.text).join("\n");
+    
+    const prompt = `Génère 3 exercices rapides (QCM ou Vrai/Faux) basés sur la conversation récente pour tester la compréhension de l'élève (${user.preferences?.level}).
+    Conversation: ${context}
+    
+    Format JSON Array.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            id: { type: Type.STRING },
+                            type: { type: Type.STRING, enum: ["multiple_choice", "true_false", "fill_blank"] },
+                            question: { type: Type.STRING },
+                            options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            correctAnswer: { type: Type.STRING },
+                            explanation: { type: Type.STRING }
+                        },
+                        required: ["type", "question", "correctAnswer", "explanation"]
+                    }
+                }
+            }
+        });
+        
+        // Deduct credit
+        storageService.consumeCredit(user.id);
+        
+        return JSON.parse(response.text || "[]");
+    } catch (e) {
+        console.error("Exercise Gen Error", e);
         return [];
     }
 };

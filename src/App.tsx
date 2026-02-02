@@ -1,21 +1,29 @@
-
 import React, { useState, useEffect } from 'react';
 import LandingPage from './components/LandingPage';
 import AuthScreen from './components/AuthScreen';
 import Onboarding from './components/Onboarding';
 import ChatInterface from './components/ChatInterface';
 import SmartDashboard from './components/SmartDashboard';
-import { UserProfile, LearningSession, ChatMessage } from './types';
+import ExerciseSession from './components/ExerciseSession';
+import DialogueSession from './components/DialogueSession';
+import { UserProfile, LearningSession, ExerciseItem } from './types';
 import { storageService } from './services/storageService';
-import { X } from 'lucide-react';
+import { generateExerciseFromHistory } from './services/geminiService';
+import { Toaster, toast } from './components/Toaster';
+import { Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [currentSession, setCurrentSession] = useState<LearningSession | null>(null);
   const [showAuth, setShowAuth] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
+  
+  // Modes
+  const [activeMode, setActiveMode] = useState<'chat' | 'exercise' | 'practice'>('chat');
+  const [currentExercises, setCurrentExercises] = useState<ExerciseItem[]>([]);
+  const [isGeneratingExercise, setIsGeneratingExercise] = useState(false);
+
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
-  const [toast, setToast] = useState<{msg: string, type: string} | null>(null);
 
   useEffect(() => {
     const curr = storageService.getCurrentUser();
@@ -24,9 +32,11 @@ const App: React.FC = () => {
     localStorage.setItem('tm_theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
 
+  // Legacy notify bridge
   const notify = (msg: string, type: string = 'info') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
+    if (type === 'error') toast.error(msg);
+    else if (type === 'success') toast.success(msg);
+    else toast.info(msg);
   };
 
   const handleAuthSuccess = (u: UserProfile) => {
@@ -52,16 +62,50 @@ const App: React.FC = () => {
     setUser(null);
     setCurrentSession(null);
     setShowDashboard(false);
+    setActiveMode('chat');
+  };
+
+  // --- FEATURE HANDLERS ---
+
+  const startExercise = async () => {
+      if (!user || !currentSession) return;
+      setIsGeneratingExercise(true);
+      try {
+          const exercises = await generateExerciseFromHistory(currentSession.messages, user);
+          if (exercises.length > 0) {
+              setCurrentExercises(exercises);
+              setActiveMode('exercise');
+          } else {
+              toast.error("Impossible de générer des exercices (Contexte insuffisant ou erreur).");
+          }
+      } catch (e) {
+          toast.error("Erreur lors de la génération.");
+      } finally {
+          setIsGeneratingExercise(false);
+      }
+  };
+
+  const finishExercise = (score: number, total: number) => {
+      if (user) {
+          const bonusXp = score * 10;
+          const updatedUser = { ...user, stats: { ...user.stats, xp: user.stats.xp + bonusXp } };
+          setUser(updatedUser);
+          storageService.saveUserProfile(updatedUser);
+          toast.success(`Exercice terminé ! +${bonusXp} XP`);
+      }
+      setActiveMode('chat');
   };
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-sans transition-colors duration-300">
-      {/* Universal Toast */}
-      {toast && (
-        <div className={`fixed top-6 right-6 z-[200] flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl text-white animate-fade-in-up ${toast.type === 'error' ? 'bg-red-500' : 'bg-indigo-600'}`}>
-          <span className="font-bold text-sm">{toast.msg}</span>
-          <button onClick={() => setToast(null)}><X size={16} /></button>
-        </div>
+      <Toaster />
+
+      {/* GLOBAL LOADER OVERLAY */}
+      {isGeneratingExercise && (
+          <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-white">
+              <Loader2 className="w-12 h-12 animate-spin mb-4 text-indigo-500" />
+              <p className="font-bold text-lg">L'IA prépare vos exercices...</p>
+          </div>
       )}
 
       {!user && !showAuth && (
@@ -88,14 +132,36 @@ const App: React.FC = () => {
 
       {user && user.preferences && currentSession && (
         <>
-          <ChatInterface 
-            user={user} 
-            session={currentSession} 
-            onShowProfile={() => setShowDashboard(true)}
-            onExit={() => setCurrentSession(null)}
-            onUpdateUser={setUser}
-            notify={notify}
-          />
+          {activeMode === 'chat' && (
+              <ChatInterface 
+                user={user} 
+                session={currentSession} 
+                onShowProfile={() => setShowDashboard(true)}
+                onExit={() => setCurrentSession(null)}
+                onUpdateUser={setUser}
+                onStartPractice={() => setActiveMode('practice')}
+                onStartExercise={startExercise}
+                notify={notify}
+              />
+          )}
+
+          {activeMode === 'exercise' && (
+              <ExerciseSession 
+                  exercises={currentExercises}
+                  onClose={() => setActiveMode('chat')}
+                  onComplete={finishExercise}
+              />
+          )}
+
+          {activeMode === 'practice' && (
+              <DialogueSession 
+                  user={user}
+                  onClose={() => setActiveMode('chat')}
+                  onUpdateUser={setUser}
+                  notify={notify}
+              />
+          )}
+
           {showDashboard && (
             <SmartDashboard 
               user={user} 
@@ -110,7 +176,7 @@ const App: React.FC = () => {
         </>
       )}
 
-      {/* Case where user has prefs but closed the chat session (Session Selector) */}
+      {/* Session Resume Screen */}
       {user && user.preferences && !currentSession && (
         <div className="h-screen flex flex-col items-center justify-center p-6 bg-white dark:bg-slate-900 animate-fade-in">
            <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center text-white mb-8 shadow-2xl shadow-indigo-500/40">
@@ -136,6 +202,7 @@ const App: React.FC = () => {
              >
                Changer de langue ou niveau
              </button>
+             <button onClick={handleLogout} className="w-full py-2 text-red-500 text-sm font-bold">Déconnexion</button>
            </div>
         </div>
       )}
