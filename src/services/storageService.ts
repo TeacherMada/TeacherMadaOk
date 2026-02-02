@@ -25,14 +25,19 @@ const mapProfile = (data: any): UserProfile => ({
     isSuspended: data.is_suspended
 });
 
-// Helper to handle "Phone Number as Username" login strategy
+// Helper to handle Login strategy (Email, Phone or Username)
 const formatLoginEmail = (input: string) => {
-    // If input looks like a phone number (digits only or starts with +), append fake domain
-    // This allows users to login with "0349310268" directly
-    if (/^[\d+]+$/.test(input.trim())) {
-        return `${input.trim()}@teachermada.com`;
-    }
-    return input;
+    const trimmed = input.trim();
+    // If it looks like an email, return it
+    if (trimmed.includes('@')) return trimmed;
+    
+    // Normalize username/phone to a synthetic email
+    // We remove spaces and special chars to create a valid email format
+    // Ex: "Jean Paul" -> "JeanPaul@teachermada.com"
+    // Ex: "034 123" -> "034123@teachermada.com"
+    const cleanId = trimmed.replace(/[^a-zA-Z0-9.\-_+]/g, '');
+    
+    return `${cleanId}@teachermada.com`;
 };
 
 export const storageService = {
@@ -48,14 +53,18 @@ export const storageService = {
         });
 
         if (authError) {
+            console.error("Login Auth Error:", authError);
             return { success: false, error: "Identifiants incorrects." };
         }
 
         if (authData.user) {
             const user = await storageService.getUserById(authData.user.id);
             if (user) return { success: true, user };
+            
+            // Edge case: User exists in Auth but not in Profiles table (Trigger failed?)
+            return { success: false, error: "Compte créé mais profil introuvable. Contactez le support." };
         }
-        return { success: false, error: "Profil introuvable." };
+        return { success: false, error: "Erreur inconnue." };
     } catch (e: any) {
         return { success: false, error: e.message };
     }
@@ -63,9 +72,14 @@ export const storageService = {
 
   register: async (username: string, password?: string, email?: string, phoneNumber?: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
     if (!password) return { success: false, error: "Mot de passe requis." };
+    if (!username) return { success: false, error: "Nom d'utilisateur requis." };
 
-    // Strategy: If email provided, use it. If not, generate fake email from username/phone.
-    const finalEmail = email || formatLoginEmail(username);
+    // Strategy: If email provided, use it. If not, generate synthetic email from username.
+    let finalEmail = email?.trim() || "";
+    
+    if (!finalEmail) {
+        finalEmail = formatLoginEmail(username);
+    }
 
     try {
         // 1. Create Auth User
@@ -75,20 +89,33 @@ export const storageService = {
             password: password,
             options: {
                 data: {
-                    username: username,
-                    phone: phoneNumber
+                    username: username.trim(),
+                    phone: phoneNumber?.trim() || ""
                 }
             }
         });
 
-        if (authError) return { success: false, error: authError.message };
+        if (authError) {
+            console.error("Signup Auth Error:", authError);
+            // Handle common Supabase errors
+            if (authError.message.includes("already registered")) {
+                return { success: false, error: "Ce nom ou cet email est déjà pris." };
+            }
+            return { success: false, error: authError.message };
+        }
+        
         if (!authData.user) return { success: false, error: "Erreur de création." };
 
         // Wait a moment for trigger to create profile
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, 2000));
 
         const user = await storageService.getUserById(authData.user.id);
-        return { success: true, user: user || undefined };
+        if (user) {
+            return { success: true, user };
+        } else {
+            // Profile trigger failed or slow
+            return { success: false, error: "Compte créé. Veuillez vous connecter." };
+        }
 
     } catch (e: any) {
         return { success: false, error: e.message };
@@ -279,5 +306,17 @@ export const storageService = {
           adminContact: { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
       };
   },
-  updateSystemSettings: async (s: any) => { /* No-op for now */ }
+  updateSystemSettings: async (s: any) => { /* No-op for now */ },
+  
+  // Helpers needed for some components
+  deductCreditOrUsage: async (userId: string) => {
+      await storageService.checkAndConsumeCredit(userId);
+      return storageService.getUserById(userId);
+  },
+  canPerformRequest: async (userId: string) => {
+      const allowed = await storageService.canRequest(userId);
+      return { allowed };
+  },
+  exportData: () => {}, // PWA local export deprecated in cloud version
+  importData: async () => false
 };
