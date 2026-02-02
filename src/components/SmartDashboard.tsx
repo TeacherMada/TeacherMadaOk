@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
-import { UserProfile, ChatMessage } from '../types';
-import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight } from 'lucide-react';
+import { UserProfile, ChatMessage, ExplanationLanguage, UserPreferences } from '../types';
+import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { extractVocabulary } from '../services/geminiService';
 import { toast } from './Toaster';
@@ -16,8 +17,12 @@ interface Props {
 }
 
 const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, messages }) => {
-  const [activeTab, setActiveTab] = useState<'menu' | 'vocab'>('menu');
+  const [activeTab, setActiveTab] = useState<'menu' | 'vocab' | 'edit'>('menu');
   const [isExtracting, setIsExtracting] = useState(false);
+  
+  // Edit Profile State
+  const [editName, setEditName] = useState(user.username);
+  const [editPass, setEditPass] = useState(user.password || '');
 
   const handleExtract = async () => {
     if (messages.length < 2) {
@@ -58,6 +63,30 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
       onUpdateUser(updated);
   };
 
+  const handleSaveProfile = () => {
+      if (!editName.trim()) return;
+      const updated = { ...user, username: editName, password: editPass };
+      storageService.saveUserProfile(updated);
+      onUpdateUser(updated);
+      toast.success("Profil mis à jour !");
+      setActiveTab('menu');
+  };
+
+  const toggleExplanationLang = () => {
+      const current = user.preferences?.explanationLanguage;
+      const next = current === ExplanationLanguage.French ? ExplanationLanguage.Malagasy : ExplanationLanguage.French;
+      const updatedPrefs = { ...user.preferences, explanationLanguage: next } as UserPreferences;
+      const updatedUser = { ...user, preferences: updatedPrefs };
+      storageService.saveUserProfile(updatedUser);
+      onUpdateUser(updatedUser);
+      toast.success(`Langue d'explication : ${next}`);
+  };
+
+  const handleExport = () => {
+      storageService.exportData();
+      toast.success("Données exportées.");
+  };
+
   return (
     <div className="fixed inset-0 z-[60] flex justify-end">
       {/* Backdrop */}
@@ -72,9 +101,11 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                 <button onClick={onClose} className="p-2 -ml-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-500">
                     <X className="w-5 h-5" />
                 </button>
-                <div className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold px-2 py-1 rounded border border-indigo-200 dark:border-indigo-800">
-                    BETA v2.1
-                </div>
+                {user.role === 'admin' && (
+                    <div className="bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded border border-red-600 flex items-center gap-1 cursor-pointer" onClick={() => window.location.reload()}>
+                        <ShieldCheck className="w-3 h-3" /> ADMIN
+                    </div>
+                )}
             </div>
             
             <div className="flex items-center gap-4">
@@ -82,13 +113,13 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                     {user.username.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                    <h2 className="font-bold text-lg text-slate-900 dark:text-white">{user.username}</h2>
+                    <h2 className="font-bold text-lg text-slate-900 dark:text-white truncate max-w-[150px]">{user.username}</h2>
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Étudiant {user.preferences?.level}</p>
                 </div>
             </div>
         </div>
 
-        {/* Tab Switcher (Segmented Control) */}
+        {/* Tab Switcher */}
         <div className="px-6 pt-6">
             <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
                 <button 
@@ -101,7 +132,7 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                     onClick={() => setActiveTab('vocab')} 
                     className={`flex-1 py-2 text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${activeTab === 'vocab' ? 'bg-white dark:bg-[#0F1422] text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                 >
-                    Vocabulaire
+                    Vocab ({user.vocabulary.length})
                 </button>
             </div>
         </div>
@@ -109,6 +140,7 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
             
+            {/* MENU TAB */}
             {activeTab === 'menu' && (
                 <div className="space-y-6 animate-fade-in">
                     
@@ -122,7 +154,7 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                         <div className="bg-indigo-50 dark:bg-indigo-900/10 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 flex flex-col items-center justify-center gap-1">
                             <Book className="w-5 h-5 text-indigo-500" />
                             <div className="text-lg font-black text-slate-800 dark:text-white">{user.stats.lessonsCompleted}</div>
-                            <div className="text-[10px] font-bold text-indigo-600/70 uppercase">Leçons</div>
+                            <div className="text-[10px] font-bold text-indigo-600/70 uppercase">Leçons Finies</div>
                         </div>
                     </div>
 
@@ -130,6 +162,17 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                     <div className="space-y-2">
                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Préférences</h3>
                         
+                        <button onClick={toggleExplanationLang} className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors group">
+                            <div className="flex items-center gap-3">
+                                <Globe className="w-5 h-5 text-emerald-500" />
+                                <div className="text-left">
+                                    <div className="font-bold text-sm text-slate-700 dark:text-slate-200">Langue d'explication</div>
+                                    <div className="text-[10px] text-slate-400">Actuel : {user.preferences?.explanationLanguage}</div>
+                                </div>
+                            </div>
+                            <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                        </button>
+
                         <button onClick={toggleTheme} className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors group">
                             <div className="flex items-center gap-3">
                                 {isDarkMode ? <Moon className="w-5 h-5 text-indigo-400" /> : <Sun className="w-5 h-5 text-amber-500" />}
@@ -141,20 +184,31 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                             <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-colors" />
                         </button>
 
-                        <button className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors group opacity-60 cursor-not-allowed">
+                        <button onClick={() => setActiveTab('edit')} className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors group">
                             <div className="flex items-center gap-3">
-                                <Settings className="w-5 h-5 text-slate-400" />
+                                <User className="w-5 h-5 text-indigo-500" />
                                 <div className="text-left">
-                                    <div className="font-bold text-sm text-slate-700 dark:text-slate-200">Paramètres</div>
-                                    <div className="text-[10px] text-slate-400">Langue, Notifications...</div>
+                                    <div className="font-bold text-sm text-slate-700 dark:text-slate-200">Modifier Profil</div>
+                                    <div className="text-[10px] text-slate-400">Nom et Mot de passe</div>
                                 </div>
                             </div>
-                            <ChevronRight className="w-4 h-4 text-slate-300" />
+                            <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                        </button>
+
+                        <button onClick={handleExport} className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors group">
+                            <div className="flex items-center gap-3">
+                                <Download className="w-5 h-5 text-slate-400" />
+                                <div className="text-left">
+                                    <div className="font-bold text-sm text-slate-700 dark:text-slate-200">Sauvegarder</div>
+                                    <div className="text-[10px] text-slate-400">Exporter les données</div>
+                                </div>
+                            </div>
                         </button>
                     </div>
                 </div>
             )}
 
+            {/* VOCAB TAB */}
             {activeTab === 'vocab' && (
                 <div className="space-y-4 animate-fade-in pb-10">
                     <button 
@@ -194,6 +248,40 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                                 </div>
                             ))
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* EDIT PROFILE TAB */}
+            {activeTab === 'edit' && (
+                <div className="space-y-6 animate-fade-in">
+                    <button onClick={() => setActiveTab('menu')} className="text-xs font-bold text-slate-400 hover:text-indigo-500 flex items-center gap-1 mb-4">
+                        <ChevronRight className="w-3 h-3 rotate-180"/> Retour
+                    </button>
+                    
+                    <div className="space-y-4">
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase ml-2 mb-1 block">Nom d'utilisateur</label>
+                            <input 
+                                type="text" 
+                                value={editName} 
+                                onChange={e => setEditName(e.target.value)} 
+                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase ml-2 mb-1 block">Mot de passe</label>
+                            <input 
+                                type="text" 
+                                value={editPass} 
+                                onChange={e => setEditPass(e.target.value)} 
+                                placeholder="Nouveau mot de passe"
+                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                            />
+                        </div>
+                        <button onClick={handleSaveProfile} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg">
+                            <Save className="w-5 h-5"/> Enregistrer
+                        </button>
                     </div>
                 </div>
             )}
