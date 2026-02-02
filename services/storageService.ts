@@ -1,16 +1,26 @@
 
-import { UserProfile, ChatMessage, UserPreferences, SystemSettings, AdminRequest } from "../types";
+import { UserProfile, ChatMessage, UserPreferences, SystemSettings, AdminRequest, LearningSession } from "../types";
 
 const LOCAL_STORAGE_KEY = 'teachermada_user_data';
 const CHAT_HISTORY_PREFIX = 'tm_chat_';
 const REQUESTS_KEY = 'tm_requests_data';
 const SETTINGS_KEY = 'tm_system_settings';
+const SESSION_PREFIX = 'tm_session_';
 
 export const storageService = {
   // --- AUTH & USER ---
   getLocalUser: (): UserProfile | null => {
     const data = localStorage.getItem(LOCAL_STORAGE_KEY);
     return data ? JSON.parse(data) : null;
+  },
+
+  getCurrentUser: (): UserProfile | null => {
+    return storageService.getLocalUser();
+  },
+
+  getUserById: (id: string): UserProfile | null => {
+    const user = storageService.getLocalUser();
+    return user && user.id === id ? user : null;
   },
 
   saveLocalUser: (user: UserProfile) => {
@@ -49,7 +59,7 @@ export const storageService = {
     localStorage.removeItem(LOCAL_STORAGE_KEY);
     // Supprimer les historiques de chat
     Object.keys(localStorage)
-      .filter(k => k.startsWith(CHAT_HISTORY_PREFIX))
+      .filter(k => k.startsWith(CHAT_HISTORY_PREFIX) || k.startsWith(SESSION_PREFIX))
       .forEach(k => localStorage.removeItem(k));
   },
 
@@ -62,6 +72,32 @@ export const storageService = {
   // Added saveUserProfile method required by AdminDashboard.tsx
   saveUserProfile: (user: UserProfile) => {
     storageService.saveLocalUser(user);
+  },
+
+  // --- SESSIONS ---
+  getSessionKey: (userId: string, prefs: UserPreferences) => {
+    const cleanMode = prefs.mode.replace(/\s/g, '_');
+    const cleanLang = prefs.targetLanguage.split(' ')[0];
+    return `${SESSION_PREFIX}${userId}_${cleanLang}_${prefs.level}_${cleanMode}`;
+  },
+
+  getOrCreateSession: (userId: string, prefs: UserPreferences): LearningSession => {
+    const key = storageService.getSessionKey(userId, prefs);
+    const data = localStorage.getItem(key);
+    if (data) return JSON.parse(data);
+
+    const newSession: LearningSession = {
+      id: key,
+      messages: [],
+      progress: 0,
+      score: 0
+    };
+    storageService.saveSession(newSession);
+    return newSession;
+  },
+
+  saveSession: (session: LearningSession) => {
+    localStorage.setItem(session.id, JSON.stringify(session));
   },
 
   // --- CHAT HISTORY (Local Only for speed) ---
@@ -136,6 +172,24 @@ export const storageService = {
       user.credits += amount;
       storageService.saveLocalUser(user);
     }
+  },
+
+  consumeCredit: (userId: string) => {
+    const user = storageService.getLocalUser();
+    if (user && user.id === userId) {
+        if (user.role === 'admin') return;
+        if (user.credits > 0) {
+            user.credits--;
+            storageService.saveLocalUser(user);
+        }
+    }
+  },
+
+  canRequest: (userId: string): boolean => {
+    const user = storageService.getLocalUser();
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    return user.credits > 0;
   },
 
   // Added deductCreditOrUsage method required by DialogueSession.tsx

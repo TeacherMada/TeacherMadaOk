@@ -55,6 +55,13 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export interface LearningSession {
+  id: string;
+  messages: ChatMessage[];
+  progress: number;
+  score: number;
+}
+
 export interface UserProfile {
   id: string;
   username: string;

@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { UserProfile, VocabularyItem } from '../types';
+import { UserProfile, VocabularyItem, ChatMessage } from '../types';
 import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Loader2, Sparkles, Download, Upload, Trash2, CheckCircle } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { extractVocabulary } from '../services/geminiService';
@@ -13,14 +13,17 @@ interface Props {
   onLogout: () => void;
   isDarkMode: boolean;
   toggleTheme: () => void;
+  notify: (msg: string, type?: string) => void;
+  messages: ChatMessage[];
 }
 
-const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser }) => {
+const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, notify, messages }) => {
   const [activeTab, setActiveTab] = useState<'stats' | 'vocab'>('stats');
   const [isExtracting, setIsExtracting] = useState(false);
 
   const handleExtract = async () => {
-    const history = storageService.getChatHistory(user.preferences!.targetLanguage);
+    // Use passed messages or fallback to storage
+    const history = messages.length > 0 ? messages : storageService.getChatHistory(user.preferences!.targetLanguage);
     if (history.length < 2) {
       toast.info("Parlez un peu plus avant d'extraire des mots.");
       return;

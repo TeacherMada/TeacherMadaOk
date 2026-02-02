@@ -105,6 +105,7 @@ const App: React.FC = () => {
               isDarkMode={isDarkMode} 
               toggleTheme={() => setIsDarkMode(!isDarkMode)}
               notify={notify}
+              messages={currentSession.messages}
             />
           )}
         </>
