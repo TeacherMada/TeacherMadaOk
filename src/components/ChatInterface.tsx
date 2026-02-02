@@ -1,8 +1,7 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Menu, ArrowRight, User, BookOpen, Star, RefreshCw } from 'lucide-react';
+import { Send, Menu, ArrowRight, BookOpen, Star, Mic } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
-import { sendMessage, generateNextLessonPrompt } from '../services/geminiService';
+import { sendMessageStream, generateNextLessonPrompt } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import MarkdownRenderer from './MarkdownRenderer';
 
@@ -15,24 +14,17 @@ interface Props {
   notify: (m: string, t?: string) => void;
 }
 
-const ChatInterface: React.FC<Props> = ({ user, session, onShowProfile, onExit, onUpdateUser, notify }) => {
+const ChatInterface: React.FC<Props> = ({ user, session, onShowProfile, onUpdateUser, notify }) => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>(session.messages);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Derive next level based on current level (Simple logic)
-  const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-  const currentLevelIndex = levels.indexOf(user.preferences?.level || 'A1');
-  const nextLevel = levels[currentLevelIndex + 1] || 'Expert';
-  
-  // Calculate progress (simulated based on message count for now, or session.progress)
   const progressPercent = Math.min((messages.length / 50) * 100, 100);
 
   const processMessage = async (text: string, isAuto: boolean = false) => {
-    if (isLoading) return;
+    if (isStreaming) return;
     
-    // Optimistic UI update
     const userMsg: ChatMessage = { 
         id: Date.now().toString(), 
         role: 'user', 
@@ -40,45 +32,52 @@ const ChatInterface: React.FC<Props> = ({ user, session, onShowProfile, onExit, 
         timestamp: Date.now() 
     };
     
-    // Only add user message to UI if it's not a hidden system prompt (optional choice, here we show it)
+    // Optimistic update
     const newHistory = [...messages, userMsg];
     setMessages(newHistory);
     setInput('');
-    setIsLoading(true);
+    setIsStreaming(true);
 
     try {
-      // If auto, we send a specific prompt to AI but user sees "Continuer"
       const promptToSend = isAuto ? generateNextLessonPrompt(user) : text;
       
-      const responseText = await sendMessage(promptToSend, user, messages); // Send previous messages as context
-      
-      const aiMsg: ChatMessage = { 
-          id: (Date.now() + 1).toString(), 
+      // Initialize empty AI message
+      const aiMsgId = (Date.now() + 1).toString();
+      const initialAiMsg: ChatMessage = { 
+          id: aiMsgId, 
           role: 'model', 
-          text: responseText, 
+          text: "", 
           timestamp: Date.now() 
       };
       
-      const finalHistory = [...newHistory, aiMsg];
-      setMessages(finalHistory);
+      setMessages(prev => [...prev, initialAiMsg]);
+
+      // Stream handling
+      const stream = sendMessageStream(promptToSend, user, messages);
+      let fullText = "";
+
+      for await (const chunk of stream) {
+        if (chunk) {
+            fullText += chunk;
+            setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: fullText } : m));
+            scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
       
-      // Update Session
-      const updatedSession = { 
-          ...session, 
-          messages: finalHistory,
-          progress: progressPercent 
-      };
+      // Final Save
+      const finalHistory = [...newHistory, { ...initialAiMsg, text: fullText }];
+      
+      const updatedSession = { ...session, messages: finalHistory, progress: progressPercent };
       storageService.saveSession(updatedSession);
       
-      // Update User Stats (XP)
-      const updatedUser = { ...user, stats: { ...user.stats, xp: user.stats.xp + 10 } };
+      const updatedUser = { ...user, stats: { ...user.stats, xp: user.stats.xp + 5 } };
       storageService.saveUserProfile(updatedUser);
       onUpdateUser(updatedUser);
 
     } catch (e) {
-      notify("Erreur de communication avec le professeur.", "error");
+      notify("Erreur de connexion.", "error");
     } finally {
-      setIsLoading(false);
+      setIsStreaming(false);
     }
   };
 
@@ -93,48 +92,36 @@ const ChatInterface: React.FC<Props> = ({ user, session, onShowProfile, onExit, 
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+  }, [messages]);
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300">
       
-      {/* --- TOPBAR --- */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 h-16 flex items-center justify-between px-4 shrink-0 z-20 shadow-sm">
+      {/* Top Bar */}
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 h-16 flex items-center justify-between px-4 shrink-0 z-20 shadow-sm safe-top">
         <div className="flex items-center gap-3">
             <button onClick={onShowProfile} className="p-2 -ml-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-600 dark:text-slate-300">
                 <Menu className="w-6 h-6" />
             </button>
             <div className="flex flex-col">
                 <h1 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                    {user.preferences?.targetLanguage} 
-                    <span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
-                        {user.preferences?.mode}
-                    </span>
+                    {user.preferences?.targetLanguage}
                 </h1>
-                
-                {/* Progress Bar A1 -> A2 */}
-                <div className="flex items-center gap-2 w-32 md:w-48">
-                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">{user.preferences?.level}</span>
+                <div className="flex items-center gap-2 w-32">
                     <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-                        <div 
-                            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-500"
-                            style={{ width: `${progressPercent}%` }}
-                        />
+                        <div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progressPercent}%` }} />
                     </div>
-                    <span className="text-[10px] font-bold text-slate-400">{nextLevel}</span>
                 </div>
             </div>
         </div>
 
-        <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-900/20 px-3 py-1.5 rounded-full border border-amber-100 dark:border-amber-900/50">
-                <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
-                <span className="text-xs font-bold text-amber-700 dark:text-amber-400">{user.stats.xp} XP</span>
-            </div>
+        <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-900/20 px-3 py-1.5 rounded-full border border-amber-100 dark:border-amber-900/50">
+            <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+            <span className="text-xs font-bold text-amber-700 dark:text-amber-400">{user.stats.xp}</span>
         </div>
       </header>
 
-      {/* --- CHAT AREA --- */}
+      {/* Chat Area */}
       <main className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide relative">
         {messages.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-50">
@@ -146,7 +133,7 @@ const ChatInterface: React.FC<Props> = ({ user, session, onShowProfile, onExit, 
         )}
         
         {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in-up`}>
+          <div key={msg.id || idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in-up`}>
             <div className={`max-w-[90%] md:max-w-[75%] p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
                 msg.role === 'user' 
                 ? 'bg-indigo-600 text-white rounded-tr-none' 
@@ -157,7 +144,7 @@ const ChatInterface: React.FC<Props> = ({ user, session, onShowProfile, onExit, 
           </div>
         ))}
         
-        {isLoading && (
+        {isStreaming && messages[messages.length - 1]?.role === 'user' && (
             <div className="flex justify-start animate-fade-in">
                 <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-100 dark:border-slate-700 flex items-center gap-2">
                     <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></div>
@@ -169,26 +156,25 @@ const ChatInterface: React.FC<Props> = ({ user, session, onShowProfile, onExit, 
         <div ref={scrollRef} className="h-4" />
       </main>
 
-      {/* --- FOOTER INPUT --- */}
-      <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4">
+      {/* Input Area */}
+      <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 safe-bottom">
         <div className="max-w-3xl mx-auto flex gap-3 items-end">
             <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-2xl p-2 focus-within:ring-2 ring-indigo-500/50 transition-all">
                 <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}}
-                    placeholder="Posez une question ou répondez..."
+                    placeholder="Posez une question..."
                     className="w-full bg-transparent border-none outline-none text-slate-800 dark:text-white text-sm px-2 resize-none max-h-32"
                     rows={1}
                     style={{ minHeight: '44px', lineHeight: '1.5', padding: '10px' }}
                 />
             </div>
             
-            {/* Logic: If input is empty, show "Next" button for flow. If typing, show "Send". */}
             {input.trim().length === 0 ? (
                 <button 
                     onClick={handleNext}
-                    disabled={isLoading}
+                    disabled={isStreaming}
                     className="h-[52px] px-6 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center gap-2"
                 >
                     Suivant <ArrowRight className="w-4 h-4" />
@@ -196,7 +182,7 @@ const ChatInterface: React.FC<Props> = ({ user, session, onShowProfile, onExit, 
             ) : (
                 <button 
                     onClick={handleSend}
-                    disabled={isLoading}
+                    disabled={isStreaming}
                     className="h-[52px] w-[52px] bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl shadow-lg shadow-indigo-500/20 transition-all active:scale-95 flex items-center justify-center"
                 >
                     <Send className="w-5 h-5" />
@@ -204,7 +190,6 @@ const ChatInterface: React.FC<Props> = ({ user, session, onShowProfile, onExit, 
             )}
         </div>
       </footer>
-
     </div>
   );
 };

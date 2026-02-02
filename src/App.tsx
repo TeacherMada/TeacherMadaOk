@@ -104,7 +104,6 @@ const App: React.FC = () => {
               onLogout={handleLogout}
               isDarkMode={isDarkMode} 
               toggleTheme={() => setIsDarkMode(!isDarkMode)}
-              notify={notify}
               messages={currentSession.messages}
             />
           )}
