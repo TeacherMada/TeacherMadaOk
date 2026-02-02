@@ -25,18 +25,30 @@ const mapProfile = (data: any): UserProfile => ({
     isSuspended: data.is_suspended
 });
 
+// Helper to handle "Phone Number as Username" login strategy
+const formatLoginEmail = (input: string) => {
+    // If input looks like a phone number (digits only or starts with +), append fake domain
+    // This allows users to login with "0349310268" directly
+    if (/^[\d+]+$/.test(input.trim())) {
+        return `${input.trim()}@teachermada.com`;
+    }
+    return input;
+};
+
 export const storageService = {
   // --- AUTH (Supabase) ---
   
   login: async (id: string, pass: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
     try {
+        const email = formatLoginEmail(id);
+        
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-            email: id, 
+            email: email, 
             password: pass
         });
 
         if (authError) {
-            return { success: false, error: "Email ou mot de passe incorrect." };
+            return { success: false, error: "Identifiants incorrects." };
         }
 
         if (authData.user) {
@@ -50,39 +62,33 @@ export const storageService = {
   },
 
   register: async (username: string, password?: string, email?: string, phoneNumber?: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
-    if (!email || !password) return { success: false, error: "Email et mot de passe requis." };
+    if (!password) return { success: false, error: "Mot de passe requis." };
+
+    // Strategy: If email provided, use it. If not, generate fake email from username/phone.
+    const finalEmail = email || formatLoginEmail(username);
 
     try {
         // 1. Create Auth User
+        // Metadata 'username' is used by the Trigger to create the profile row
         const { data: authData, error: authError } = await supabase.auth.signUp({
-            email,
-            password,
+            email: finalEmail,
+            password: password,
+            options: {
+                data: {
+                    username: username,
+                    phone: phoneNumber
+                }
+            }
         });
 
         if (authError) return { success: false, error: authError.message };
         if (!authData.user) return { success: false, error: "Erreur de création." };
 
-        // 2. Create Profile Entry
-        const newProfile = {
-            id: authData.user.id,
-            username,
-            email,
-            phone_number: phoneNumber,
-            role: 'user',
-            credits: 5, // Welcome bonus
-            xp: 0,
-            vocabulary: [],
-            free_usage: { count: 0, lastReset: new Date().toISOString() }
-        };
+        // Wait a moment for trigger to create profile
+        await new Promise(r => setTimeout(r, 1500));
 
-        const { error: dbError } = await supabase.from('profiles').insert([newProfile]);
-
-        if (dbError) {
-            console.error("DB Error", dbError);
-            return { success: false, error: "Compte créé mais erreur profil. Contactez le support." };
-        }
-
-        return { success: true, user: mapProfile({ ...newProfile, created_at: new Date().toISOString() }) };
+        const user = await storageService.getUserById(authData.user.id);
+        return { success: true, user: user || undefined };
 
     } catch (e: any) {
         return { success: false, error: e.message };
@@ -130,12 +136,11 @@ export const storageService = {
   },
 
   getAllUsers: async (): Promise<UserProfile[]> => {
-      // Admin only (enforced by RLS)
       const { data } = await supabase.from('profiles').select('*');
       return data ? data.map(mapProfile) : [];
   },
 
-  // --- LOGIC: CREDITS & USAGE ---
+  // --- LOGIC: CREDITS & USAGE (SECURE BACKEND) ---
 
   checkAndConsumeCredit: async (userId: string): Promise<boolean> => {
       const user = await storageService.getUserById(userId);
@@ -148,7 +153,6 @@ export const storageService = {
 
       let allowed = false;
       let newFreeUsage = { ...user.freeUsage };
-      let newCredits = user.credits;
 
       // 1. Check Weekly Reset
       if (now.getTime() - lastReset.getTime() > oneWeek) {
@@ -157,24 +161,16 @@ export const storageService = {
 
       // 2. Logic
       if (newFreeUsage.count < 3) {
-          // Free Tier
+          // Free Tier (Client logic verified by RLS on update)
           newFreeUsage.count++;
           allowed = true;
-          // Update usage only
           await supabase.from('profiles').update({ free_usage: newFreeUsage }).eq('id', userId);
       } else {
-          // Paid Tier
-          if (user.credits > 0) {
-              newCredits--;
+          // Paid Tier: Call Secure RPC
+          const { data, error } = await supabase.rpc('consume_credit', { user_id: userId });
+          
+          if (!error && data === true) {
               allowed = true;
-              // Update credits (RLS must allow self-decrement or use a database function)
-              // Ideally: supabase.rpc('consume_credit', { user_id: userId })
-              // For this demo, we assume RLS allows update if old_credits > new_credits
-              const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
-              if (error) {
-                  console.error("Credit Deduct Error", error);
-                  return false; // Prevent usage if deduct fails
-              }
           } else {
               allowed = false;
           }
@@ -197,22 +193,18 @@ export const storageService = {
       return user.credits > 0;
   },
 
-  // Required by legacy components
+  // Legacy wrapper
   consumeCredit: async (userId: string) => {
       await storageService.checkAndConsumeCredit(userId);
   },
 
-  // ADMIN ONLY FUNCTION
+  // ADMIN ONLY FUNCTION (Secure RPC)
   addCredits: async (userId: string, amount: number) => {
-      // Fetch current credits first to ensure atomic-like addition
-      const { data: user } = await supabase.from('profiles').select('credits').eq('id', userId).single();
-      if (user) {
-          const newCredits = (user.credits || 0) + amount;
-          await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
-      }
+      const { error } = await supabase.rpc('add_credits', { target_user_id: userId, amount: amount });
+      if (error) console.error("Add Credits Error:", error.message);
   },
 
-  // --- SESSIONS (Local Only for Speed/Cost) ---
+  // --- SESSIONS ---
   getSessionKey: (userId: string, prefs: UserPreferences) => {
     const cleanMode = prefs.mode.replace(/\s/g, '_');
     const cleanLang = prefs.targetLanguage.split(' ')[0];
@@ -267,7 +259,7 @@ export const storageService = {
       // Update status
       const { error } = await supabase.from('admin_requests').update({ status }).eq('id', reqId);
       
-      // If approved, add credits (Admin Only Operation)
+      // If approved, add credits via RPC
       if (!error && status === 'approved') {
           const { data: req } = await supabase.from('admin_requests').select('*').eq('id', reqId).single();
           if (req && req.type === 'credit' && req.amount) {
@@ -276,7 +268,7 @@ export const storageService = {
       }
   },
 
-  // --- SETTINGS (Legacy Local for now, could be DB) ---
+  // --- SETTINGS ---
   getSystemSettings: () => {
       return {
           apiKeys: [],

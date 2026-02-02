@@ -1,3 +1,4 @@
+
 import { createClient } from '@supabase/supabase-js';
 
 // Récupération sécurisée des variables d'environnement pour Vite (Render compatible)

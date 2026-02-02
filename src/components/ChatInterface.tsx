@@ -67,12 +67,12 @@ const ChatInterface: React.FC<Props> = ({
         return;
     }
     
+    // Refresh user state to reflect credit deduction
     const updatedUser = await storageService.getUserById(user.id);
     if (updatedUser) onUpdateUser(updatedUser);
     // --------------------
 
     if (isVoiceMode) {
-        // Voice mode logic simulation
         return;
     }
 
