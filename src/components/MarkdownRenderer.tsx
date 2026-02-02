@@ -51,8 +51,8 @@ const highlightChildren = (children: React.ReactNode, query?: string): React.Rea
 
 const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onPlayAudio, highlight }) => {
   
-  // Clean 'node' from props before passing to the rendering tag function
   const processNode = (props: any, Tag: any) => {
+      // react-markdown passes 'node' (AST) in props, which shouldn't be passed to DOM
       const { node, children, ...rest } = props;
       return <Tag {...rest}>{highlightChildren(children, highlight)}</Tag>;
   };
@@ -70,7 +70,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onPlayAudi
           li: (props) => processNode(props, ({children, ...rest}: any) => <li className="pl-1" {...rest}>{children}</li>),
           blockquote: (props) => processNode(props, ({children, ...rest}: any) => <blockquote className="border-l-4 border-indigo-300 dark:border-indigo-700 pl-4 py-1 italic bg-indigo-50 dark:bg-slate-700/50 rounded-r my-4 text-slate-700 dark:text-slate-300" {...rest}>{children}</blockquote>),
           code: ({node, className, children, ...props}) => {
-             // Remove node from props implicitly by destructuring
+             const match = /language-(\w+)/.exec(className || '')
              return !String(children).includes('\n') ? (
               <code className="bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 px-1 py-0.5 rounded text-sm font-mono" {...props}>
                 {highlight ? <Highlight text={String(children)} query={highlight} /> : children}
