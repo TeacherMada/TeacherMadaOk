@@ -11,39 +11,43 @@ interface OnboardingProps {
   toggleTheme: () => void;
 }
 
+interface LanguageOption {
+  code: string;
+  baseName: string;
+  flag: string;
+}
+
 const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleTheme }) => {
   const [step, setStep] = useState(1);
   const [prefs, setPrefs] = useState<Partial<UserPreferences>>({});
   const [selectedLevelDesc, setSelectedLevelDesc] = useState<LevelDescriptor | null>(null);
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
-  const [customLangs, setCustomLangs] = useState<any[]>([]);
+  const [customLangs, setCustomLangs] = useState<LanguageOption[]>([]);
 
-  // Fetch Admin languages on mount
   useEffect(() => {
       const loadSettings = async () => {
-          // Fix: fetchSystemSettings is now available
-          await storageService.fetchSystemSettings(); 
-          const settings = storageService.getSystemSettings();
-          setCustomLangs(settings.customLanguages || []);
-          setIsLoadingSettings(false);
+          try {
+              const settings = storageService.getSystemSettings();
+              setCustomLangs(settings.customLanguages || []);
+          } finally {
+              setIsLoadingSettings(false);
+          }
       };
       loadSettings();
   }, []);
 
-  // Merge Static Enum languages with Dynamic System Settings languages
   const allLanguages = useMemo(() => {
       const staticLangs = Object.values(TargetLanguage);
-      const formattedStatic = staticLangs.map(l => ({
-          code: l,
+      const formattedStatic: LanguageOption[] = staticLangs.map(l => ({
+          code: l as string,
           baseName: (l as string).split(' ')[0],
           flag: (l as string).split(' ')[1] || '🏳️'
       }));
       return [...formattedStatic, ...customLangs];
   }, [customLangs]);
 
-  // Determine levels based on language choice
   const availableLevels = useMemo(() => {
-    if (prefs.targetLanguage && prefs.targetLanguage.includes("Chinois")) {
+    if (prefs.targetLanguage && (prefs.targetLanguage as string).includes("Chinois")) {
         return ['HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
     }
     return ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
@@ -79,7 +83,13 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
   };
 
   const handleExplanationSelect = (lang: ExplanationLanguage) => {
-      const finalPrefs = { ...prefs, explanationLanguage: lang, mode: LearningMode.Course } as UserPreferences;
+      const finalPrefs = { 
+        ...prefs, 
+        explanationLanguage: lang, 
+        mode: LearningMode.Course,
+        fontSize: 'normal',
+        voiceName: 'Kore'
+      } as UserPreferences;
       onComplete(finalPrefs);
   };
 
