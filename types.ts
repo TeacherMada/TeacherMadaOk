@@ -2,15 +2,9 @@
 export enum TargetLanguage {
   English = 'Anglais 🇬🇧',
   French = 'Français 🇫🇷',
-  Chinese = 'Chinois (Mandarin) 🇨🇳',
+  Chinese = 'Chinois 🇨🇳',
   Spanish = 'Espagnol 🇪🇸',
   German = 'Allemand 🇩🇪'
-}
-
-export enum ProficiencyLevel {
-  Beginner = 'Débutant (A1-A2)',
-  Intermediate = 'Intermédiaire (B1-B2)',
-  Advanced = 'Avancé (C1-C3)'
 }
 
 export enum ExplanationLanguage {
@@ -21,36 +15,51 @@ export enum ExplanationLanguage {
 export enum LearningMode {
   Course = '📘 Cours structuré',
   Chat = '💬 Discussion libre',
-  Practice = '🧪 Pratique & exercices',
-  Pronunciation = '🎧 Prononciation / Audio'
+  Practice = '🧪 Pratique & exercices'
 }
+
+// Add missing ProficiencyLevel enum for Onboarding
+export enum ProficiencyLevel {
+  A1 = 'A1 (Débutant)',
+  A2 = 'A2 (Élémentaire)',
+  B1 = 'B1 (Intermédiaire)',
+  B2 = 'B2 (Avancé)',
+  C1 = 'C1 (Autonome)',
+  C2 = 'C2 (Maîtrise)'
+}
+
+export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
 
 export interface UserPreferences {
-  targetLanguage: TargetLanguage;
-  level: ProficiencyLevel;
-  explanationLanguage: ExplanationLanguage;
-  mode: LearningMode;
-  fontSize?: 'small' | 'normal' | 'large' | 'xl';
+  targetLanguage: string;
+  level: string;
+  explanationLanguage: string;
+  mode: string;
+  fontSize: 'small' | 'normal' | 'large' | 'xl';
+  voiceName: VoiceName;
 }
 
-export interface DailyChallenge {
+export interface ChatMessage {
   id: string;
-  description: string;
-  targetCount: number;
-  currentCount: number;
-  xpReward: number;
-  isCompleted: boolean;
-  type: 'message_count' | 'lesson_complete' | 'vocabulary' | 'exercise_score';
+  role: 'user' | 'model';
+  text: string;
+  timestamp: number;
 }
 
-export type UserRole = 'user' | 'admin';
+export interface VocabularyItem {
+  id: string;
+  word: string;
+  translation: string;
+  mastered: boolean;
+  addedAt: number;
+}
 
 export interface UserProfile {
   id: string;
   username: string;
   email?: string;
   password?: string;
-  role: UserRole;
+  role: 'user' | 'admin';
   createdAt: number;
   preferences: UserPreferences | null;
   stats: {
@@ -58,42 +67,21 @@ export interface UserProfile {
     streak: number;
     lessonsCompleted: number;
   };
-  skills?: {
-    vocabulary: number;
-    grammar: number;
-    pronunciation: number;
-    listening: number;
-  };
-  dailyChallenges?: DailyChallenge[];
-  lastChallengeDate?: string;
-  aiMemory: string; 
-  isPremium: boolean;
-  hasSeenTutorial?: boolean;
-  
-  // Credit System
+  vocabulary: VocabularyItem[];
   credits: number;
   freeUsage: {
-    lastResetWeek: string; // ISO String of the Monday of the current week
-    count: number; // Max 2 per week
+    lastResetWeek: string;
+    count: number;
   };
+  aiMemory: string;
   isSuspended?: boolean;
-}
-
-export interface Transaction {
-  id: string;
-  userId: string;
-  amount: number; // in Ariary
-  creditsAdded: number;
-  date: number;
-  status: 'pending' | 'completed' | 'rejected';
-  method: 'Mobile Money' | 'Admin Grant';
 }
 
 export interface AdminRequest {
   id: string;
   userId: string;
   username: string;
-  type: 'credit' | 'message';
+  type: 'credit' | 'message' | 'password_reset';
   amount?: number;
   message?: string;
   status: 'pending' | 'approved' | 'rejected';
@@ -108,34 +96,13 @@ export interface SystemSettings {
     airtel: string;
     orange: string;
   };
-  creditPrice: number; // 50 Ariary
 }
-
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'model';
-  text: string;
-  timestamp: number;
-}
-
-export interface AppState {
-  user: UserProfile | null;
-  isLoading: boolean;
-}
-
-export type ExerciseType = 'multiple_choice' | 'true_false' | 'fill_blank';
 
 export interface ExerciseItem {
   id: string;
-  type: ExerciseType;
+  type: 'multiple_choice' | 'true_false' | 'fill_blank';
   question: string;
   options?: string[];
   correctAnswer: string;
   explanation: string;
-}
-
-export interface VoiceCallSummary {
-  score: number;
-  feedback: string; // Markdown supported
-  tip: string;
 }

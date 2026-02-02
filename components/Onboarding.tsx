@@ -75,12 +75,12 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
             <div className="space-y-3">
               {Object.values(TargetLanguage).map((lang) => (
                 <button
-                  key={lang}
+                  key={lang as string}
                   onClick={() => handleNext('targetLanguage', lang)}
                   className="w-full p-4 text-left border dark:border-slate-700 rounded-xl hover:border-indigo-500 dark:hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-all flex items-center group"
                 >
-                  <span className="text-2xl mr-3">{lang.split(' ').pop()}</span>
-                  <span className="font-medium text-slate-700 dark:text-slate-200 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 flex-1">{lang.replace(/ .*/, '')}</span>
+                  <span className="text-2xl mr-3">{(lang as string).split(' ').pop()}</span>
+                  <span className="font-medium text-slate-700 dark:text-slate-200 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 flex-1">{(lang as string).replace(/ .*/, '')}</span>
                   <Languages className="w-5 h-5 text-slate-400 group-hover:text-indigo-500 dark:group-hover:text-indigo-400" />
                 </button>
               ))}
@@ -94,12 +94,12 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
             <div className="space-y-3">
               {Object.values(ProficiencyLevel).map((level) => (
                 <button
-                  key={level}
+                  key={level as string}
                   onClick={() => handleNext('level', level)}
                   className="w-full p-4 text-left border dark:border-slate-700 rounded-xl hover:border-indigo-500 dark:hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-all"
                 >
-                  <div className="font-bold text-indigo-900 dark:text-indigo-300">{level.split(' ')[0]}</div>
-                  <div className="text-sm text-slate-500 dark:text-slate-400">{level.split('(')[1].replace(')', '')}</div>
+                  <div className="font-bold text-indigo-900 dark:text-indigo-300">{(level as string).split(' ')[0]}</div>
+                  <div className="text-sm text-slate-500 dark:text-slate-400">{(level as string).split('(')[1].replace(')', '')}</div>
                 </button>
               ))}
             </div>
@@ -112,12 +112,12 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDarkMode, toggleT
             <div className="grid grid-cols-2 gap-4">
               {Object.values(ExplanationLanguage).map((lang) => (
                 <button
-                  key={lang}
+                  key={lang as string}
                   onClick={() => handleNext('explanationLanguage', lang)}
                   className="p-6 border dark:border-slate-700 rounded-xl hover:border-indigo-500 dark:hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-all flex flex-col items-center justify-center text-center"
                 >
-                  <span className="text-4xl mb-3">{lang.split(' ').pop()}</span>
-                  <span className="font-medium text-slate-700 dark:text-slate-200">{lang.split(' ')[0]}</span>
+                  <span className="text-4xl mb-3">{(lang as string).split(' ').pop()}</span>
+                  <span className="font-medium text-slate-700 dark:text-slate-200">{(lang as string).split(' ')[0]}</span>
                 </button>
               ))}
             </div>
