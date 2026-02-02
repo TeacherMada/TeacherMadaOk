@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic, StopCircle } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -18,6 +18,16 @@ interface Props {
   onShowPayment: () => void;
 }
 
+// Helper for language codes
+const getLangCode = (langName: string) => {
+    if (langName.includes('Anglais')) return 'en-US';
+    if (langName.includes('Français')) return 'fr-FR';
+    if (langName.includes('Chinois')) return 'zh-CN';
+    if (langName.includes('Espagnol')) return 'es-ES';
+    if (langName.includes('Allemand')) return 'de-DE';
+    return 'fr-FR'; // Default
+};
+
 const ChatInterface: React.FC<Props> = ({ 
   user, 
   session, 
@@ -32,9 +42,29 @@ const ChatInterface: React.FC<Props> = ({
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>(session.messages);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [isVoiceMode, setIsVoiceMode] = useState(false);
-  const [callDuration, setCallDuration] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // --- VOICE MODE STATE ---
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'processing' | 'speaking'>('idle');
+  const [callDuration, setCallDuration] = useState(0);
+  
+  // Refs for Voice APIs to persist across renders
+  const recognitionRef = useRef<any>(null);
+  const synthesisRef = useRef<SpeechSynthesis>(window.speechSynthesis);
+  const isVoiceModeRef = useRef(false); // To track state inside event listeners
+
+  // Sync ref
+  useEffect(() => {
+      isVoiceModeRef.current = isVoiceMode;
+      if (!isVoiceMode) {
+          stopSpeaking();
+          stopListening();
+      } else {
+          // Init voice when opening
+          startConversationLoop();
+      }
+  }, [isVoiceMode]);
 
   // Lesson Progress Logic
   const currentLessonNum = (user.stats.lessonsCompleted || 0) + 1;
@@ -57,24 +87,117 @@ const ChatInterface: React.FC<Props> = ({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  const processMessage = async (text: string, isAuto: boolean = false) => {
-    if (isStreaming) return;
+  // --- VOICE LOGIC ---
+
+  const stopSpeaking = () => {
+      if (synthesisRef.current.speaking) {
+          synthesisRef.current.cancel();
+      }
+  };
+
+  const stopListening = () => {
+      if (recognitionRef.current) {
+          try { recognitionRef.current.stop(); } catch(e) {}
+      }
+  };
+
+  const speakText = (text: string) => {
+      if (!isVoiceModeRef.current) return;
+      
+      stopSpeaking();
+      // Strip markdown symbols for better speech
+      const cleanText = text.replace(/[*_#`]/g, '');
+      
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.lang = getLangCode(user.preferences?.explanationLanguage || 'Français'); 
+      
+      // If the text is in target language (short sentences), switch accent
+      // Simple heuristic: if text is short, assume it's target language practice
+      if (cleanText.length < 50) {
+          utterance.lang = getLangCode(user.preferences?.targetLanguage || 'Anglais');
+      }
+
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+
+      utterance.onstart = () => setVoiceStatus('speaking');
+      utterance.onend = () => {
+          if (isVoiceModeRef.current) {
+              startListening(); // Auto turn-taking
+          }
+      };
+
+      synthesisRef.current.speak(utterance);
+  };
+
+  const startListening = () => {
+      if (!isVoiceModeRef.current) return;
+
+      // Check browser support
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+          notify("Votre navigateur ne supporte pas la reconnaissance vocale.", "error");
+          return;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = getLangCode(user.preferences?.targetLanguage || 'Anglais');
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => setVoiceStatus('listening');
+      
+      recognition.onresult = async (event: any) => {
+          const transcript = event.results[0][0].transcript;
+          if (transcript.trim()) {
+              setVoiceStatus('processing');
+              await processMessage(transcript, false, true); // True = isVoice
+          }
+      };
+
+      recognition.onerror = (event: any) => {
+          console.log("Voice Error", event.error);
+          if (event.error === 'no-speech') {
+              // Restart if user was just silent
+              if (isVoiceModeRef.current && voiceStatus !== 'processing') {
+                  try { recognition.start(); } catch(e){}
+              }
+          } else {
+              setVoiceStatus('idle');
+          }
+      };
+
+      recognitionRef.current = recognition;
+      try {
+          recognition.start();
+      } catch (e) {
+          // Already started
+      }
+  };
+
+  const startConversationLoop = () => {
+      // AI greets first or listens
+      setTimeout(() => {
+          speakText(`Bonjour ${user.username}, je t'écoute.`);
+      }, 500);
+  };
+
+  // -------------------
+
+  const processMessage = async (text: string, isAuto: boolean = false, isVoice: boolean = false) => {
+    if (isStreaming && !isVoice) return;
     
     // --- CREDIT CHECK ---
     const canProceed = await storageService.checkAndConsumeCredit(user.id);
     if (!canProceed) {
         onShowPayment();
+        setVoiceStatus('idle');
         return;
     }
     
-    // Refresh user state to reflect credit deduction
     const updatedUser = await storageService.getUserById(user.id);
     if (updatedUser) onUpdateUser(updatedUser);
     // --------------------
-
-    if (isVoiceMode) {
-        return;
-    }
 
     const userMsg: ChatMessage = { 
         id: Date.now().toString(), 
@@ -86,42 +209,47 @@ const ChatInterface: React.FC<Props> = ({
     const newHistory = [...messages, userMsg];
     setMessages(newHistory);
     setInput('');
-    setIsStreaming(true);
+    if (!isVoice) setIsStreaming(true);
 
     try {
       const promptToSend = isAuto ? generateNextLessonPrompt(user) : text;
-      const aiMsgId = (Date.now() + 1).toString();
-      const initialAiMsg: ChatMessage = { 
-          id: aiMsgId, 
-          role: 'model', 
-          text: "", 
-          timestamp: Date.now() 
-      };
       
-      setMessages(prev => [...prev, initialAiMsg]);
-
+      // For Voice: We need full text to speak it, so we don't use stream for TTS
+      // For Text: We use stream for visual effect
+      
       const stream = sendMessageStream(promptToSend, user, messages);
       let fullText = "";
+      
+      // For UI updates
+      const aiMsgId = (Date.now() + 1).toString();
+      const initialAiMsg: ChatMessage = { id: aiMsgId, role: 'model', text: "", timestamp: Date.now() };
+      setMessages(prev => [...prev, initialAiMsg]);
 
       for await (const chunk of stream) {
         if (chunk) {
             fullText += chunk;
             setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: fullText } : m));
-            scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+            if (!isVoice) scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
         }
       }
       
-      const finalHistory = [...newHistory, { ...initialAiMsg, text: fullText }];
-      
+      const finalHistory: ChatMessage[] = [...newHistory, { id: aiMsgId, role: 'model', text: fullText, timestamp: Date.now() }];
       storageService.saveSession({ ...session, messages: finalHistory, progress: progressPercent });
       
+      // Update XP
       const newXp = user.stats.xp + 5; 
       const xpUser = { ...user, stats: { ...user.stats, xp: newXp } };
       await storageService.saveUserProfile(xpUser);
       onUpdateUser(xpUser);
 
+      // Trigger Voice Response
+      if (isVoice) {
+          speakText(fullText);
+      }
+
     } catch (e) {
       notify("Connexion instable.", "error");
+      if (isVoice) speakText("Désolé, j'ai eu un problème de connexion.");
     } finally {
       setIsStreaming(false);
     }
@@ -139,45 +267,94 @@ const ChatInterface: React.FC<Props> = ({
   // --- VOICE CALL OVERLAY ---
   if (isVoiceMode) {
       return (
-          <div className="fixed inset-0 z-50 bg-[#0B0F19] text-white flex flex-col items-center justify-between p-8 animate-fade-in font-sans">
-              <div className="w-full flex justify-between items-start opacity-80">
-                  <button onClick={() => setIsVoiceMode(false)} className="p-3 bg-white/10 rounded-full hover:bg-white/20">
+          <div className="fixed inset-0 z-50 bg-[#0B0F19] text-white flex flex-col items-center justify-between p-8 animate-fade-in font-sans overflow-hidden">
+              
+              {/* Background Ambient Effect */}
+              <div className="absolute inset-0 z-0">
+                  <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-600/20 rounded-full blur-[100px] transition-all duration-1000 ${voiceStatus === 'listening' ? 'scale-125 opacity-30' : 'scale-100 opacity-20'}`}></div>
+                  <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-purple-500/20 rounded-full blur-[80px] transition-all duration-1000 ${voiceStatus === 'speaking' ? 'scale-125 opacity-40' : 'scale-100 opacity-20'}`}></div>
+              </div>
+
+              {/* Header */}
+              <div className="w-full flex justify-between items-start opacity-90 z-10">
+                  <button onClick={() => setIsVoiceMode(false)} className="p-3 bg-white/10 rounded-full hover:bg-white/20 backdrop-blur-md transition-all hover:scale-105">
                       <X className="w-6 h-6" />
                   </button>
                   <div className="flex flex-col items-center">
-                      <span className="text-xs font-bold uppercase tracking-widest text-indigo-400">Appel en cours</span>
-                      <span className="font-mono text-lg">{formatTime(callDuration)}</span>
+                      <div className="flex items-center gap-2 mb-1">
+                          <span className={`w-2 h-2 rounded-full ${voiceStatus === 'idle' ? 'bg-slate-500' : 'bg-green-500 animate-pulse'}`}></span>
+                          <span className="text-xs font-bold uppercase tracking-widest text-indigo-200">Appel en cours</span>
+                      </div>
+                      <span className="font-mono text-xl text-white font-medium">{formatTime(callDuration)}</span>
                   </div>
-                  <div className="w-12"></div>
+                  <div className="w-12"></div> {/* Spacer */}
               </div>
 
-              <div className="flex flex-col items-center justify-center gap-8 w-full">
+              {/* Main Visual */}
+              <div className="flex flex-col items-center justify-center gap-10 w-full z-10 flex-1 relative">
+                  
+                  {/* Status Text */}
+                  <div className="h-8 flex items-center justify-center">
+                      {voiceStatus === 'listening' && <p className="text-indigo-300 font-medium animate-pulse flex items-center gap-2"><Mic className="w-4 h-4"/> Je vous écoute...</p>}
+                      {voiceStatus === 'processing' && <p className="text-purple-300 font-medium animate-bounce flex items-center gap-2"><Brain className="w-4 h-4"/> Je réfléchis...</p>}
+                      {voiceStatus === 'speaking' && <p className="text-emerald-300 font-medium flex items-center gap-2"><Volume2 className="w-4 h-4"/> Je parle...</p>}
+                      {voiceStatus === 'idle' && <p className="text-slate-400 font-medium text-sm">En attente...</p>}
+                  </div>
+
+                  {/* Avatar Container */}
                   <div className="relative">
-                      <div className="absolute inset-0 bg-indigo-500/20 rounded-full animate-ping blur-xl"></div>
-                      <div className="relative w-40 h-40 rounded-full bg-gradient-to-b from-indigo-600 to-violet-800 p-1 shadow-[0_0_60px_rgba(79,70,229,0.4)] flex items-center justify-center">
-                          <div className="w-full h-full rounded-full overflow-hidden bg-[#0B0F19] flex items-center justify-center relative">
-                              <img src="/logo.png" className="w-24 h-24 object-contain z-10" alt="Teacher AI" />
+                      {/* Ripple Effects */}
+                      {voiceStatus === 'speaking' && (
+                          <>
+                            <div className="absolute inset-0 bg-emerald-500/20 rounded-full animate-ping blur-md"></div>
+                            <div className="absolute inset-0 bg-emerald-500/10 rounded-full animate-ping delay-150 blur-lg"></div>
+                          </>
+                      )}
+                      {voiceStatus === 'listening' && (
+                          <>
+                            <div className="absolute inset-0 bg-indigo-500/20 rounded-full animate-pulse scale-110 blur-md"></div>
+                            <div className="absolute -inset-4 border border-indigo-500/30 rounded-full animate-spin-slow border-t-transparent"></div>
+                          </>
+                      )}
+
+                      {/* Main Logo Circle */}
+                      <div className="relative w-48 h-48 rounded-full bg-gradient-to-b from-[#1E293B] to-[#0F172A] p-1 shadow-[0_0_60px_rgba(79,70,229,0.3)] flex items-center justify-center z-20 border border-white/10">
+                          <div className="w-full h-full rounded-full overflow-hidden bg-[#0B0F19] flex items-center justify-center relative p-8">
+                              <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain z-10 drop-shadow-2xl" alt="Teacher AI" />
                           </div>
                       </div>
                   </div>
-                  <div className="text-center space-y-2">
-                      <h2 className="text-2xl font-bold">TeacherMada</h2>
-                      <p className="text-indigo-300 font-medium">En écoute...</p>
+
+                  <div className="text-center space-y-1">
+                      <h2 className="text-3xl font-bold text-white tracking-tight">TeacherMada</h2>
+                      <p className="text-indigo-200/60 font-medium text-sm">{user.preferences?.targetLanguage} • {user.preferences?.level}</p>
                   </div>
               </div>
 
-              <div className="w-full max-w-sm grid grid-cols-3 gap-6 mb-8">
-                  <button className="flex flex-col items-center gap-2 group">
-                      <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition-all"><MicOff className="w-6 h-6" /></div>
-                      <span className="text-xs font-medium">Mute</span>
+              {/* Controls */}
+              <div className="w-full max-w-sm grid grid-cols-3 gap-6 mb-8 z-10 items-end">
+                  <button onClick={() => {
+                      if(voiceStatus === 'listening') stopListening();
+                      else startListening();
+                  }} className="flex flex-col items-center gap-3 group">
+                      <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${voiceStatus === 'listening' ? 'bg-white text-indigo-900 shadow-[0_0_20px_rgba(255,255,255,0.3)]' : 'bg-white/10 hover:bg-white/20 text-white'}`}>
+                          {voiceStatus === 'listening' ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+                      </div>
+                      <span className="text-xs font-medium text-slate-300 group-hover:text-white transition-colors">{voiceStatus === 'listening' ? 'Mute' : 'Parler'}</span>
                   </button>
-                  <button onClick={() => setIsVoiceMode(false)} className="flex flex-col items-center gap-2 group transform hover:scale-110 transition-transform">
-                      <div className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center shadow-lg shadow-red-500/40"><Phone className="w-8 h-8 rotate-[135deg]" /></div>
-                      <span className="text-xs font-medium text-red-400">Raccrocher</span>
+
+                  <button onClick={() => setIsVoiceMode(false)} className="flex flex-col items-center gap-3 group transform hover:scale-105 transition-transform">
+                      <div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-[#0B0F19]">
+                          <Phone className="w-10 h-10 text-white fill-white rotate-[135deg]" />
+                      </div>
+                      <span className="text-xs font-bold text-red-400 group-hover:text-red-300 transition-colors uppercase tracking-wider">Raccrocher</span>
                   </button>
-                  <button className="flex flex-col items-center gap-2 group">
-                      <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition-all"><Volume2 className="w-6 h-6" /></div>
-                      <span className="text-xs font-medium">Haut-parleur</span>
+
+                  <button className="flex flex-col items-center gap-3 group">
+                      <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition-all text-white">
+                          <Volume2 className="w-6 h-6" />
+                      </div>
+                      <span className="text-xs font-medium text-slate-300 group-hover:text-white transition-colors">Haut-parleur</span>
                   </button>
               </div>
           </div>
@@ -209,7 +386,8 @@ const ChatInterface: React.FC<Props> = ({
             <div className="flex items-center gap-2">
                 <button 
                     onClick={() => setIsVoiceMode(true)}
-                    className="flex items-center justify-center w-10 h-10 bg-indigo-600 text-white rounded-full shadow-lg shadow-indigo-500/30 hover:bg-indigo-700 transition-transform active:scale-95"
+                    className="flex items-center justify-center w-10 h-10 bg-indigo-600 text-white rounded-full shadow-lg shadow-indigo-500/30 hover:bg-indigo-700 transition-transform active:scale-95 animate-pulse"
+                    title="Démarrer l'appel vocal"
                 >
                     <Phone className="w-5 h-5" />
                 </button>
@@ -235,7 +413,7 @@ const ChatInterface: React.FC<Props> = ({
             {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-20 opacity-60">
                     <div className="w-24 h-24 bg-white dark:bg-slate-800 rounded-[2rem] flex items-center justify-center mb-6 shadow-xl border border-slate-100 dark:border-slate-700">
-                        <img src="/logo.png" className="w-14 h-14 object-contain" />
+                        <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-14 h-14 object-contain" />
                     </div>
                     <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Bonjour, {user.username} !</h3>
                     <p className="text-slate-500 dark:text-slate-400 text-sm text-center max-w-xs">Prêt à continuer votre apprentissage du {user.preferences?.targetLanguage} ?</p>
@@ -250,7 +428,7 @@ const ChatInterface: React.FC<Props> = ({
             <div key={msg.id || idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slide-up group`}>
                 {msg.role === 'model' && (
                     <div className="w-8 h-8 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center mr-3 mt-1 shrink-0 overflow-hidden">
-                        <img src="/logo.png" className="w-5 h-5 object-contain" />
+                        <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-5 h-5 object-contain" />
                     </div>
                 )}
                 
