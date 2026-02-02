@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic, StopCircle, ArrowLeft, Sun, Moon, User } from 'lucide-react';
+import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic, StopCircle, ArrowLeft, Sun, Moon, User, Play } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -45,6 +45,7 @@ const ChatInterface: React.FC<Props> = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
 
   // Sync theme
   const toggleTheme = () => {
@@ -101,6 +102,7 @@ const ChatInterface: React.FC<Props> = ({
       if (synthesisRef.current.speaking) {
           synthesisRef.current.cancel();
       }
+      setSpeakingMessageId(null);
   };
 
   const stopListening = () => {
@@ -109,15 +111,37 @@ const ChatInterface: React.FC<Props> = ({
       }
   };
 
+  // Simple TTS for message playback (no auto-reply loop)
+  const playMessageAudio = (text: string, id: string) => {
+      stopSpeaking();
+      
+      const cleanText = text
+        .replace(/[#*`_]/g, '') 
+        .replace(/Lesona \d+/gi, '')
+        .replace(/Tanjona|Vocabulaire|Grammaire|Pratique/gi, '');
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.lang = getLangCode(user.preferences?.explanationLanguage || 'Français'); 
+      
+      if (cleanText.length < 50) {
+          utterance.lang = getLangCode(user.preferences?.targetLanguage || 'Anglais');
+      }
+
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+
+      utterance.onstart = () => setSpeakingMessageId(id);
+      utterance.onend = () => setSpeakingMessageId(null);
+      utterance.onerror = () => setSpeakingMessageId(null);
+
+      synthesisRef.current.speak(utterance);
+  };
+
   const speakText = (text: string) => {
       if (!isVoiceModeRef.current) return;
       
       stopSpeaking();
-      // Cleaner text specifically for TTS (remove markdown headers like "## Tanjona")
-      const cleanText = text
-        .replace(/[#*`_]/g, '') // Remove markdown syntax
-        .replace(/Lesona \d+/gi, '') // Remove lesson headers if redundant
-        .replace(/Tanjona|Vocabulaire|Grammaire|Pratique/gi, ''); // Remove section headers for flow
+      const cleanText = text.replace(/[#*`_]/g, '');
 
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = getLangCode(user.preferences?.explanationLanguage || 'Français'); 
@@ -359,63 +383,53 @@ const ChatInterface: React.FC<Props> = ({
   return (
     <div className="flex flex-col h-screen bg-[#F0F2F5] dark:bg-[#0B0F19] font-sans transition-colors duration-300">
       
-      {/* --- RESPONSIVE MOBILE-FIRST HEADER --- */}
+      {/* --- MOBILE-FIRST HEADER --- */}
       <header className="sticky top-0 z-30 bg-white/80 dark:bg-[#131825]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm safe-top transition-colors">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
             
-            {/* LEFT: Clean Navigation + Current Context */}
-            <div className="flex items-center gap-3 flex-1 min-w-0">
+            {/* LEFT: Flag + Level (Detailed on Desktop) */}
+            <div className="flex items-center gap-3 flex-1">
                 <button onClick={onExit} className="p-2 -ml-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors shrink-0">
                     <ArrowLeft className="w-6 h-6" />
                 </button>
                 
-                {/* Badge: Compact on Mobile, Full on Desktop */}
-                <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shrink-0">
-                    <span className="text-lg leading-none">{getFlag(user.preferences?.targetLanguage || '')}</span>
-                    <span className="text-sm font-bold text-slate-700 dark:text-slate-200 hidden sm:block truncate max-w-[80px]">
-                        {getLangName(user.preferences?.targetLanguage || '')}
-                    </span>
-                    <div className="h-4 w-px bg-slate-300 dark:bg-slate-600 hidden sm:block"></div>
+                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">
+                    <span className="text-xl leading-none">{getFlag(user.preferences?.targetLanguage || '')}</span>
+                    <div className="h-4 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
                     <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase">{user.preferences?.level}</span>
                 </div>
             </div>
 
-            {/* CENTER: Status Indicators (Lesson #) */}
-            <div className="flex flex-col items-center justify-center shrink-0 mx-2">
-                <h1 className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-widest mb-0.5">
-                    LEÇON {currentLessonNum}
+            {/* CENTER: Lesson + Credits */}
+            <div className="flex flex-col items-center justify-center shrink-0">
+                <h1 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-tight">
+                    Leçon {currentLessonNum}
                 </h1>
-                {/* Mobile: Simple dots or bar? Desktop: Full progress */}
-                <div className="w-16 h-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progressPercent}%` }}></div>
-                </div>
-            </div>
-
-            {/* RIGHT: Actions + Profile */}
-            <div className="flex items-center justify-end gap-2 flex-1 min-w-0">
-                {/* Credit Pill */}
                 <button 
                     onClick={onShowPayment} 
-                    className="hidden sm:flex items-center gap-1.5 bg-amber-50 dark:bg-amber-900/10 px-2 py-1 rounded-lg border border-amber-100 dark:border-amber-900/30 hover:bg-amber-100 transition-colors"
+                    className="flex items-center gap-1 mt-0.5 hover:scale-105 transition-transform"
                 >
                     <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                        {user.freeUsage.count < 3 ? `${3 - user.freeUsage.count}/3` : user.credits}
+                    <span className="text-sm font-black text-amber-500">
+                        {user.freeUsage.count < 3 ? `${3 - user.freeUsage.count} Free` : user.credits}
                     </span>
                 </button>
+            </div>
 
-                {/* Mobile Credit Icon Only */}
-                <button onClick={onShowPayment} className="sm:hidden p-2 text-amber-500 hover:bg-amber-50 rounded-full relative">
-                    <Zap className="w-5 h-5 fill-current" />
-                    {user.credits > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-slate-900"></span>}
+            {/* RIGHT: Theme + Avatar */}
+            <div className="flex items-center justify-end gap-2 flex-1">
+                <button
+                  onClick={toggleTheme}
+                  className="p-2 text-slate-400 hover:text-indigo-600 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                  {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
                 </button>
 
                 <button 
                     onClick={onShowProfile} 
-                    className="flex items-center gap-2 p-1 pl-1 pr-1 bg-transparent sm:bg-slate-100 sm:dark:bg-slate-800 sm:hover:bg-white sm:dark:hover:bg-slate-700 sm:border sm:border-slate-200 sm:dark:border-slate-700 rounded-full transition-all group"
+                    className="relative group"
                 >
-                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300 hidden md:block max-w-[60px] truncate px-1">{user.username}</span>
-                    <div className="w-9 h-9 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold text-sm shadow-md group-hover:scale-105 transition-transform ring-2 ring-white dark:ring-slate-900 sm:ring-0">
+                    <div className="w-9 h-9 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold text-sm shadow-md group-hover:scale-105 transition-transform ring-2 ring-white dark:ring-slate-900">
                         {user.username.charAt(0).toUpperCase()}
                     </div>
                 </button>
@@ -453,6 +467,19 @@ const ChatInterface: React.FC<Props> = ({
                     : 'bg-white dark:bg-[#131825] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 rounded-tl-sm'
                 }`}>
                     <MarkdownRenderer content={msg.text} />
+                    
+                    {/* Audio Playback Control for AI Messages */}
+                    {msg.role === 'model' && (
+                        <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                            <button 
+                                onClick={() => speakingMessageId === msg.id ? stopSpeaking() : playMessageAudio(msg.text, msg.id)}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${speakingMessageId === msg.id ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400'}`}
+                            >
+                                {speakingMessageId === msg.id ? <StopCircle className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                                {speakingMessageId === msg.id ? 'Arrêter' : 'Écouter'}
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
             ))}
