@@ -1,4 +1,7 @@
 
+export type UserRole = 'user' | 'admin';
+export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
+
 export enum TargetLanguage {
   English = 'Anglais 🇬🇧',
   French = 'Français 🇫🇷',
@@ -18,24 +21,30 @@ export enum LearningMode {
   Practice = '🧪 Pratique & exercices'
 }
 
-// Add missing ProficiencyLevel enum for Onboarding
+// Added ProficiencyLevel enum as required by components/Onboarding.tsx
 export enum ProficiencyLevel {
-  A1 = 'A1 (Débutant)',
-  A2 = 'A2 (Élémentaire)',
-  B1 = 'B1 (Intermédiaire)',
-  B2 = 'B2 (Avancé)',
-  C1 = 'C1 (Autonome)',
-  C2 = 'C2 (Maîtrise)'
+  Beginner = 'Débutant (A1)',
+  Elementary = 'Élémentaire (A2)',
+  Intermediate = 'Intermédiaire (B1)',
+  Advanced = 'Avancé (B2)',
+  Expert = 'Expert (C1)',
+  Mastery = 'Maîtrise (C2)'
 }
 
-export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
+export interface VocabularyItem {
+  id: string;
+  word: string;
+  translation: string;
+  example?: string;
+  mastered: boolean;
+  addedAt: number;
+}
 
 export interface UserPreferences {
   targetLanguage: string;
   level: string;
   explanationLanguage: string;
-  mode: string;
-  fontSize: 'small' | 'normal' | 'large' | 'xl';
+  mode: LearningMode;
   voiceName: VoiceName;
 }
 
@@ -46,51 +55,26 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-export interface VocabularyItem {
-  id: string;
-  word: string;
-  translation: string;
-  mastered: boolean;
-  addedAt: number;
-}
-
 export interface UserProfile {
   id: string;
   username: string;
   email?: string;
   password?: string;
-  role: 'user' | 'admin';
-  createdAt: number;
-  preferences: UserPreferences | null;
-  stats: {
-    xp: number;
-    streak: number;
-    lessonsCompleted: number;
-  };
-  vocabulary: VocabularyItem[];
+  role: UserRole;
   credits: number;
-  freeUsage: {
-    lastResetWeek: string;
-    count: number;
-  };
-  aiMemory: string;
-  isSuspended?: boolean;
-}
-
-export interface AdminRequest {
-  id: string;
-  userId: string;
-  username: string;
-  type: 'credit' | 'message' | 'password_reset';
-  amount?: number;
-  message?: string;
-  status: 'pending' | 'approved' | 'rejected';
+  xp: number;
+  preferences: UserPreferences | null;
+  vocabulary: VocabularyItem[];
   createdAt: number;
+  lastSync?: number;
+  // Added isSuspended as required by components/AdminDashboard.tsx
+  isSuspended?: boolean;
 }
 
 export interface SystemSettings {
   apiKeys: string[];
   activeModel: string;
+  customLanguages: Array<{name: string, flag: string}>;
   adminContact: {
     telma: string;
     airtel: string;
@@ -98,6 +82,18 @@ export interface SystemSettings {
   };
 }
 
+export interface AdminRequest {
+  id: string;
+  userId: string;
+  username: string;
+  type: 'credit' | 'reset' | 'message';
+  amount?: number;
+  message: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: number;
+}
+
+// Added ExerciseItem interface as required by components/ExerciseSession.tsx
 export interface ExerciseItem {
   id: string;
   type: 'multiple_choice' | 'true_false' | 'fill_blank';
