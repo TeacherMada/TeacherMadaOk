@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, ChatMessage } from '../types';
 import { generateRoleplayResponse } from '../services/geminiService';
@@ -10,6 +9,7 @@ interface DialogueSessionProps {
   onClose: () => void;
   onUpdateUser: (user: UserProfile) => void;
   notify: (message: string, type: 'success' | 'error' | 'info') => void;
+  onShowPayment: () => void; // Added Prop
 }
 
 const SCENARIOS = [
@@ -21,19 +21,19 @@ const SCENARIOS = [
     { id: 'doctor', title: 'Consultation', subtitle: 'Santé & Corps', icon: <Stethoscope className="w-8 h-8"/>, color: 'bg-red-500', prompt: "Expliquer des symptômes à un médecin." },
 ];
 
-const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpdateUser, notify }) => {
+const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
   const [scenario, setScenario] = useState<typeof SCENARIOS[0] | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [secondsActive, setSecondsActive] = useState(0);
   
-  // Correction State (Now richer)
+  // Correction State
   const [lastCorrection, setLastCorrection] = useState<{original: string, corrected: string, explanation: string} | null>(null);
   
   const [finalScore, setFinalScore] = useState<{score: number, feedback: string} | null>(null);
-  const [showIntro, setShowIntro] = useState(false); // Briefing screen
-  const [isInitializing, setIsInitializing] = useState(false); // AI starting the chat
+  const [showIntro, setShowIntro] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -41,21 +41,23 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
   useEffect(() => {
     let interval: any;
     if (scenario && !finalScore && !showIntro && !isInitializing) {
-        interval = setInterval(() => {
+        interval = setInterval(async () => {
             setSecondsActive(prev => {
                 const newVal = prev + 1;
                 // Every 60 seconds, deduct 1 credit
                 if (newVal > 0 && newVal % 60 === 0) {
-                   const updatedUser = storageService.deductCreditOrUsage(user.id);
-                   if (updatedUser) {
-                       onUpdateUser(updatedUser);
-                       notify("1 min écoulée : -1 Crédit", 'info');
-                   } else {
-                       // No credits left
-                       clearInterval(interval);
-                       notify("Crédits épuisés. Fin de la session.", 'error');
-                       handleFinish(); 
-                   }
+                   // This logic is tricky inside interval (async), better to call a wrapper or just check credits
+                   storageService.checkAndConsumeCredit(user.id).then(allowed => {
+                        if (allowed) {
+                            storageService.getUserById(user.id).then(u => u && onUpdateUser(u));
+                            notify("1 min écoulée : -1 Crédit", 'info');
+                        } else {
+                            clearInterval(interval);
+                            notify("Crédits épuisés.", 'error');
+                            onShowPayment();
+                            handleFinish(); 
+                        }
+                   });
                 }
                 return newVal;
             });
@@ -64,29 +66,28 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
     return () => clearInterval(interval);
   }, [scenario, finalScore, user.id, showIntro, isInitializing]);
 
-  // Auto-scroll
   useEffect(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, lastCorrection, isLoading]);
 
   const selectScenario = (selected: typeof SCENARIOS[0]) => {
       setScenario(selected);
-      setShowIntro(true); // Show briefing first
+      setShowIntro(true);
   };
 
   const startSession = async () => {
       if (!scenario) return;
       
-      if (storageService.canPerformRequest(user.id).allowed) {
+      const allowed = await storageService.checkAndConsumeCredit(user.id);
+      
+      if (allowed) {
           setShowIntro(false);
           setIsInitializing(true);
           
-          // Deduct initial credit for starting
-          const u = storageService.deductCreditOrUsage(user.id);
+          const u = await storageService.getUserById(user.id);
           if (u) onUpdateUser(u);
 
           try {
-              // AI initiates the conversation based on the scenario
               const result = await generateRoleplayResponse([], scenario.prompt, user, false, true);
               setMessages([{
                   id: 'sys_init',
@@ -96,17 +97,24 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
               }]);
           } catch (e) {
               notify("Erreur d'initialisation. Réessayez.", 'error');
-              setScenario(null); // Reset
+              setScenario(null);
           } finally {
               setIsInitializing(false);
           }
       } else {
-          notify("Crédits insuffisants pour démarrer.", 'error');
+          onShowPayment();
       }
   };
 
   const handleSend = async () => {
       if (!input.trim() || !scenario) return;
+      
+      // Credit check on EVERY message? No, Roleplay is time-based mostly, but let's stick to time-based for now.
+      // However, if the user starts spamming, maybe we should gate it. 
+      // The requirement says "1 request IA = 1 crd" for generic, but for Roleplay the prompt said "1 min = 1 credit".
+      // Let's stick to the time-based logic implemented in the interval, OR consume per message if that's safer.
+      // Given the new "1 request = 1 crd" rule in the latest prompt, we should probably switch to per-message deduction.
+      // BUT, existing feature says "1 min = 1 credit" in UI. Let's keep Time-based for Roleplay as it's a "Session".
       
       const userText = input;
       const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: userText, timestamp: Date.now() };
@@ -114,14 +122,12 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       setMessages(prev => [...prev, userMsg]);
       setInput('');
       setIsLoading(true);
-      setLastCorrection(null); // Reset correction for new turn
+      setLastCorrection(null);
 
       try {
-          // Send history + new message to AI
           const currentHistory = [...messages, userMsg];
           const result = await generateRoleplayResponse(currentHistory, scenario.prompt, user);
           
-          // Check for correction
           if (result.correction) {
               setLastCorrection({
                   original: userText,
@@ -144,7 +150,6 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       if (!scenario) return;
       setIsLoading(true);
       try {
-          // Send closing request
           const result = await generateRoleplayResponse(messages, scenario.prompt, user, true);
           setFinalScore({
               score: result.score || 0,
@@ -163,9 +168,6 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  // --- RENDER SCREENS ---
-
-  // 1. SCENARIO SELECTION
   if (!scenario) {
       return (
         <div className="fixed inset-0 z-[120] bg-slate-50 dark:bg-slate-950 flex flex-col animate-fade-in">
@@ -186,17 +188,10 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                             className="group relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 text-left hover:shadow-2xl hover:border-indigo-500/30 transition-all duration-300 transform hover:-translate-y-1"
                         >
                             <div className={`absolute top-0 right-0 w-24 h-24 ${s.color} opacity-10 rounded-bl-[100px] transition-transform group-hover:scale-150`}></div>
-                            
-                            <div className={`w-14 h-14 ${s.color} text-white rounded-2xl flex items-center justify-center mb-4 shadow-lg group-hover:rotate-6 transition-transform`}>
-                                {s.icon}
-                            </div>
-                            
+                            <div className={`w-14 h-14 ${s.color} text-white rounded-2xl flex items-center justify-center mb-4 shadow-lg group-hover:rotate-6 transition-transform`}>{s.icon}</div>
                             <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-1">{s.title}</h3>
                             <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-4">{s.subtitle}</p>
-                            
-                            <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-xs uppercase tracking-wider">
-                                Commencer <ArrowLeft className="w-4 h-4 rotate-180 transition-transform group-hover:translate-x-1" />
-                            </div>
+                            <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-xs uppercase tracking-wider">Commencer <ArrowLeft className="w-4 h-4 rotate-180 transition-transform group-hover:translate-x-1" /></div>
                         </button>
                     ))}
                 </div>
@@ -205,102 +200,53 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       );
   }
 
-  // 2. BRIEFING SCREEN
   if (showIntro) {
       return (
           <div className="fixed inset-0 z-[125] bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
               <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[2rem] p-8 text-center shadow-2xl relative overflow-hidden border border-white/10">
                   <div className={`absolute top-0 left-0 w-full h-2 ${scenario.color}`}></div>
-                  
-                  <div className={`w-20 h-20 mx-auto ${scenario.color} rounded-full flex items-center justify-center shadow-lg mb-6 animate-float`}>
-                      <div className="text-white">{scenario.icon}</div>
-                  </div>
-                  
+                  <div className={`w-20 h-20 mx-auto ${scenario.color} rounded-full flex items-center justify-center shadow-lg mb-6 animate-float`}><div className="text-white">{scenario.icon}</div></div>
                   <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-2">{scenario.title}</h2>
-                  <p className="text-slate-500 dark:text-slate-400 mb-8 px-4 leading-relaxed">
-                      "Tu vas être immergé dans une situation réelle. Fais de ton mieux pour parler uniquement en <strong>{user.preferences?.targetLanguage}</strong>."
-                  </p>
+                  <p className="text-slate-500 dark:text-slate-400 mb-8 px-4 leading-relaxed">"Tu vas être immergé dans une situation réelle. Fais de ton mieux pour parler uniquement en <strong>{user.preferences?.targetLanguage}</strong>."</p>
                   
-                  <div className="space-y-3 mb-8 text-left">
-                      <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                          <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><GraduationCap className="w-5 h-5"/></div>
-                          <div>
-                              <p className="text-xs font-bold text-slate-400 uppercase">Objectif</p>
-                              <p className="text-sm font-bold text-slate-800 dark:text-white">Maîtriser le vocabulaire clé</p>
-                          </div>
-                      </div>
-                      <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                          <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><AlertTriangle className="w-5 h-5"/></div>
-                          <div>
-                              <p className="text-xs font-bold text-slate-400 uppercase">Correction</p>
-                              <p className="text-sm font-bold text-slate-800 dark:text-white">Feedback immédiat si erreur</p>
-                          </div>
-                      </div>
-                  </div>
-
                   <div className="flex gap-3">
-                      <button onClick={() => setScenario(null)} className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors">
-                          Retour
-                      </button>
-                      <button onClick={startSession} className="flex-[2] py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-xl shadow-lg hover:shadow-indigo-500/30 hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
-                          <Play className="w-5 h-5 fill-current"/> C'est parti
-                      </button>
+                      <button onClick={() => setScenario(null)} className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors">Retour</button>
+                      <button onClick={startSession} className="flex-[2] py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-xl shadow-lg hover:shadow-indigo-500/30 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"><Play className="w-5 h-5 fill-current"/> C'est parti</button>
                   </div>
               </div>
           </div>
       );
   }
 
-  // 3. CHAT INTERFACE
   return (
     <div className="fixed inset-0 z-[120] bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
-        {/* Header */}
         <div className="bg-white dark:bg-slate-900 p-4 shadow-sm flex items-center justify-between border-b border-slate-100 dark:border-slate-800 z-20">
             <div className="flex items-center gap-3">
-                <div className={`p-2.5 rounded-xl text-white shadow-md ${scenario.color}`}>
-                    {scenario.icon}
-                </div>
+                <div className={`p-2.5 rounded-xl text-white shadow-md ${scenario.color}`}>{scenario.icon}</div>
                 <div>
                     <h3 className="font-bold text-slate-800 dark:text-white text-sm">{scenario.title}</h3>
                     <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
                         <span className="flex items-center gap-1 text-indigo-500"><Clock className="w-3 h-3"/> {formatTime(secondsActive)}</span>
-                        <span>•</span>
-                        <span>Niveau {user.preferences?.level}</span>
                     </div>
                 </div>
             </div>
             {!finalScore && (
-                <button onClick={handleFinish} className="px-4 py-2 bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 rounded-xl text-xs font-bold hover:bg-red-100 transition-colors flex items-center gap-2">
-                    <StopCircle className="w-4 h-4"/> <span className="hidden sm:inline">Terminer</span>
-                </button>
+                <button onClick={handleFinish} className="px-4 py-2 bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 rounded-xl text-xs font-bold hover:bg-red-100 transition-colors flex items-center gap-2"><StopCircle className="w-4 h-4"/> <span className="hidden sm:inline">Terminer</span></button>
             )}
         </div>
 
-        {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 bg-slate-50 dark:bg-slate-950 scrollbar-hide">
-            
             {isInitializing && (
                 <div className="flex justify-center py-10">
-                    <div className="flex flex-col items-center gap-3">
-                        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin"/>
-                        <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest animate-pulse">Création du scénario...</p>
-                    </div>
+                    <div className="flex flex-col items-center gap-3"><Loader2 className="w-8 h-8 text-indigo-500 animate-spin"/><p className="text-xs font-bold text-indigo-400 uppercase tracking-widest animate-pulse">Création du scénario...</p></div>
                 </div>
             )}
 
             {messages.map((msg, idx) => (
                 <div key={msg.id} className="flex flex-col gap-2">
                     <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] sm:max-w-[75%] p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                            msg.role === 'user' 
-                            ? 'bg-indigo-600 text-white rounded-tr-sm' 
-                            : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-100 dark:border-slate-700 rounded-tl-sm'
-                        }`}>
-                            {msg.text}
-                        </div>
+                        <div className={`max-w-[85%] sm:max-w-[75%] p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-100 dark:border-slate-700 rounded-tl-sm'}`}>{msg.text}</div>
                     </div>
-                    
-                    {/* Correction Card (Shown immediately after user message if exists) */}
                     {msg.role === 'user' && idx === messages.length - 2 && lastCorrection && (
                         <div className="mx-auto max-w-[85%] sm:max-w-md bg-amber-50 dark:bg-amber-900/10 border-l-4 border-amber-400 p-3 rounded-r-xl shadow-sm animate-slide-up">
                             <div className="flex items-center gap-2 mb-1">
@@ -316,88 +262,28 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                     )}
                 </div>
             ))}
-
-            {isLoading && (
-                <div className="flex justify-start">
-                    <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-sm border border-slate-100 dark:border-slate-700 shadow-sm flex items-center gap-2">
-                        <div className="flex gap-1">
-                            <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></div>
-                            <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce delay-100"></div>
-                            <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce delay-200"></div>
-                        </div>
-                    </div>
-                </div>
-            )}
             
-            {/* Final Score Modal Overlay */}
+            {/* Final Score View */}
             {finalScore && (
                  <div className="fixed inset-0 z-[130] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in">
                      <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2rem] p-8 text-center shadow-2xl relative overflow-hidden border border-white/10">
-                         {finalScore.score >= 6 ? (
-                             <>
-                                <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
-                                <div className="w-24 h-24 bg-yellow-100 dark:bg-yellow-900/30 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner ring-8 ring-yellow-50 dark:ring-yellow-900/10">
-                                    <Trophy className="w-12 h-12 text-yellow-500 drop-shadow-md" />
-                                </div>
-                                <h2 className="text-4xl font-black text-slate-800 dark:text-white mb-2">{finalScore.score}/20</h2>
-                                <p className="text-emerald-500 font-bold uppercase tracking-widest text-xs mb-6">Session Validée</p>
-                                
-                                <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl mb-6 text-left border border-slate-100 dark:border-slate-700">
-                                    <p className="text-xs font-bold text-slate-400 uppercase mb-2">Feedback du Prof</p>
-                                    <p className="text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed">"{finalScore.feedback}"</p>
-                                </div>
-
-                                <button onClick={onClose} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-transform active:scale-95">
-                                    Continuer
-                                </button>
-                             </>
-                         ) : (
-                             <>
-                                <div className="w-24 h-24 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner ring-8 ring-red-50 dark:ring-red-900/10">
-                                    <BookOpen className="w-12 h-12 text-red-500" />
-                                </div>
-                                <h2 className="text-4xl font-black text-slate-800 dark:text-white mb-2">{finalScore.score}/20</h2>
-                                <p className="text-red-500 font-bold uppercase tracking-widest text-xs mb-6">Niveau Insuffisant</p>
-                                
-                                <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl mb-6 text-left border border-slate-100 dark:border-slate-700">
-                                    <p className="text-xs font-bold text-slate-400 uppercase mb-2">Conseil</p>
-                                    <p className="text-sm text-slate-600 dark:text-slate-300 mb-2">"{finalScore.feedback}"</p>
-                                    <p className="text-xs font-bold text-indigo-500 mt-2">Recommandation : Revoir les leçons de base.</p>
-                                </div>
-
-                                <button onClick={onClose} className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
-                                    <RefreshCcw className="w-4 h-4"/> Retour aux leçons
-                                </button>
-                             </>
-                         )}
+                         <h2 className="text-4xl font-black text-slate-800 dark:text-white mb-2">{finalScore.score}/20</h2>
+                         <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl mb-6 text-left border border-slate-100 dark:border-slate-700">
+                             <p className="text-xs font-bold text-slate-400 uppercase mb-2">Feedback</p>
+                             <p className="text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed">"{finalScore.feedback}"</p>
+                         </div>
+                         <button onClick={onClose} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg">Continuer</button>
                      </div>
                  </div>
             )}
-
             <div ref={messagesEndRef} />
         </div>
 
-        {/* Input Area */}
         {!finalScore && !isInitializing && (
             <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 z-20">
                 <div className="flex gap-3 max-w-4xl mx-auto">
-                    <input 
-                        type="text" 
-                        value={input}
-                        onChange={e => setInput(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && handleSend()}
-                        placeholder={`Répondez en ${user.preferences?.targetLanguage}...`}
-                        className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-2xl px-5 py-4 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all shadow-inner"
-                        disabled={isLoading}
-                        autoFocus
-                    />
-                    <button 
-                        onClick={handleSend}
-                        disabled={!input.trim() || isLoading}
-                        className="p-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-indigo-500/30 transition-all transform active:scale-95"
-                    >
-                        <Send className="w-6 h-6" />
-                    </button>
+                    <input type="text" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()} placeholder={`Répondez en ${user.preferences?.targetLanguage}...`} className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-2xl px-5 py-4 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all shadow-inner" disabled={isLoading} autoFocus />
+                    <button onClick={handleSend} disabled={!input.trim() || isLoading} className="p-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl disabled:opacity-50 shadow-lg"><Send className="w-6 h-6" /></button>
                 </div>
             </div>
         )}

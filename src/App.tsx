@@ -6,6 +6,7 @@ import ChatInterface from './components/ChatInterface';
 import SmartDashboard from './components/SmartDashboard';
 import ExerciseSession from './components/ExerciseSession';
 import DialogueSession from './components/DialogueSession';
+import PaymentModal from './components/PaymentModal'; // Import PaymentModal
 import { UserProfile, LearningSession, ExerciseItem } from './types';
 import { storageService } from './services/storageService';
 import { generateExerciseFromHistory } from './services/geminiService';
@@ -17,6 +18,7 @@ const App: React.FC = () => {
   const [currentSession, setCurrentSession] = useState<LearningSession | null>(null);
   const [showAuth, setShowAuth] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
+  const [showPayment, setShowPayment] = useState(false); // New Payment State
   
   // Modes
   const [activeMode, setActiveMode] = useState<'chat' | 'exercise' | 'practice'>('chat');
@@ -26,8 +28,13 @@ const App: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
 
   useEffect(() => {
-    const curr = storageService.getCurrentUser();
-    if (curr) setUser(curr);
+    // Sync Supabase user on load
+    const init = async () => {
+        const curr = await storageService.getCurrentUser();
+        if (curr) setUser(curr);
+    };
+    init();
+    
     document.documentElement.classList.toggle('dark', isDarkMode);
     localStorage.setItem('tm_theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
@@ -48,17 +55,17 @@ const App: React.FC = () => {
     }
   };
 
-  const handleOnboardingComplete = (prefs: any) => {
+  const handleOnboardingComplete = async (prefs: any) => {
     if (!user) return;
     const updated = { ...user, preferences: prefs };
     setUser(updated);
-    storageService.saveUserProfile(updated);
+    await storageService.saveUserProfile(updated);
     const session = storageService.getOrCreateSession(user.id, prefs);
     setCurrentSession(session);
   };
 
-  const handleLogout = () => {
-    storageService.logout();
+  const handleLogout = async () => {
+    await storageService.logout();
     setUser(null);
     setCurrentSession(null);
     setShowDashboard(false);
@@ -85,12 +92,12 @@ const App: React.FC = () => {
       }
   };
 
-  const finishExercise = (score: number, total: number) => {
+  const finishExercise = async (score: number, total: number) => {
       if (user) {
           const bonusXp = score * 10;
           const updatedUser = { ...user, stats: { ...user.stats, xp: user.stats.xp + bonusXp } };
           setUser(updatedUser);
-          storageService.saveUserProfile(updatedUser);
+          await storageService.saveUserProfile(updatedUser);
           toast.success(`Exercice terminé ! +${bonusXp} XP`);
       }
       setActiveMode('chat');
@@ -142,6 +149,7 @@ const App: React.FC = () => {
                 onStartPractice={() => setActiveMode('practice')}
                 onStartExercise={startExercise}
                 notify={notify}
+                onShowPayment={() => setShowPayment(true)} // Pass trigger
               />
           )}
 
@@ -159,6 +167,7 @@ const App: React.FC = () => {
                   onClose={() => setActiveMode('chat')}
                   onUpdateUser={setUser}
                   notify={notify}
+                  onShowPayment={() => setShowPayment(true)} // Pass trigger
               />
           )}
 
@@ -172,6 +181,13 @@ const App: React.FC = () => {
               toggleTheme={() => setIsDarkMode(!isDarkMode)}
               messages={currentSession.messages}
             />
+          )}
+
+          {showPayment && (
+              <PaymentModal 
+                  user={user}
+                  onClose={() => setShowPayment(false)}
+              />
           )}
         </>
       )}
@@ -193,10 +209,10 @@ const App: React.FC = () => {
                Reprendre mon cours
              </button>
              <button 
-                onClick={() => {
+                onClick={async () => {
                   const updated = {...user, preferences: null};
                   setUser(updated);
-                  storageService.saveUserProfile(updated);
+                  await storageService.saveUserProfile(updated);
                 }}
                 className="w-full py-4 text-slate-500 font-bold hover:text-indigo-600 transition-colors"
              >
