@@ -4,9 +4,22 @@ import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
 const getClient = () => {
-  // Uses environment variable provided by the build environment
-  const apiKey = process.env.API_KEY || "";
-  return new GoogleGenAI({ apiKey });
+  // Get the raw key string from the environment (injected via vite.config.ts)
+  const rawKey = process.env.API_KEY || "";
+  
+  // Handle multiple keys separated by commas (e.g., "KEY1,KEY2,KEY3")
+  // This allows for simple key rotation to avoid rate limits
+  const keys = rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
+
+  if (keys.length === 0) {
+    console.warn("API Key is missing. Check your .env file or Render environment variables.");
+    return new GoogleGenAI({ apiKey: "" });
+  }
+
+  // Randomly select one key from the list
+  const selectedKey = keys[Math.floor(Math.random() * keys.length)];
+  
+  return new GoogleGenAI({ apiKey: selectedKey });
 };
 
 const MODEL_ID = 'gemini-3-flash-preview';
