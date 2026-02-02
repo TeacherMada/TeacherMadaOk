@@ -1,5 +1,6 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Menu, ArrowRight, BookOpen, Star, Mic, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, StopCircle, MoreHorizontal, Lightbulb, Play, RotateCcw, Zap } from 'lucide-react';
+import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -14,7 +15,7 @@ interface Props {
   onStartPractice: () => void;
   onStartExercise: () => void;
   notify: (m: string, t?: string) => void;
-  onShowPayment: () => void; // New Prop
+  onShowPayment: () => void;
 }
 
 const ChatInterface: React.FC<Props> = ({ 
@@ -65,16 +66,13 @@ const ChatInterface: React.FC<Props> = ({
         onShowPayment();
         return;
     }
-    // Update local user state immediately for UI to reflect credit/free usage drop
+    
     const updatedUser = await storageService.getUserById(user.id);
     if (updatedUser) onUpdateUser(updatedUser);
     // --------------------
 
     if (isVoiceMode) {
-        setTimeout(() => {
-             const voicePrompts = ["Peux-tu répéter ?", "C'est très bien !", "Continuons l'exercice."];
-             const randomResp = voicePrompts[Math.floor(Math.random() * voicePrompts.length)];
-        }, 2000);
+        // Voice mode logic simulation
         return;
     }
 
@@ -92,7 +90,6 @@ const ChatInterface: React.FC<Props> = ({
 
     try {
       const promptToSend = isAuto ? generateNextLessonPrompt(user) : text;
-      
       const aiMsgId = (Date.now() + 1).toString();
       const initialAiMsg: ChatMessage = { 
           id: aiMsgId, 
@@ -103,8 +100,6 @@ const ChatInterface: React.FC<Props> = ({
       
       setMessages(prev => [...prev, initialAiMsg]);
 
-      // Note: We don't deduct credit inside stream anymore, we did it above
-      // But we pass the updated user to context
       const stream = sendMessageStream(promptToSend, user, messages);
       let fullText = "";
 
@@ -118,13 +113,10 @@ const ChatInterface: React.FC<Props> = ({
       
       const finalHistory = [...newHistory, { ...initialAiMsg, text: fullText }];
       
-      // Update Session
-      const updatedSession = { ...session, messages: finalHistory, progress: progressPercent };
-      storageService.saveSession(updatedSession);
+      storageService.saveSession({ ...session, messages: finalHistory, progress: progressPercent });
       
-      // Update XP
       const newXp = user.stats.xp + 5; 
-      const xpUser = { ...user, stats: { ...user.stats, xp: newXp } }; // Use current memory obj
+      const xpUser = { ...user, stats: { ...user.stats, xp: newXp } };
       await storageService.saveUserProfile(xpUser);
       onUpdateUser(xpUser);
 
@@ -247,8 +239,8 @@ const ChatInterface: React.FC<Props> = ({
                     </div>
                     <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Bonjour, {user.username} !</h3>
                     <p className="text-slate-500 dark:text-slate-400 text-sm text-center max-w-xs">Prêt à continuer votre apprentissage du {user.preferences?.targetLanguage} ?</p>
-                    <div className="flex gap-2 mt-6">
-                        <button onClick={() => processMessage("Commence la leçon")} className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-xs font-bold shadow-sm hover:border-indigo-500 transition-colors">🚀 Démarrer la leçon</button>
+                    <div className="flex flex-wrap justify-center gap-2 mt-6">
+                        <button onClick={() => processMessage("Commence la leçon")} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-xs font-bold shadow-md hover:bg-indigo-700 transition-colors">🚀 Démarrer la leçon</button>
                         <button onClick={() => processMessage("Apprends-moi du vocabulaire")} className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-xs font-bold shadow-sm hover:border-indigo-500 transition-colors">📚 Vocabulaire</button>
                     </div>
                 </div>
@@ -292,16 +284,30 @@ const ChatInterface: React.FC<Props> = ({
       {/* Footer */}
       <footer className="bg-white/90 dark:bg-[#131825]/90 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 safe-bottom z-30">
         <div className="max-w-3xl mx-auto p-4">
+            
+            {/* Enhanced Suggestions */}
             {!input && messages.length > 0 && !isStreaming && (
                 <div className="flex gap-2 mb-3 overflow-x-auto scrollbar-hide pb-1">
-                    <button onClick={onStartPractice} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800/50 text-indigo-600 dark:text-indigo-400 rounded-lg text-xs font-bold border border-transparent hover:border-indigo-200 dark:hover:border-indigo-900 transition-all"><Dumbbell className="w-3.5 h-3.5" /> Pratique</button>
-                    <button onClick={onStartExercise} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800/50 text-emerald-600 dark:text-emerald-400 rounded-lg text-xs font-bold border border-transparent hover:border-emerald-200 dark:hover:border-emerald-900 transition-all"><Brain className="w-3.5 h-3.5" /> Quiz</button>
-                    <button onClick={() => processMessage("Donne-moi un exemple")} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 rounded-lg text-xs font-bold border border-transparent hover:border-slate-300 dark:hover:border-slate-700 transition-all"><Lightbulb className="w-3.5 h-3.5" /> Exemple</button>
+                    <button onClick={onStartPractice} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-lg text-xs font-bold border border-indigo-100 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-all whitespace-nowrap">
+                        <MessageCircle className="w-3.5 h-3.5" /> Dialogue
+                    </button>
+                    <button onClick={onStartExercise} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-lg text-xs font-bold border border-emerald-100 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all whitespace-nowrap">
+                        <Brain className="w-3.5 h-3.5" /> Quiz Rapide
+                    </button>
+                    <button onClick={() => processMessage("Explique cette règle de grammaire")} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-lg text-xs font-bold border border-transparent hover:border-slate-300 dark:hover:border-slate-600 transition-all whitespace-nowrap">
+                        <BookOpen className="w-3.5 h-3.5" /> Grammaire
+                    </button>
+                    <button onClick={() => processMessage("Donne-moi 5 mots utiles ici")} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-lg text-xs font-bold border border-transparent hover:border-slate-300 dark:hover:border-slate-600 transition-all whitespace-nowrap">
+                        <Sparkles className="w-3.5 h-3.5" /> Mots Clés
+                    </button>
                 </div>
             )}
 
             <div className="flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border border-transparent focus-within:border-indigo-500/30 focus-within:bg-white dark:focus-within:bg-slate-900 transition-all shadow-inner">
-                <button onClick={() => setIsVoiceMode(true)} className="h-10 w-10 shrink-0 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 flex items-center justify-center transition-all">
+                <button 
+                    onClick={() => setIsVoiceMode(true)}
+                    className="h-10 w-10 shrink-0 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 flex items-center justify-center transition-all"
+                >
                     <Mic className="w-5 h-5" />
                 </button>
                 <textarea

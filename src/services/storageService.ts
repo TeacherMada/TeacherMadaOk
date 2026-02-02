@@ -30,16 +30,13 @@ export const storageService = {
   
   login: async (id: string, pass: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
     try {
-        // 1. Try Supabase Auth
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-            email: id, // Assuming ID is email for Supabase Auth
+            email: id, 
             password: pass
         });
 
         if (authError) {
-            // Fallback: If login fails, check if it's a username (not supported natively by Supabase Auth signin usually requires email)
-            // For this demo, we assume the user enters EMAIL.
-            return { success: false, error: authError.message };
+            return { success: false, error: "Email ou mot de passe incorrect." };
         }
 
         if (authData.user) {
@@ -94,7 +91,7 @@ export const storageService = {
 
   logout: async () => {
       await supabase.auth.signOut();
-      localStorage.removeItem('tm_v3_current_user_id'); // Clear legacy if any
+      localStorage.removeItem('tm_v3_current_user_id'); 
   },
 
   getCurrentUser: async (): Promise<UserProfile | null> => {
@@ -117,15 +114,15 @@ export const storageService = {
   // --- DATA SYNC ---
 
   saveUserProfile: async (user: UserProfile) => {
-      // Maps UserProfile back to DB columns
+      // Security: Users can only update their own non-sensitive data via RLS
       const updates = {
-          credits: user.credits,
           xp: user.stats.xp,
           streak: user.stats.streak,
           lessons_completed: user.stats.lessonsCompleted,
           vocabulary: user.vocabulary,
           preferences: user.preferences,
           free_usage: user.freeUsage
+          // Note: credits are NOT updated here to prevent client-side manipulation
       };
 
       const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
@@ -133,14 +130,13 @@ export const storageService = {
   },
 
   getAllUsers: async (): Promise<UserProfile[]> => {
-      // Admin function
+      // Admin only (enforced by RLS)
       const { data } = await supabase.from('profiles').select('*');
       return data ? data.map(mapProfile) : [];
   },
 
   // --- LOGIC: CREDITS & USAGE ---
 
-  // Returns TRUE if allowed, FALSE if needs recharge
   checkAndConsumeCredit: async (userId: string): Promise<boolean> => {
       const user = await storageService.getUserById(userId);
       if (!user) return false;
@@ -150,31 +146,38 @@ export const storageService = {
       const lastReset = new Date(user.freeUsage.lastResetWeek || 0);
       const oneWeek = 7 * 24 * 60 * 60 * 1000;
 
-      let updatedUser = { ...user };
       let allowed = false;
+      let newFreeUsage = { ...user.freeUsage };
+      let newCredits = user.credits;
 
       // 1. Check Weekly Reset
       if (now.getTime() - lastReset.getTime() > oneWeek) {
-          updatedUser.freeUsage = { count: 0, lastResetWeek: now.toISOString() }; // Reset
+          newFreeUsage = { count: 0, lastResetWeek: now.toISOString() };
       }
 
       // 2. Logic
-      if (updatedUser.freeUsage.count < 3) {
+      if (newFreeUsage.count < 3) {
           // Free Tier
-          updatedUser.freeUsage.count++;
+          newFreeUsage.count++;
           allowed = true;
+          // Update usage only
+          await supabase.from('profiles').update({ free_usage: newFreeUsage }).eq('id', userId);
       } else {
           // Paid Tier
-          if (updatedUser.credits > 0) {
-              updatedUser.credits--;
+          if (user.credits > 0) {
+              newCredits--;
               allowed = true;
+              // Update credits (RLS must allow self-decrement or use a database function)
+              // Ideally: supabase.rpc('consume_credit', { user_id: userId })
+              // For this demo, we assume RLS allows update if old_credits > new_credits
+              const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
+              if (error) {
+                  console.error("Credit Deduct Error", error);
+                  return false; // Prevent usage if deduct fails
+              }
           } else {
               allowed = false;
           }
-      }
-
-      if (allowed) {
-          await storageService.saveUserProfile(updatedUser);
       }
 
       return allowed;
@@ -185,25 +188,26 @@ export const storageService = {
       if (!user) return false;
       if (user.role === 'admin') return true;
       
-      // Simple check without consumption
       const now = new Date();
       const lastReset = new Date(user.freeUsage.lastResetWeek || 0);
       const isResetDue = (now.getTime() - lastReset.getTime()) > (7 * 24 * 60 * 60 * 1000);
       
-      if (isResetDue) return true; // Will trigger reset on consume
+      if (isResetDue) return true;
       if (user.freeUsage.count < 3) return true;
       return user.credits > 0;
   },
 
-  // Required by legacy
+  // Required by legacy components
   consumeCredit: async (userId: string) => {
       await storageService.checkAndConsumeCredit(userId);
   },
 
+  // ADMIN ONLY FUNCTION
   addCredits: async (userId: string, amount: number) => {
-      const user = await storageService.getUserById(userId);
+      // Fetch current credits first to ensure atomic-like addition
+      const { data: user } = await supabase.from('profiles').select('credits').eq('id', userId).single();
       if (user) {
-          const newCredits = user.credits + amount;
+          const newCredits = (user.credits || 0) + amount;
           await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
       }
   },
@@ -260,10 +264,10 @@ export const storageService = {
   },
 
   resolveRequest: async (reqId: string, status: 'approved' | 'rejected') => {
+      // Update status
       const { error } = await supabase.from('admin_requests').update({ status }).eq('id', reqId);
       
-      // If approved, add credits automatically logic needs to be handled here if we want instant update
-      // But typically this is handled by fetching the request first.
+      // If approved, add credits (Admin Only Operation)
       if (!error && status === 'approved') {
           const { data: req } = await supabase.from('admin_requests').select('*').eq('id', reqId).single();
           if (req && req.type === 'credit' && req.amount) {
@@ -272,7 +276,7 @@ export const storageService = {
       }
   },
 
-  // --- SETTINGS (Legacy Local) ---
+  // --- SETTINGS (Legacy Local for now, could be DB) ---
   getSystemSettings: () => {
       return {
           apiKeys: [],
