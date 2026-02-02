@@ -4,10 +4,12 @@ import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
 const getClient = () => {
-  // Uses environment variable provided by Vite/Render
+  // Uses environment variable provided by the build environment
   const apiKey = process.env.API_KEY || "";
   return new GoogleGenAI({ apiKey });
 };
+
+const MODEL_ID = 'gemini-3-flash-preview';
 
 // --- STREAMING MESSAGE ---
 export async function* sendMessageStream(
@@ -23,7 +25,6 @@ export async function* sendMessageStream(
   }
 
   const ai = getClient();
-  const modelId = 'gemini-2.0-flash'; 
 
   // Format history for Gemini
   const contents = history.map(msg => ({
@@ -36,12 +37,12 @@ export async function* sendMessageStream(
 
   try {
     const responseStream = await ai.models.generateContentStream({
-      model: modelId,
+      model: MODEL_ID,
       contents: contents,
       config: {
         systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences),
         temperature: 0.7,
-        maxOutputTokens: 800,
+        maxOutputTokens: 1000,
       }
     });
 
@@ -49,12 +50,12 @@ export async function* sendMessageStream(
        yield chunk.text;
     }
 
-    // Deduct credit only after successful stream start (simplified logic)
+    // Deduct credit only after successful stream start
     storageService.consumeCredit(user.id);
 
   } catch (error) {
     console.error("Gemini Stream Error:", error);
-    yield "Désolé, une erreur de connexion est survenue.";
+    yield "Désolé, une erreur de connexion est survenue. Vérifiez votre clé API ou votre connexion internet.";
   }
 }
 
@@ -73,7 +74,7 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: MODEL_ID,
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -122,7 +123,7 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: MODEL_ID,
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -183,7 +184,7 @@ export const generateRoleplayResponse = async (
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: MODEL_ID,
             contents: contents.length ? contents : [{role:'user', parts:[{text:'Start'}]}],
             config: {
                 systemInstruction: sysInstruct,
@@ -204,7 +205,8 @@ export const generateRoleplayResponse = async (
 
         return JSON.parse(response.text || "{}");
     } catch (e) {
-        return { aiReply: "Erreur technique." };
+        console.error("Roleplay Error:", e);
+        return { aiReply: "Désolé, je rencontre un problème technique." };
     }
 };
 

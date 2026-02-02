@@ -17,8 +17,8 @@ Le projet suit une architecture **Serverless / Hybride** moderne, optimisée pou
 L'application ne dépend pas d'un backend Node.js complexe. La logique est déportée dans des services côté client qui communiquent avec des APIs :
 *   **`geminiService.ts`** :
     *   Interface directe avec l'API Google Gemini (`@google/genai`).
-    *   Gère le **Streaming** de texte pour une réponse rapide (faible latence perçue).
-    *   Gère l'extraction de vocabulaire et les jeux de rôle.
+    *   Modèle utilisé : `gemini-3-flash-preview` (Optimisé pour latence et coût).
+    *   Fonctionnalités : Streaming, Extraction JSON (Vocabulaire, Exercices), Roleplay.
 *   **`storageService.ts`** :
     *   Agit comme une couche d'abstraction (Pattern Facade).
     *   Gère la synchronisation **Supabase** (Base de données PostgreSQL) pour les utilisateurs connectés.
@@ -37,6 +37,35 @@ TeacherMada utilise Supabase comme Backend-as-a-Service (BaaS) :
 *   **`DialogueSession`** : Module de mise en situation (Roleplay) avec objectifs et correction automatique.
 *   **`PaymentModal`** : Interface de rechargement de crédits via Mobile Money (MVola, Orange, Airtel).
 *   **`Toaster`** : Système de notifications global.
+
+## 📘 Spécifications Techniques & Design System
+
+### A. Stack Technologique
+| Composant | Technologie |
+| :--- | :--- |
+| **Runtime** | React 19 + TypeScript |
+| **Styling** | Tailwind CSS v3.4 |
+| **AI SDK** | @google/genai v0.2.0 |
+| **Icons** | Lucide React |
+| **Markdown** | React-Markdown + Remark-GFM |
+| **Date** | ISO 8601 Timestamp (number) |
+
+### B. Structure des Dossiers
+```
+src/
+├── components/       # Composants UI (Chat, Modal, Dashboard...)
+├── services/         # Logique métier (API Calls, Storage)
+├── types.ts          # Définitions TypeScript (Interfaces, Enums)
+├── constants.ts      # Prompts système, Configs statiques
+├── App.tsx           # Routeur logique et State Manager global
+└── main.tsx          # Point d'entrée
+```
+
+### C. Design System (Tailwind)
+*   **Couleurs Primaires** : `Indigo-600` (Action), `Slate-900` (Fond Dark), `Slate-50` (Fond Light).
+*   **Feedback** : `Emerald-500` (Succès), `Red-500` (Erreur), `Amber-500` (Info/XP).
+*   **Typography** : `Plus Jakarta Sans` (Sans-serif moderne).
+*   **Animations** : `fade-in`, `slide-up`, `bounce-slight` (CSS custom dans `index.html`).
 
 ## 🚀 Fonctionnalités Principales
 
@@ -65,7 +94,7 @@ TeacherMada utilise Supabase comme Backend-as-a-Service (BaaS) :
 1.  Cloner le repo.
 2.  `npm install`
 3.  Créer un fichier `.env` avec :
-    *   `VITE_GOOGLE_API_KEY` (Clé Gemini)
+    *   `API_KEY` (Clé Gemini - Google AI Studio)
     *   `VITE_SUPABASE_URL`
     *   `VITE_SUPABASE_ANON_KEY`
 4.  `npm run dev` pour lancer le serveur local.
