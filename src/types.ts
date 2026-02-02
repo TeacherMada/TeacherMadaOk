@@ -2,11 +2,10 @@
 export type UserRole = 'user' | 'admin';
 export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
 
-// Enums for language learning
 export enum TargetLanguage {
   English = 'Anglais 🇬🇧',
   French = 'Français 🇫🇷',
-  Chinese = 'Chinois (Mandarin) 🇨🇳',
+  Chinese = 'Chinois 🇨🇳',
   Spanish = 'Espagnol 🇪🇸',
   German = 'Allemand 🇩🇪'
 }
@@ -20,17 +19,18 @@ export enum LearningMode {
   Course = '📘 Cours structuré',
   Chat = '💬 Discussion libre',
   Practice = '🧪 Pratique & exercices',
-  Pronunciation = '🎧 Prononciation / Audio'
+  Dialogue = '🎭 Jeux de Rôle'
 }
 
-export type LanguageLevel = string;
+// Add LanguageLevel and LevelDescriptor for Onboarding
+export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2' | 'HSK 1' | 'HSK 2' | 'HSK 3' | 'HSK 4' | 'HSK 5' | 'HSK 6';
 
 export interface LevelDescriptor {
-  code: LanguageLevel;
-  title: string;
-  description: string;
-  skills: string[];
-  example: string;
+    code: LanguageLevel;
+    title: string;
+    description: string;
+    skills: string[];
+    example: string;
 }
 
 export interface VocabularyItem {
@@ -48,6 +48,7 @@ export interface UserPreferences {
   mode: string;
   fontSize: 'small' | 'normal' | 'large' | 'xl';
   voiceName: VoiceName;
+  needsAssessment?: boolean;
 }
 
 export interface ChatMessage {
@@ -57,10 +58,18 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export interface LearningSession {
+  id: string; // key: userId_lang_level_mode
+  messages: ChatMessage[];
+  progress: number; // 0 to 100
+  score: number;
+}
+
 export interface UserProfile {
   id: string;
   username: string;
   email?: string;
+  phoneNumber?: string;
   password?: string;
   role: UserRole;
   createdAt: number;
@@ -78,7 +87,6 @@ export interface UserProfile {
   };
   aiMemory: string;
   isSuspended?: boolean;
-  needsAssessment?: boolean;
 }
 
 export interface AdminRequest {
@@ -92,19 +100,7 @@ export interface AdminRequest {
   createdAt: number;
 }
 
-export interface SystemSettings {
-  apiKeys: string[];
-  activeModel: string;
-  adminContact: {
-    telma: string;
-    airtel: string;
-    orange: string;
-  };
-  creditPrice: number;
-  customLanguages?: { code: string; baseName: string; flag: string }[];
-  validTransactionRefs?: string[];
-}
-
+// Add missing ExerciseItem type
 export interface ExerciseItem {
   id: string;
   type: 'multiple_choice' | 'true_false' | 'fill_blank';
@@ -112,4 +108,17 @@ export interface ExerciseItem {
   options?: string[];
   correctAnswer: string;
   explanation: string;
+}
+
+export interface SystemSettings {
+  apiKeys: string[];
+  activeModel: string;
+  creditPrice?: number;
+  customLanguages?: Array<{code: string, baseName: string, flag: string}>;
+  validTransactionRefs?: string[];
+  adminContact: {
+    telma: string;
+    airtel: string;
+    orange: string;
+  };
 }

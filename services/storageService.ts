@@ -41,7 +41,8 @@ export const storageService = {
       role: 'user',
       createdAt: Date.now(),
       preferences: null,
-      stats: { xp: number; streak: number; lessonsCompleted: number; } | any,
+      // Fix: Use actual values instead of type definitions in object literal
+      stats: { xp: 0, streak: 1, lessonsCompleted: 0 },
       vocabulary: [],
       credits: 5,
       freeUsage: { lastResetWeek: getMadagascarWeek(), count: 0 },
