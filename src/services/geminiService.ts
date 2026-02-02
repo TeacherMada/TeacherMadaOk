@@ -1,173 +1,132 @@
-
-import { GoogleGenAI, Modality, Type } from "@google/genai";
-import { UserProfile, ChatMessage, UserPreferences, VoiceName, VocabularyItem } from "../types";
+import { GoogleGenAI, Type } from "@google/genai";
+import { UserProfile, ChatMessage } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
-const PRIMARY_MODEL = 'gemini-3-flash-preview';
-const FALLBACK_MODEL = 'gemini-flash-lite-latest';
+// Initialize API Client
+// Note: process.env.API_KEY must be populated by the build system (Vite/Render)
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-const getClient = () => {
-  const apiKey = process.env.API_KEY || "";
-  return new GoogleGenAI({ apiKey });
-};
-
-export const streamTeacherResponse = async (
+export const sendMessage = async (
   message: string,
   user: UserProfile,
-  history: ChatMessage[],
-  onChunk: (text: string) => void
+  history: ChatMessage[]
 ): Promise<string> => {
-  if (!user.preferences) throw new Error("Preferences missing");
-  
-  const ai = getClient();
-  const contents = [
-    ...history.slice(-8).map(m => ({ role: m.role, parts: [{ text: m.text }] })),
-    { role: 'user', parts: [{ text: message }] }
-  ];
+  if (!user.preferences) throw new Error("Profil incomplet");
 
   try {
-    const result = await ai.models.generateContentStream({
-      model: PRIMARY_MODEL,
-      contents,
-      config: { 
-        systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences),
-        temperature: 0.8
+    // Check credits
+    if (!storageService.canRequest(user.id)) {
+      return "⚠️ Crédits insuffisants. Veuillez recharger votre compte.";
+    }
+
+    const modelId = 'gemini-2.0-flash'; // Cost-effective and fast
+    const systemInstruction = SYSTEM_PROMPT_TEMPLATE(user, user.preferences);
+
+    // Prepare history
+    const contents = history.map(msg => ({
+      role: msg.role,
+      parts: [{ text: msg.text }]
+    }));
+
+    // Add current message
+    contents.push({ role: 'user', parts: [{ text: message }] });
+
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: contents,
+      config: {
+        systemInstruction: systemInstruction,
+        temperature: 0.7,
+        maxOutputTokens: 1000,
       }
     });
 
-    let fullText = "";
-    for await (const chunk of result) {
-      const chunkText = chunk.text || "";
-      fullText += chunkText;
-      onChunk(fullText);
-    }
-    
+    const text = response.text || "Désolé, je n'ai pas compris.";
+
+    // Consume credit
     storageService.consumeCredit(user.id);
-    return fullText;
+
+    return text;
   } catch (error) {
-    console.error("Gemini Error:", error);
-    // Fallback simple sans stream en cas d'erreur de quota
-    const fallback = await ai.models.generateContent({
-      model: FALLBACK_MODEL,
-      contents: [{ role: 'user', parts: [{ text: "Réponds brièvement à ceci : " + message }] }],
-      config: { systemInstruction: "Tu es un professeur de secours. Réponds en 2 phrases." }
-    });
-    const txt = fallback.text || "Désolé, je rencontre une petite fatigue technique. Réessayez dans un instant.";
-    onChunk(txt);
-    return txt;
+    console.error("Gemini API Error:", error);
+    return "Une erreur de connexion est survenue. Veuillez réessayer.";
   }
 };
 
-export const speak = async (text: string, voice: VoiceName = 'Kore'): Promise<Uint8Array | null> => {
-  const ai = getClient();
-  try {
-    const cleanText = text.replace(/[*#_`~]/g, '').substring(0, 800);
-    const res = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: cleanText }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } }
-      }
-    });
-    const b64 = res.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-    if (!b64) return null;
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes;
-  } catch { return null; }
+export const generateNextLessonPrompt = (user: UserProfile): string => {
+  return `Continue le cours pour le niveau ${user.preferences?.level}. Passe au sujet suivant logiquement. Sois bref et interactif.`;
 };
 
-export interface RoleplayResponse {
-    aiReply: string;
-    correction?: string;
-    explanation?: string;
-    score?: number;
-    feedback?: string;
-}
-
-// Add missing generateRoleplayResponse for DialogueSession
+// Generate Roleplay Response using Gemini with JSON schema for structured data
 export const generateRoleplayResponse = async (
     history: ChatMessage[],
     scenarioPrompt: string,
     user: UserProfile,
     isClosing: boolean = false,
     isInitial: boolean = false
-): Promise<RoleplayResponse> => {
-    const ai = getClient();
-    const systemInstruction = `Tu es TeacherMada, un partenaire de conversation expert. 
-    Scénario actuel : ${scenarioPrompt}. 
-    Langue cible : ${user.preferences?.targetLanguage}. 
-    Niveau de l'élève : ${user.preferences?.level}.
-    ${isClosing ? "Analyse la conversation passée et donne une note sur 20 avec un feedback constructif en " + user.preferences?.explanationLanguage : "Continue le dialogue naturellement."}`;
-
-    const contents = history.slice(-10).map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+): Promise<{ aiReply: string; correction?: string; explanation?: string; score?: number; feedback?: string }> => {
     
-    if (isInitial) {
-        contents.push({ role: 'user', parts: [{ text: "Bonjour, commençons le scénario." }] });
+    // Check credits via storage service first
+    if (!storageService.canRequest(user.id)) {
+        return { aiReply: "⚠️ Crédits insuffisants." };
     }
 
-    const response = await ai.models.generateContent({
-        model: PRIMARY_MODEL,
-        contents,
-        config: {
-            systemInstruction,
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    aiReply: { type: Type.STRING },
-                    correction: { type: Type.STRING },
-                    explanation: { type: Type.STRING },
-                    score: { type: Type.NUMBER },
-                    feedback: { type: Type.STRING }
-                },
-                required: ["aiReply"]
-            }
-        }
-    });
+    const sysInstruct = `
+    Tu es un partenaire de jeu de rôle linguistique.
+    SCENARIO: ${scenarioPrompt}
+    LANGUE CIBLE: ${user.preferences?.targetLanguage}
+    NIVEAU: ${user.preferences?.level}
+    LANGUE D'EXPLICATION: ${user.preferences?.explanationLanguage} (pour le feedback/correction)
+
+    ${isInitial ? "Initie la conversation en incarnant ton rôle. Sois bref et engageant." : ""}
+    ${isClosing ? "Analyse toute la conversation. Donne une note sur 20 et un feedback constructif." : "Réponds au message de l'utilisateur en restant dans le personnage. Si l'utilisateur fait une erreur grammaticale importante, fournis la correction et l'explication dans les champs dédiés, mais garde 'aiReply' naturel dans le rôle."}
+    `;
+
+    // Map history to Gemini content format
+    const contents = history.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+    
+    // If closing, we prompt for evaluation
+    if (isClosing) {
+        contents.push({ role: 'user', parts: [{ text: "[FIN DE SESSION] Donne moi mon évaluation." }] });
+    }
+
+    // Define JSON schema for structured output
+    const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+            aiReply: { type: Type.STRING, description: "Your response in character (or evaluation summary if closing)." },
+            correction: { type: Type.STRING, description: "Correction of the user's last message if needed (nullable)." },
+            explanation: { type: Type.STRING, description: "Explanation of the correction in the explanation language (nullable)." },
+            score: { type: Type.NUMBER, description: "Score out of 20 (only if closing)." },
+            feedback: { type: Type.STRING, description: "Detailed feedback (only if closing)." }
+        },
+        required: ["aiReply"]
+    };
 
     try {
-        return JSON.parse(response.text || "{}");
-    } catch {
-        return { aiReply: response.text || "Erreur lors du dialogue." };
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: contents.length > 0 ? contents : [{ role: 'user', parts: [{ text: 'Start roleplay' }] }],
+            config: {
+                systemInstruction: sysInstruct,
+                responseMimeType: "application/json",
+                responseSchema: responseSchema,
+                temperature: 0.7
+            }
+        });
+
+        const jsonText = response.text;
+        if (!jsonText) return { aiReply: "..." };
+        
+        return JSON.parse(jsonText);
+    } catch (e) {
+        console.error("Roleplay API Error", e);
+        return { aiReply: "Désolé, une erreur technique est survenue." };
     }
 };
 
-// Add missing generateVocabularyFromHistory for SmartDashboard
-export const generateVocabularyFromHistory = async (history: ChatMessage[]): Promise<VocabularyItem[]> => {
-    const ai = getClient();
-    const res = await ai.models.generateContent({
-        model: PRIMARY_MODEL,
-        contents: `Extrais 5 mots importants de cette conversation pour les ajouter à un dictionnaire personnel. JSON: [{word, translation}]`,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        word: { type: Type.STRING },
-                        translation: { type: Type.STRING }
-                    },
-                    required: ["word", "translation"]
-                }
-            }
-        }
-    });
-
-    try {
-        const raw = JSON.parse(res.text || "[]");
-        return raw.map((item: any) => ({
-            id: Math.random().toString(36).substr(2, 9),
-            word: item.word,
-            translation: item.translation,
-            mastered: false,
-            addedAt: Date.now()
-        }));
-    } catch {
-        return [];
-    }
+// Placeholder for vocabulary extraction
+export const extractVocabulary = async (history: ChatMessage[]) => {
+    return [];
 };

@@ -1,9 +1,8 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { UserProfile, ChatMessage } from '../types';
-import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Loader2, Sparkles } from 'lucide-react';
+import { X, LogOut, Sun, Moon, Book, Trophy, Settings, User } from 'lucide-react';
 import { storageService } from '../services/storageService';
-import { generateVocabularyFromHistory } from '../services/geminiService';
 
 interface Props {
   user: UserProfile;
@@ -12,106 +11,87 @@ interface Props {
   onLogout: () => void;
   isDarkMode: boolean;
   toggleTheme: () => void;
-  notify: (m: string, t?: string) => void;
+  notify: (msg: string, type?: string) => void;
   messages: ChatMessage[];
 }
 
-const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, toggleTheme, notify, messages, onUpdateUser }) => {
-  const [activeTab, setActiveTab] = useState<'profile' | 'words'>('profile');
-  const [isExtracting, setIsExtracting] = useState(false);
-
-  // FIX TS18048 : Toujours utiliser une valeur par défaut vide
-  const vocabulary = user.vocabulary ?? [];
-
-  const extractWords = async () => {
-    if (!storageService.canPerformRequest(user.id)) return;
-    setIsExtracting(true);
-    try {
-        // En prod, on appellerait une fonction Gemini ici. Simulons pour la réinitialisation
-        const newWord = { id: Date.now().toString(), word: "Pratique", translation: "Practice", mastered: false, addedAt: Date.now() };
-        const updated = { ...user, vocabulary: [...vocabulary, newWord] };
-        onUpdateUser(updated);
-        storageService.saveUserProfile(updated);
-        notify("Nouveau mot ajouté !");
-    } finally { setIsExtracting(false); }
-  };
-
+const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, toggleTheme }) => {
   return (
-    <div className="fixed inset-0 z-[150] flex justify-end">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}></div>
-      <div className="relative w-full max-w-md h-full bg-white dark:bg-slate-900 shadow-2xl flex flex-col">
-        <header className="p-6 border-b flex justify-between items-center">
-          <h2 className="text-xl font-bold">Menu Personnel</h2>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"><X /></button>
-        </header>
-
-        <div className="flex p-4 border-b gap-4">
-          <button onClick={() => setActiveTab('profile')} className={`flex-1 py-2 font-bold rounded-lg ${activeTab === 'profile' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}>Profil</button>
-          <button onClick={() => setActiveTab('words')} className={`flex-1 py-2 font-bold rounded-lg ${activeTab === 'words' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}>Mots ({vocabulary.length})</button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === 'profile' && (
-            <div className="space-y-6 animate-fade-in">
-              <div className="flex flex-col items-center p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl">
-                <div className="w-20 h-20 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-3xl font-black mb-4">
-                  {user.username.charAt(0).toUpperCase()}
+    <div className="fixed inset-0 z-50 flex">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm animate-fade-in" 
+        onClick={onClose}
+      />
+      
+      {/* Sidebar Content */}
+      <div className="relative w-80 h-full bg-white dark:bg-slate-950 shadow-2xl flex flex-col animate-slide-in-right border-r border-slate-200 dark:border-slate-800">
+        
+        {/* Header */}
+        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900">
+            <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-bold text-lg shadow-lg">
+                    {user.username.charAt(0).toUpperCase()}
                 </div>
-                <h3 className="text-xl font-bold">{user.username}</h3>
-                <p className="text-sm text-slate-500">{user.preferences?.targetLanguage}</p>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-center">
-                  <Trophy className="mx-auto mb-1 text-amber-500" />
-                  <div className="font-bold text-lg">{user.stats.xp}</div>
-                  <div className="text-[10px] text-slate-500 uppercase">Points XP</div>
+                <div>
+                    <h2 className="font-bold text-slate-800 dark:text-white">{user.username}</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Étudiant</p>
                 </div>
-                <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-center">
-                  <Book className="mx-auto mb-1 text-indigo-500" />
-                  <div className="font-bold text-lg">{user.stats.lessonsCompleted}</div>
-                  <div className="text-[10px] text-slate-500 uppercase">Leçons</div>
-                </div>
-              </div>
-
-              <button onClick={toggleTheme} className="w-full flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl">
-                <span className="font-bold">{isDarkMode ? 'Mode Clair' : 'Mode Sombre'}</span>
-                {isDarkMode ? <Sun /> : <Moon />}
-              </button>
             </div>
-          )}
+            <button onClick={onClose} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors">
+                <X className="w-5 h-5 text-slate-500" />
+            </button>
+        </div>
 
-          {activeTab === 'words' && (
-            <div className="space-y-4 animate-fade-in">
-              <button onClick={extractWords} disabled={isExtracting} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl flex items-center justify-center gap-2">
-                {isExtracting ? <Loader2 className="animate-spin" /> : <Sparkles size={18} />}
-                Générer Vocabulaire (IA)
-              </button>
-              
-              <div className="space-y-2">
-                {vocabulary.length === 0 ? (
-                  <p className="text-center py-20 text-slate-500">Aucun mot enregistré.</p>
-                ) : (
-                  vocabulary.map(v => (
-                    <div key={v.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex justify-between items-center">
-                      <div>
-                        <div className="font-bold">{v.word}</div>
-                        <div className="text-xs text-slate-500">{v.translation}</div>
-                      </div>
-                      <button className="p-2 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg"><Volume2 size={16} /></button>
-                    </div>
-                  ))
-                )}
-              </div>
+        {/* Stats Section */}
+        <div className="p-6 grid grid-cols-2 gap-4">
+            <div className="bg-amber-50 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30 text-center">
+                <Trophy className="w-6 h-6 text-amber-500 mx-auto mb-2" />
+                <div className="text-xl font-black text-slate-800 dark:text-white">{user.stats.xp}</div>
+                <div className="text-[10px] font-bold text-amber-600 uppercase tracking-wide">Points XP</div>
             </div>
-          )}
+            <div className="bg-indigo-50 dark:bg-indigo-900/10 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 text-center">
+                <Book className="w-6 h-6 text-indigo-500 mx-auto mb-2" />
+                <div className="text-xl font-black text-slate-800 dark:text-white">{user.credits}</div>
+                <div className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide">Crédits</div>
+            </div>
         </div>
 
-        <div className="p-6 border-t mt-auto">
-          <button onClick={onLogout} className="w-full py-4 bg-red-50 text-red-600 font-bold rounded-2xl flex items-center justify-center gap-2 hover:bg-red-100 transition-colors">
-            <LogOut size={18} /> Déconnexion
-          </button>
+        {/* Menu Items */}
+        <div className="flex-1 overflow-y-auto px-6 py-2 space-y-2">
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 mt-2">Paramètres</div>
+            
+            <button 
+                onClick={toggleTheme}
+                className="w-full flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-100 dark:border-slate-800"
+            >
+                <div className="flex items-center gap-3">
+                    {isDarkMode ? <Moon className="w-5 h-5 text-indigo-400" /> : <Sun className="w-5 h-5 text-amber-500" />}
+                    <span className="font-bold text-sm text-slate-700 dark:text-slate-300">Thème {isDarkMode ? 'Sombre' : 'Clair'}</span>
+                </div>
+            </button>
+
+            <button className="w-full flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+                <User className="w-5 h-5" />
+                <span className="font-bold text-sm">Mon Profil</span>
+            </button>
+
+            <button className="w-full flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+                <Settings className="w-5 h-5" />
+                <span className="font-bold text-sm">Préférences</span>
+            </button>
         </div>
+
+        {/* Footer */}
+        <div className="p-6 border-t border-slate-100 dark:border-slate-800">
+            <button 
+                onClick={onLogout}
+                className="w-full py-4 bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 font-bold rounded-2xl flex items-center justify-center gap-2 hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors"
+            >
+                <LogOut className="w-5 h-5" /> Déconnexion
+            </button>
+        </div>
+
       </div>
     </div>
   );

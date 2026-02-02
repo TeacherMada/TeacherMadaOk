@@ -1,8 +1,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Volume2, Menu, Loader2, RefreshCcw, ArrowLeft, Trophy, Sparkles } from 'lucide-react';
+import { Send, Menu, ArrowRight, User, BookOpen, Star, RefreshCw } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
-import { streamTeacherResponse, speak } from '../services/geminiService';
+import { sendMessage, generateNextLessonPrompt } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import MarkdownRenderer from './MarkdownRenderer';
 
@@ -19,183 +19,192 @@ const ChatInterface: React.FC<Props> = ({ user, session, onShowProfile, onExit, 
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>(session.messages);
   const [isLoading, setIsLoading] = useState(false);
-  const [streamText, setStreamText] = useState('');
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  
   const scrollRef = useRef<HTMLDivElement>(null);
-  const audioCtx = useRef<AudioContext | null>(null);
 
-  const initAudio = () => {
-    if (!audioCtx.current) {
-      audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-    }
-  };
+  // Derive next level based on current level (Simple logic)
+  const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+  const currentLevelIndex = levels.indexOf(user.preferences?.level || 'A1');
+  const nextLevel = levels[currentLevelIndex + 1] || 'Expert';
+  
+  // Calculate progress (simulated based on message count for now, or session.progress)
+  const progressPercent = Math.min((messages.length / 50) * 100, 100);
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
-    initAudio();
-
-    if (!storageService.canRequest(user.id)) {
-      notify("Crédits insuffisants. Rechargez votre compte.", "error");
-      return;
-    }
-
-    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: input, timestamp: Date.now() };
-    const newHistory = [...messages, userMsg];
+  const processMessage = async (text: string, isAuto: boolean = false) => {
+    if (isLoading) return;
     
+    // Optimistic UI update
+    const userMsg: ChatMessage = { 
+        id: Date.now().toString(), 
+        role: 'user', 
+        text: isAuto ? "➡️ Continuer le cours" : text, 
+        timestamp: Date.now() 
+    };
+    
+    // Only add user message to UI if it's not a hidden system prompt (optional choice, here we show it)
+    const newHistory = [...messages, userMsg];
     setMessages(newHistory);
     setInput('');
     setIsLoading(true);
-    setStreamText('');
 
     try {
-      const fullReply = await streamTeacherResponse(input, user, newHistory, (chunk) => setStreamText(chunk));
+      // If auto, we send a specific prompt to AI but user sees "Continuer"
+      const promptToSend = isAuto ? generateNextLessonPrompt(user) : text;
       
-      const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: fullReply, timestamp: Date.now() };
+      const responseText = await sendMessage(promptToSend, user, messages); // Send previous messages as context
+      
+      const aiMsg: ChatMessage = { 
+          id: (Date.now() + 1).toString(), 
+          role: 'model', 
+          text: responseText, 
+          timestamp: Date.now() 
+      };
+      
       const finalHistory = [...newHistory, aiMsg];
-      
       setMessages(finalHistory);
-      storageService.saveSession({ ...session, messages: finalHistory });
-      onUpdateUser(storageService.getUserById(user.id)!);
+      
+      // Update Session
+      const updatedSession = { 
+          ...session, 
+          messages: finalHistory,
+          progress: progressPercent 
+      };
+      storageService.saveSession(updatedSession);
+      
+      // Update User Stats (XP)
+      const updatedUser = { ...user, stats: { ...user.stats, xp: user.stats.xp + 10 } };
+      storageService.saveUserProfile(updatedUser);
+      onUpdateUser(updatedUser);
+
     } catch (e) {
-      notify("La connexion a échoué.", "error");
+      notify("Erreur de communication avec le professeur.", "error");
     } finally {
       setIsLoading(false);
-      setStreamText('');
     }
   };
 
-  const handleReset = () => {
-    if (window.confirm("Voulez-vous vraiment recommencer ce cours de zéro ?")) {
-      setMessages([]);
-      storageService.saveSession({ ...session, messages: [], progress: 0 });
-      notify("Cours réinitialisé.");
-    }
+  const handleSend = () => {
+    if (!input.trim()) return;
+    processMessage(input);
   };
 
-  const playAudio = async (text: string) => {
-    if (isSpeaking) return;
-    setIsSpeaking(true);
-    initAudio();
-    
-    const raw = await speak(text, user.preferences?.voiceName);
-    if (raw && audioCtx.current) {
-        const buffer = await audioCtx.current.decodeAudioData(raw.buffer);
-        const source = audioCtx.current.createBufferSource();
-        source.buffer = buffer;
-        source.connect(audioCtx.current.destination);
-        source.onended = () => setIsSpeaking(false);
-        source.start(0);
-    } else {
-        setIsSpeaking(false);
-    }
+  const handleNext = () => {
+    processMessage("", true);
   };
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamText]);
+  }, [messages, isLoading]);
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
-      {/* Header avec barre de progression */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 shrink-0 z-40">
-        <div className="h-14 flex items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-            <button onClick={onExit} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
-              <ArrowLeft size={20} />
+    <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300">
+      
+      {/* --- TOPBAR --- */}
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 h-16 flex items-center justify-between px-4 shrink-0 z-20 shadow-sm">
+        <div className="flex items-center gap-3">
+            <button onClick={onShowProfile} className="p-2 -ml-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-600 dark:text-slate-300">
+                <Menu className="w-6 h-6" />
             </button>
-            <div>
-              <h2 className="text-sm font-bold truncate max-w-[150px]">{user.preferences?.targetLanguage}</h2>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{user.preferences?.level} • {user.preferences?.mode.split(' ')[0]}</p>
+            <div className="flex flex-col">
+                <h1 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                    {user.preferences?.targetLanguage} 
+                    <span className="text-xs font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                        {user.preferences?.mode}
+                    </span>
+                </h1>
+                
+                {/* Progress Bar A1 -> A2 */}
+                <div className="flex items-center gap-2 w-32 md:w-48">
+                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">{user.preferences?.level}</span>
+                    <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div 
+                            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-500"
+                            style={{ width: `${progressPercent}%` }}
+                        />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-400">{nextLevel}</span>
+                </div>
             </div>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-amber-50 dark:bg-amber-900/20 text-amber-600 rounded-full text-xs font-bold">
-              <Trophy size={14} /> {user.stats.xp} XP
-            </div>
-            <button onClick={onShowProfile} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
-              <Menu size={20} />
-            </button>
-          </div>
         </div>
-        
-        {/* Progress Bar */}
-        <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800">
-           <div className="h-full bg-indigo-500 transition-all duration-1000 ease-out" style={{ width: `${session.progress}%` }} />
+
+        <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-900/20 px-3 py-1.5 rounded-full border border-amber-100 dark:border-amber-900/50">
+                <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+                <span className="text-xs font-bold text-amber-700 dark:text-amber-400">{user.stats.xp} XP</span>
+            </div>
         </div>
       </header>
 
-      {/* Zone de messages */}
-      <main className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 scrollbar-hide">
-        {messages.length === 0 && !isLoading && (
-          <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-60 animate-fade-in">
-             <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center text-indigo-600">
-               <Sparkles size={32} />
-             </div>
-             <p className="font-bold text-slate-500">Prêt pour votre leçon ?<br/>Dites "Bonjour" pour commencer !</p>
-          </div>
-        )}
-
-        {messages.map((m) => (
-          <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in-up`}>
-            <div className={`max-w-[85%] p-4 rounded-2xl shadow-sm ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-tl-none'}`}>
-              <MarkdownRenderer content={m.text} />
-              {m.role === 'model' && (
-                <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-700 flex gap-2">
-                  <button onClick={() => playAudio(m.text)} className="p-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-full text-indigo-500 transition-colors">
-                    <Volume2 size={16} />
-                  </button>
+      {/* --- CHAT AREA --- */}
+      <main className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide relative">
+        {messages.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-50">
+                <div className="text-center">
+                    <BookOpen className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                    <p className="text-slate-400 font-medium">Le cours commence ici.</p>
                 </div>
-              )}
+            </div>
+        )}
+        
+        {messages.map((msg, idx) => (
+          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in-up`}>
+            <div className={`max-w-[90%] md:max-w-[75%] p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                msg.role === 'user' 
+                ? 'bg-indigo-600 text-white rounded-tr-none' 
+                : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-100 dark:border-slate-700 rounded-tl-none'
+            }`}>
+              <MarkdownRenderer content={msg.text} />
             </div>
           </div>
         ))}
-
-        {streamText && (
-          <div className="flex justify-start animate-fade-in">
-            <div className="max-w-[85%] p-4 rounded-2xl bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-tl-none shadow-sm">
-              <MarkdownRenderer content={streamText} />
+        
+        {isLoading && (
+            <div className="flex justify-start animate-fade-in">
+                <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-100 dark:border-slate-700 flex items-center gap-2">
+                    <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce delay-100"></div>
+                    <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce delay-200"></div>
+                </div>
             </div>
-          </div>
-        )}
-
-        {isLoading && !streamText && (
-          <div className="flex justify-start">
-             <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-100 dark:border-slate-700">
-                <Loader2 className="animate-spin text-indigo-500" size={20} />
-             </div>
-          </div>
         )}
         <div ref={scrollRef} className="h-4" />
       </main>
 
-      {/* Footer input Area */}
-      <footer className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
-        <div className="max-w-4xl mx-auto flex items-center gap-3">
-          <button onClick={handleReset} title="Recommencer" className="p-3 text-slate-400 hover:text-red-500 transition-colors">
-            <RefreshCcw size={20} />
-          </button>
-          
-          <div className="flex-1 relative">
-            <textarea 
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Répondez ou posez une question..."
-              className="w-full bg-slate-100 dark:bg-slate-800/50 rounded-2xl px-4 py-3 resize-none outline-none focus:ring-2 ring-indigo-500/20 text-sm h-12 max-h-32 transition-all"
-              onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            />
-          </div>
-
-          <button 
-            onClick={handleSend}
-            disabled={isLoading || !input.trim()}
-            className="p-3.5 bg-indigo-600 text-white rounded-2xl shadow-lg shadow-indigo-500/30 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-95 transition-all"
-          >
-            {isLoading ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
-          </button>
+      {/* --- FOOTER INPUT --- */}
+      <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4">
+        <div className="max-w-3xl mx-auto flex gap-3 items-end">
+            <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-2xl p-2 focus-within:ring-2 ring-indigo-500/50 transition-all">
+                <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}}
+                    placeholder="Posez une question ou répondez..."
+                    className="w-full bg-transparent border-none outline-none text-slate-800 dark:text-white text-sm px-2 resize-none max-h-32"
+                    rows={1}
+                    style={{ minHeight: '44px', lineHeight: '1.5', padding: '10px' }}
+                />
+            </div>
+            
+            {/* Logic: If input is empty, show "Next" button for flow. If typing, show "Send". */}
+            {input.trim().length === 0 ? (
+                <button 
+                    onClick={handleNext}
+                    disabled={isLoading}
+                    className="h-[52px] px-6 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all active:scale-95 flex items-center gap-2"
+                >
+                    Suivant <ArrowRight className="w-4 h-4" />
+                </button>
+            ) : (
+                <button 
+                    onClick={handleSend}
+                    disabled={isLoading}
+                    className="h-[52px] w-[52px] bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl shadow-lg shadow-indigo-500/20 transition-all active:scale-95 flex items-center justify-center"
+                >
+                    <Send className="w-5 h-5" />
+                </button>
+            )}
         </div>
       </footer>
+
     </div>
   );
 };
