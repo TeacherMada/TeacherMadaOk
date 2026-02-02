@@ -14,9 +14,10 @@ interface Props {
   isDarkMode: boolean;
   toggleTheme: () => void;
   messages: ChatMessage[];
+  onOpenAdmin: () => void; // New prop
 }
 
-const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, messages }) => {
+const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, messages, onOpenAdmin }) => {
   const [activeTab, setActiveTab] = useState<'menu' | 'vocab' | 'edit'>('menu');
   const [isExtracting, setIsExtracting] = useState(false);
   
@@ -102,9 +103,12 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                     <X className="w-5 h-5" />
                 </button>
                 {user.role === 'admin' && (
-                    <div className="bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded border border-red-600 flex items-center gap-1 cursor-pointer" onClick={() => window.location.reload()}>
-                        <ShieldCheck className="w-3 h-3" /> ADMIN
-                    </div>
+                    <button 
+                        onClick={onOpenAdmin}
+                        className="bg-red-500 hover:bg-red-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-full border border-red-600 flex items-center gap-1.5 shadow-sm transition-all"
+                    >
+                        <ShieldCheck className="w-3.5 h-3.5" /> ADMIN
+                    </button>
                 )}
             </div>
             

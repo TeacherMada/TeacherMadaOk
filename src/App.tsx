@@ -7,7 +7,8 @@ import ChatInterface from './components/ChatInterface';
 import SmartDashboard from './components/SmartDashboard';
 import ExerciseSession from './components/ExerciseSession';
 import DialogueSession from './components/DialogueSession';
-import PaymentModal from './components/PaymentModal'; // Import PaymentModal
+import PaymentModal from './components/PaymentModal';
+import AdminDashboard from './components/AdminDashboard'; // Import AdminDashboard
 import { UserProfile, LearningSession, ExerciseItem } from './types';
 import { storageService } from './services/storageService';
 import { generateExerciseFromHistory } from './services/geminiService';
@@ -19,7 +20,8 @@ const App: React.FC = () => {
   const [currentSession, setCurrentSession] = useState<LearningSession | null>(null);
   const [showAuth, setShowAuth] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
-  const [showPayment, setShowPayment] = useState(false); // New Payment State
+  const [showPayment, setShowPayment] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false); // New Admin State
   
   // Modes
   const [activeMode, setActiveMode] = useState<'chat' | 'exercise' | 'practice'>('chat');
@@ -70,6 +72,7 @@ const App: React.FC = () => {
     setUser(null);
     setCurrentSession(null);
     setShowDashboard(false);
+    setShowAdmin(false);
     setActiveMode('chat');
   };
 
@@ -103,6 +106,22 @@ const App: React.FC = () => {
       }
       setActiveMode('chat');
   };
+
+  // If Admin Mode is active, render only Admin Dashboard
+  if (showAdmin && user?.role === 'admin') {
+      return (
+          <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300">
+              <Toaster />
+              <AdminDashboard 
+                  currentUser={user}
+                  onBack={() => setShowAdmin(false)}
+                  onLogout={handleLogout}
+                  isDarkMode={isDarkMode}
+                  notify={notify}
+              />
+          </div>
+      );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-sans transition-colors duration-300">
@@ -150,7 +169,7 @@ const App: React.FC = () => {
                 onStartPractice={() => setActiveMode('practice')}
                 onStartExercise={startExercise}
                 notify={notify}
-                onShowPayment={() => setShowPayment(true)} // Pass trigger
+                onShowPayment={() => setShowPayment(true)}
               />
           )}
 
@@ -168,7 +187,7 @@ const App: React.FC = () => {
                   onClose={() => setActiveMode('chat')}
                   onUpdateUser={setUser}
                   notify={notify}
-                  onShowPayment={() => setShowPayment(true)} // Pass trigger
+                  onShowPayment={() => setShowPayment(true)}
               />
           )}
 
@@ -181,6 +200,7 @@ const App: React.FC = () => {
               isDarkMode={isDarkMode} 
               toggleTheme={() => setIsDarkMode(!isDarkMode)}
               messages={currentSession.messages}
+              onOpenAdmin={() => { setShowDashboard(false); setShowAdmin(true); }} // Pass admin handler
             />
           )}
 
@@ -194,7 +214,7 @@ const App: React.FC = () => {
       )}
 
       {/* Session Resume Screen */}
-      {user && user.preferences && !currentSession && (
+      {user && user.preferences && !currentSession && !showAdmin && (
         <div className="h-screen flex flex-col items-center justify-center p-6 bg-white dark:bg-slate-900 animate-fade-in">
            <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center text-white mb-8 shadow-2xl shadow-indigo-500/40">
              <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-12 h-12" />
