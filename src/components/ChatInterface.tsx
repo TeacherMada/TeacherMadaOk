@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff, Lock } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
@@ -334,7 +333,8 @@ const ChatInterface: React.FC<Props> = ({
                       // TRIGGER AI TO SPEAK FIRST (Crucial)
                       sessionPromise.then(session => {
                           try {
-                              session.send({ parts: [{ text: "L'utilisateur a décroché le téléphone. Dis 'Allô !' immédiatement et présente-toi chaleureusement comme TeacherMada." }] });
+                              // @ts-ignore
+                              session.send({ parts: [{ text: "L'utilisateur a décroché le téléphone. Dis 'Allô !' immédiatement et présente-toi chaleureusement comme TeacherMada." }] }, true);
                           } catch(e) {}
                       });
 
