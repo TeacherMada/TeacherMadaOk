@@ -38,8 +38,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
     setIsLoading(true);
     try {
         const fetchedUsers = await storageService.getAllUsers();
+        // Wait for fresh data from DB
         const fetchedRequests = await storageService.getAdminRequests();
-        const fetchedSettings = await storageService.loadSystemSettings(); // Explicit load from Supabase
+        const fetchedSettings = await storageService.loadSystemSettings();
+        
         setUsers(fetchedUsers);
         setRequests(fetchedRequests);
         setSettings(fetchedSettings);

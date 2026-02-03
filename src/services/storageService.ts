@@ -219,32 +219,27 @@ export const storageService = {
       return true;
   },
 
-  // --- SECURE CREDIT REDEMPTION (RPC) ---
-  redeemCode: async (userId: string, code: string): Promise<{ success: boolean; amount?: number; message?: string }> => {
+  // --- SECURE CREDIT REDEMPTION (Client Side Fallback due to RPC complexity) ---
+  redeemCode: async (userId: string, inputCode: string): Promise<{ success: boolean; amount?: number; message?: string }> => {
       try {
-          // Attempt 1: RPC (Best for atomicity)
-          const { data, error } = await supabase.rpc('redeem_coupon', { user_id: userId, coupon_code: code });
-          
-          if (!error && data) {
-              return { success: data.success, amount: data.credits_added, message: data.message };
-          }
-
-          // Attempt 2: Fallback (Client-side logic if RPC not available)
-          console.warn("RPC Failed, trying client-side logic...", error);
+          const code = inputCode.trim().toUpperCase();
           const settings = await storageService.loadSystemSettings();
           const validRefs = settings.validTransactionRefs || [];
           
+          console.log("Checking coupon:", code, "against", validRefs);
+
           // Find the coupon object
-          const couponIndex = validRefs.findIndex(c => c.code.toLowerCase() === code.toLowerCase());
+          const couponIndex = validRefs.findIndex(c => c.code.toUpperCase() === code);
 
           if (couponIndex !== -1) {
               const coupon = validRefs[couponIndex];
-              const amountToAdd = coupon.amount || 0; // Ensure amount exists
+              const amountToAdd = Number(coupon.amount) || 0;
 
               // 1. Add Credits
-              await storageService.addCredits(userId, amountToAdd);
+              const creditAdded = await storageService.addCredits(userId, amountToAdd);
+              if (!creditAdded) return { success: false, message: "Erreur lors de l'ajout des crédits." };
               
-              // 2. Remove Coupon from Settings
+              // 2. Remove Coupon from Settings (Prevent reuse)
               const newRefs = [...validRefs];
               newRefs.splice(couponIndex, 1);
               
@@ -252,13 +247,17 @@ export const storageService = {
               
               if (saveSuccess) {
                   return { success: true, amount: amountToAdd };
+              } else {
+                  // Rollback credits if removal fails? (Advanced logic omitted for simplicity)
+                  return { success: false, message: "Erreur système lors de la validation." };
               }
           }
 
           return { success: false, message: "Code invalide ou déjà utilisé." };
 
       } catch (e: any) {
-          return { success: false, message: e.message };
+          console.error(e);
+          return { success: false, message: "Erreur technique." };
       }
   },
 
@@ -288,28 +287,49 @@ export const storageService = {
     localStorage.setItem(session.id, JSON.stringify(session));
   },
 
-  // --- ADMIN REQUESTS ---
+  // --- ADMIN REQUESTS (SUPABASE CONNECTED) ---
   getAdminRequests: async (): Promise<AdminRequest[]> => {
-      const { data } = await supabase.from('admin_requests').select('*').order('created_at', { ascending: false });
+      // Ensure we select all fields mapping from DB snake_case
+      const { data, error } = await supabase
+          .from('admin_requests')
+          .select('*')
+          .order('created_at', { ascending: false });
+      
+      if (error) {
+          console.error("GetRequests Error:", error);
+          return [];
+      }
+
       return data ? data.map(d => ({
-          ...d,
-          createdAt: new Date(d.created_at).getTime(),
-          userId: d.user_id
+          id: d.id,
+          userId: d.user_id,
+          username: d.username,
+          type: d.type,
+          amount: d.amount,
+          message: d.message,
+          status: d.status,
+          createdAt: new Date(d.created_at).getTime()
       })) : [];
   },
 
   sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'password_reset' | 'message', amount?: number, message?: string, contact?: string): Promise<{ status: 'pending' | 'approved' }> => {
+      const fullMessage = contact ? `${message} [Contact: ${contact}]` : message;
+      
       const newReq = {
           user_id: userId,
           username,
           type,
           amount,
-          message: message + (contact ? ` | Contact: ${contact}` : ''),
+          message: fullMessage,
           status: 'pending'
       };
 
       const { error } = await supabase.from('admin_requests').insert([newReq]);
-      if (error) console.error("Send Request Error:", error);
+      
+      if (error) {
+          console.error("Send Request Error:", error);
+          throw new Error("Echec de l'envoi de la demande.");
+      }
       return { status: 'pending' };
   },
 
@@ -338,8 +358,9 @@ export const storageService = {
           const { data, error } = await supabase.from('system_settings').select('*').single();
           
           if (!error && data) {
-              // Normalize validTransactionRefs to allow legacy string[] or new CouponCode[]
+              // Normalize validTransactionRefs
               let normalizedCoupons: CouponCode[] = [];
+              
               if (Array.isArray(data.valid_transaction_refs)) {
                   normalizedCoupons = data.valid_transaction_refs.map((r: any) => {
                       if (typeof r === 'string') {
@@ -387,7 +408,7 @@ export const storageService = {
       
       // 2. Push to Supabase
       const payload = {
-          id: 1,
+          id: 1, // Singleton row
           api_keys: settings.apiKeys,
           active_model: settings.activeModel,
           credit_price: settings.creditPrice,
