@@ -331,7 +331,8 @@ const ChatInterface: React.FC<Props> = ({
                       // We send a hidden text message as if the user said "Hello" to force a reply
                       sessionPromise.then(session => {
                           try {
-                              session.send({
+                              // Type assertion for 'any' to bypass TS check if method definition is missing in type
+                              (session as any).send({
                                 clientContent: {
                                   turns: [{ role: "user", parts: [{ text: "Hello, who is this?" }] }],
                                   turnComplete: true
