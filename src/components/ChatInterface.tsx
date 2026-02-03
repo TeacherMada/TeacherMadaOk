@@ -273,11 +273,11 @@ const ChatInterface: React.FC<Props> = ({
                       ACT AS: A friendly language teacher on a phone call with your student ${user.username}.
                       TARGET LANGUAGE: ${user.preferences?.targetLanguage}.
                       LEVEL: ${user.preferences?.level}.
-                      GOAL: Practice speaking naturally. Correct pronunciation or grammar gently without interrupting the flow too much.
-                      IMPORTANT: 
-                      - Do NOT act like a robot. Be human, warm, and engaging.
-                      - Keep responses concise (like a real phone chat).
-                      - Ask follow-up questions to keep the student talking.
+                      GOAL: Practice speaking naturally.
+                      INSTRUCTIONS:
+                      - You are speaking on the phone. Keep responses short and conversational.
+                      - Correct pronunciation or grammar gently.
+                      - Do NOT output text/markdown formatting in speech, just speak naturally.
                       ` }]
                   }
               },
@@ -435,20 +435,29 @@ const ChatInterface: React.FC<Props> = ({
 
   // -------------------
 
-  // Progress Calculation
+  // Progress Calculation - Updated logic
   const progressData = useMemo(() => {
       const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
       const currentLevel = user.preferences?.level || 'A1';
       const currentIndex = levels.indexOf(currentLevel);
       const nextLevel = currentIndex < levels.length - 1 ? levels[currentIndex + 1] : 'Expert';
       
-      const points = (user.stats.lessonsCompleted * 10) + (user.stats.exercisesCompleted * 5) + (user.stats.dialoguesCompleted * 8);
-      const threshold = 500;
-      const currentPoints = points % threshold;
-      const percentage = Math.min(Math.round((currentPoints / threshold) * 100), 100);
+      // Extract lesson number from title (e.g., "Leçon 12" -> 12)
+      // If title is "Leçon 1", we want 2%.
+      let lessonNum = 1;
+      const match = currentLessonTitle.match(/(\d+)/);
+      if (match) {
+          lessonNum = parseInt(match[1], 10);
+      } else {
+          // Fallback to stats if title parsing fails
+          lessonNum = (user.stats.lessonsCompleted || 0) + 1;
+      }
+
+      // 50 lessons per level assumption => 1 lesson = 2%
+      const percentage = Math.min(lessonNum * 2, 100);
       
       return { percentage, nextLevel };
-  }, [user.stats, user.preferences?.level]);
+  }, [currentLessonTitle, user.preferences?.level, user.stats.lessonsCompleted]);
 
   // -------------------
 
