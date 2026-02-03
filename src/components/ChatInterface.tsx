@@ -286,16 +286,31 @@ const ChatInterface: React.FC<Props> = ({
                       TARGET LANGUAGE: ${user.preferences?.targetLanguage}.
                       LEVEL: ${user.preferences?.level}.
                       GOAL: Practice speaking naturally.
-                      INSTRUCTIONS:
-                      - You are speaking on the phone. Keep responses short and conversational.
-                      - Correct pronunciation or grammar gently.
-                      - Do NOT output text/markdown formatting in speech, just speak naturally.
+                      
+                      IMPORTANT: 
+                      1. You MUST speak first immediately when connected.
+                      2. Introduce yourself briefly and suggest a topic.
+                      3. Keep responses short and conversational.
+                      4. Correct pronunciation or grammar gently.
                       ` }]
                   }
               },
               callbacks: {
                   onopen: async () => {
                       setVoiceStatus('listening');
+                      
+                      // Trigger AI to speak first by sending a hidden "Hello" (if supported) 
+                      // or relying on System Instruction "You MUST speak first". 
+                      // Sending a dummy text input often triggers the model.
+                      sessionPromise.then(session => {
+                          try {
+                              // @ts-ignore - The SDK types might lag, but text input triggers response
+                              session.send({ parts: [{ text: "Hello teacher, please start the conversation." }] });
+                          } catch (e) {
+                              console.log("Auto-start text trigger not supported or failed, relying on system prompt.");
+                          }
+                      });
+
                       // Start Microphone Streaming
                       try {
                           const stream = await navigator.mediaDevices.getUserMedia({ audio: {
@@ -766,20 +781,16 @@ const ChatInterface: React.FC<Props> = ({
       <footer className="fixed bottom-0 left-0 w-full bg-white/95 dark:bg-[#131825]/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 safe-bottom z-30 shadow-2xl">
         <div className="max-w-3xl mx-auto p-4">
             
-            {/* SMART PROGRESS STATS */}
+            {/* SMART PROGRESS STATS - Mobile First Layout */}
             {!input && messages.length > 0 && !isStreaming && (
                 <div className="mb-3 px-1 animate-fade-in">
-                    <div className="flex justify-between items-center mb-1.5">
-                        <div className="flex items-center gap-1.5">
-                            <Target className="w-3.5 h-3.5 text-indigo-500" />
-                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                {progressData.currentLevel} — {progressData.percentage}% —&gt; {progressData.nextLevel}
-                            </span>
-                        </div>
+                    <div className="flex justify-between items-center mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        <span className="flex-1 text-left">{progressData.currentLevel}</span>
                         <div className="flex items-center gap-1">
                             <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-                            <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">{progressData.percentage}%</span>
+                            <span className="text-indigo-600 dark:text-indigo-400">{progressData.percentage}%</span>
                         </div>
+                        <span className="flex-1 text-right">{progressData.nextLevel}</span>
                     </div>
                     <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                         <div 

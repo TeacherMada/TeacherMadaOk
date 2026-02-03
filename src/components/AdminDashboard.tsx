@@ -47,8 +47,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
             storageService.loadSystemSettings()
         ]);
         
-        setUsers(fetchedUsers);
-        setRequests(fetchedRequests);
+        setUsers(fetchedUsers || []);
+        setRequests(fetchedRequests || []);
         setSettings(fetchedSettings);
     } catch (e) {
         notify("Erreur lors du chargement des données. Vérifiez la connexion.", 'error');
@@ -226,7 +226,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
         {/* Tabs */}
         <div className="flex gap-2 mb-6 overflow-x-auto scrollbar-hide pb-2">
             <Tab active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={<Users className="w-4 h-4"/>} label="Utilisateurs" />
-            <Tab active={activeTab === 'requests'} onClick={() => setActiveTab('requests')} icon={<MessageSquare className="w-4 h-4"/>} label="Demandes" count={requests.filter(r => r.status === 'pending').length} />
+            <Tab active={activeTab === 'requests'} onClick={() => setActiveTab('requests')} icon={<MessageSquare className="w-4 h-4"/>} label="Demandes" count={(requests || []).filter(r => r.status === 'pending').length} />
             <Tab active={activeTab === 'languages'} onClick={() => setActiveTab('languages')} icon={<Globe className="w-4 h-4"/>} label="Langues" />
             <Tab active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={<Settings className="w-4 h-4"/>} label="Système" />
         </div>
@@ -347,16 +347,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
                  <div className="space-y-4">
                     <div className="flex items-center justify-between ml-2">
                         <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">Demandes de Rechargement</h3>
-                        <span className="bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-bold px-2 py-1 rounded-lg">{requests.filter(r => r.status === 'pending').length} en attente</span>
+                        <span className="bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-bold px-2 py-1 rounded-lg">{requests?.filter(r => r.status === 'pending').length || 0} en attente</span>
                     </div>
                     
-                    {requests.length === 0 && (
+                    {(!requests || requests.length === 0) && (
                         <div className="text-center py-10 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800">
                             <p className="text-slate-400 text-sm">Aucune demande.</p>
                         </div>
                     )}
 
-                    {requests.map(req => (
+                    {requests?.map(req => (
                         <div key={req.id} className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] shadow-sm border border-slate-200 dark:border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 group hover:border-indigo-500/20 transition-all">
                             <div className="flex-1 w-full">
                                 <div className="flex flex-wrap items-center gap-3 mb-2">

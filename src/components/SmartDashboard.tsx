@@ -230,9 +230,10 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                             <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1 rounded-lg">Level {progressData.currentLevel}</span>
                         </div>
                         
-                        <div className="flex justify-between items-end mb-2">
-                            <span className="text-sm text-slate-500 dark:text-slate-400">Vers {progressData.nextLevel}</span>
-                            <span className="text-xl font-black text-slate-800 dark:text-white">{progressData.percentage}%</span>
+                        <div className="flex justify-between items-center mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            <span>{progressData.currentLevel}</span>
+                            <span className="text-indigo-600 dark:text-indigo-400 text-sm">{progressData.percentage}%</span>
+                            <span>{progressData.nextLevel}</span>
                         </div>
                         <div className="h-3 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                             <div 

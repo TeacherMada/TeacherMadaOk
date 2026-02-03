@@ -299,39 +299,47 @@ export const storageService = {
 
   // --- ADMIN REQUESTS (SUPABASE CONNECTED) ---
   getAdminRequests: async (): Promise<AdminRequest[]> => {
-      // Fetch directly from Supabase
-      const { data, error } = await supabase
-          .from('admin_requests')
-          .select('*')
-          .order('created_at', { ascending: false });
-      
-      if (error) {
-          console.error("GetRequests Error:", error);
+      try {
+          // Fetch directly from Supabase
+          const { data, error } = await supabase
+              .from('admin_requests')
+              .select('*')
+              .order('created_at', { ascending: false });
+          
+          if (error) {
+              console.error("GetRequests Error:", error);
+              // Return empty array if table doesn't exist or RLS issue
+              return [];
+          }
+
+          // Map snake_case from DB to CamelCase types
+          return data ? data.map(d => ({
+              id: d.id,
+              userId: d.user_id,
+              username: d.username,
+              type: d.type,
+              amount: d.amount,
+              message: d.message,
+              status: d.status,
+              createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now()
+          })) : [];
+      } catch (e) {
+          console.error("Admin Requests Fetch Exception:", e);
           return [];
       }
-
-      // Map snake_case from DB to CamelCase types
-      return data ? data.map(d => ({
-          id: d.id,
-          userId: d.user_id,
-          username: d.username,
-          type: d.type,
-          amount: d.amount,
-          message: d.message,
-          status: d.status,
-          createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now()
-      })) : [];
   },
 
   // Clean up requests older than 7 days
   cleanupOldRequests: async () => {
-      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const { error } = await supabase
-          .from('admin_requests')
-          .delete()
-          .lt('created_at', oneWeekAgo);
-      
-      if (error) console.error("Auto Cleanup Error:", error);
+      try {
+          const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+          await supabase
+              .from('admin_requests')
+              .delete()
+              .lt('created_at', oneWeekAgo);
+      } catch (e) {
+          // Ignore table missing error
+      }
   },
 
   sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'password_reset' | 'message', amount?: number, message?: string, contact?: string): Promise<{ status: 'pending' | 'approved' }> => {
@@ -350,7 +358,7 @@ export const storageService = {
       
       if (error) {
           console.error("Send Request Error:", error);
-          throw new Error("Echec de l'envoi de la demande.");
+          throw new Error("Echec de l'envoi de la demande. Veuillez réessayer plus tard.");
       }
       return { status: 'pending' };
   },
