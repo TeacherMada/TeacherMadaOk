@@ -53,19 +53,23 @@ function createBlob(data: Float32Array): { data: string, mimeType: string } {
 }
 
 const playRingingTone = (ctx: AudioContext) => {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 440; 
-    osc.type = 'sine';
-    const now = ctx.currentTime;
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.5, now + 0.1);
-    gain.gain.linearRampToValueAtTime(0.5, now + 2);
-    gain.gain.linearRampToValueAtTime(0, now + 2.1);
-    osc.start(now);
-    osc.stop(now + 2.5);
+    try {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 440; 
+        osc.type = 'sine';
+        const now = ctx.currentTime;
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.5, now + 0.1);
+        gain.gain.linearRampToValueAtTime(0.5, now + 2);
+        gain.gain.linearRampToValueAtTime(0, now + 2.1);
+        osc.start(now);
+        osc.stop(now + 2.5);
+    } catch (e) {
+        console.warn("Ringing tone error", e);
+    }
 };
 
 const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
@@ -74,7 +78,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const [aiSpeaking, setAiSpeaking] = useState(false);
   const [showInput, setShowInput] = useState(false);
   const [inputText, setInputText] = useState('');
-  const [canSendText, setCanSendText] = useState(false); // New state to check capability
+  const [canSendText, setCanSendText] = useState(false); 
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sessionRef = useRef<any>(null);
@@ -83,25 +87,47 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const inputSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const ringIntervalRef = useRef<any>(null);
+  const connectTimeoutRef = useRef<any>(null);
+  const mountedRef = useRef(true);
 
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
+
+  useEffect(() => {
+      mountedRef.current = true;
+      return () => { mountedRef.current = false; };
+  }, []);
 
   // Init & Ringing
   useEffect(() => {
     const init = async () => {
-        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
-        if (ctx.state === 'suspended') await ctx.resume();
-        audioCtxRef.current = ctx;
-        nextStartTimeRef.current = ctx.currentTime;
+        try {
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const ctx = new AudioContextClass({sampleRate: 24000});
+            
+            if (ctx.state === 'suspended') {
+                await ctx.resume().catch(() => console.warn("Audio Context resume failed (autoplay policy)"));
+            }
+            
+            audioCtxRef.current = ctx;
+            nextStartTimeRef.current = ctx.currentTime;
 
-        playRingingTone(ctx);
-        ringIntervalRef.current = setInterval(() => playRingingTone(ctx), 3000);
+            playRingingTone(ctx);
+            ringIntervalRef.current = setInterval(() => {
+                if (mountedRef.current && status === 'ringing') playRingingTone(ctx);
+            }, 3000);
 
-        setTimeout(() => {
-            clearInterval(ringIntervalRef.current);
-            setStatus('connecting');
-            connectLive();
-        }, 3500); // 3.5s ringing
+            connectTimeoutRef.current = setTimeout(() => {
+                if (mountedRef.current) {
+                    clearInterval(ringIntervalRef.current);
+                    setStatus('connecting');
+                    connectLive();
+                }
+            }, 3500); 
+        } catch (e) {
+            console.error("Voice Call Init Error:", e);
+            notify("Erreur d'initialisation audio.", "error");
+            if (mountedRef.current) onClose();
+        }
     };
     init();
 
@@ -120,25 +146,54 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   }, [status]);
 
   const cleanup = async () => {
-      clearInterval(ringIntervalRef.current);
-      if (processorRef.current) { processorRef.current.disconnect(); processorRef.current = null; }
-      if (inputSourceRef.current) { inputSourceRef.current.disconnect(); inputSourceRef.current = null; }
-      sourcesRef.current.forEach(s => s.stop());
+      if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
+      if (ringIntervalRef.current) clearInterval(ringIntervalRef.current);
+      
+      if (processorRef.current) { 
+          try { processorRef.current.disconnect(); } catch(e){}
+          processorRef.current = null; 
+      }
+      if (inputSourceRef.current) { 
+          try { inputSourceRef.current.disconnect(); } catch(e){}
+          inputSourceRef.current = null; 
+      }
+      
+      sourcesRef.current.forEach(s => {
+          try { s.stop(); } catch(e){}
+      });
       sourcesRef.current.clear();
+      
       if (sessionRef.current) {
           try { (await sessionRef.current).close(); } catch(e) {}
           sessionRef.current = null;
       }
+      
       if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
           try { await audioCtxRef.current.close(); } catch(e) {}
       }
   };
 
   const connectLive = async () => {
+      // Validate API Key
+      const apiKey = process.env.API_KEY;
+      if (!apiKey) {
+          console.error("API Key missing");
+          notify("Clé API manquante.", "error");
+          onClose();
+          return;
+      }
+
       try {
-          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-          const ctx = audioCtxRef.current!;
+          const ai = new GoogleGenAI({ apiKey });
           
+          // Ensure AudioContext is ready
+          if (!audioCtxRef.current) {
+              const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+              audioCtxRef.current = new AudioContextClass({sampleRate: 24000});
+          }
+          const ctx = audioCtxRef.current;
+          if (ctx.state === 'suspended') await ctx.resume();
+
           const sessionPromise = ai.live.connect({
               model: 'gemini-2.5-flash-native-audio-preview-12-2025',
               config: {
@@ -157,18 +212,20 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               },
               callbacks: {
                   onopen: async () => {
+                      if (!mountedRef.current) return;
                       setStatus('connected');
                       
                       // Capabilities Check & Trigger
                       sessionPromise.then(session => {
+                          if (!mountedRef.current) return;
+                          
                           // Check if we can send text
                           if (typeof (session as any).send === 'function') {
                               setCanSendText(true);
-                              // Text Trigger
                               try {
                                   (session as any).send({
                                       clientContent: {
-                                          turns: [{ role: "user", parts: [{ text: "SYSTEM: Call started. Speak now." }] }],
+                                          turns: [{ role: "user", parts: [{ text: "SYSTEM: Call connected. Please say 'Allô' now." }] }],
                                           turnComplete: true
                                       }
                                   });
@@ -177,24 +234,30 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
                           // Audio Trigger (Silent Burst) - Essential for VAD wakeup
                           setTimeout(() => {
-                              try {
-                                  const silentData = new Float32Array(4800); // 300ms silence
-                                  const pcmBlob = createBlob(silentData);
-                                  session.sendRealtimeInput({ media: pcmBlob });
-                              } catch(e) { console.error("Audio trigger failed", e); }
+                              if (mountedRef.current) {
+                                  try {
+                                      const silentData = new Float32Array(4800); // 300ms silence
+                                      const pcmBlob = createBlob(silentData);
+                                      session.sendRealtimeInput({ media: pcmBlob });
+                                  } catch(e) { console.error("Audio trigger failed", e); }
+                              }
                           }, 500);
                       });
 
                       // Microphone
                       try {
                           const stream = await navigator.mediaDevices.getUserMedia({ 
-                              audio: { sampleRate: 16000, echoCancellation: true, noiseSuppression: true } 
+                              audio: { sampleRate: 16000, echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
                           });
-                          const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 16000});
+                          
+                          // Use a separate input context for the microphone to avoid sample rate mismatches
+                          const InputAudioContext = window.AudioContext || (window as any).webkitAudioContext;
+                          const inputCtx = new InputAudioContext({sampleRate: 16000});
                           const source = inputCtx.createMediaStreamSource(stream);
                           const processor = inputCtx.createScriptProcessor(4096, 1, 1);
                           
                           processor.onaudioprocess = (e) => {
+                              if (!mountedRef.current) return;
                               const inputData = e.inputBuffer.getChannelData(0);
                               const pcmBlob = createBlob(inputData);
                               sessionPromise.then(s => s.sendRealtimeInput({ media: pcmBlob })).catch(() => {});
@@ -202,14 +265,18 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                           
                           source.connect(processor);
                           processor.connect(inputCtx.destination);
+                          
                           inputSourceRef.current = source;
                           processorRef.current = processor;
                       } catch (e) {
+                          console.error("Microphone Access Error:", e);
                           notify("Microphone inaccessible", "error");
                           onClose();
                       }
                   },
                   onmessage: async (msg: LiveServerMessage) => {
+                      if (!mountedRef.current) return;
+
                       // Credit Logic
                       if (msg.serverContent?.turnComplete) {
                           const u = await storageService.getUserById(user.id);
@@ -228,29 +295,51 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                       const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                       if (audioData) {
                           setAiSpeaking(true);
-                          const buffer = pcmToAudioBuffer(base64ToUint8Array(audioData), ctx, 24000);
-                          const source = ctx.createBufferSource();
-                          source.buffer = buffer;
-                          source.connect(ctx.destination);
-                          
-                          const now = ctx.currentTime;
-                          if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
-                          source.start(nextStartTimeRef.current);
-                          nextStartTimeRef.current += buffer.duration;
-                          
-                          sourcesRef.current.add(source);
-                          source.onended = () => {
-                              sourcesRef.current.delete(source);
-                              if (sourcesRef.current.size === 0) setAiSpeaking(false);
-                          };
+                          try {
+                              const buffer = pcmToAudioBuffer(base64ToUint8Array(audioData), ctx, 24000);
+                              const source = ctx.createBufferSource();
+                              source.buffer = buffer;
+                              source.connect(ctx.destination);
+                              
+                              const now = ctx.currentTime;
+                              if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
+                              source.start(nextStartTimeRef.current);
+                              nextStartTimeRef.current += buffer.duration;
+                              
+                              sourcesRef.current.add(source);
+                              source.onended = () => {
+                                  sourcesRef.current.delete(source);
+                                  if (sourcesRef.current.size === 0) setAiSpeaking(false);
+                              };
+                          } catch (audioErr) {
+                              console.error("Audio Decode Error", audioErr);
+                          }
                       }
                   },
-                  onclose: () => onClose(),
-                  onerror: (e) => console.error("Live Error", e)
+                  onclose: () => {
+                      // Only close if intended or error, not just connection close (which shouldn't happen unless done)
+                      console.log("Live Session Closed");
+                      if (mountedRef.current) onClose();
+                  },
+                  onerror: (e) => {
+                      console.error("Live API Error:", e);
+                      // Don't close immediately on minor errors, but log
+                  }
               }
           });
+          
           sessionRef.current = sessionPromise;
+          
+          sessionPromise.catch(err => {
+              console.error("Session Promise Rejected:", err);
+              if (mountedRef.current) {
+                  notify("Échec de connexion au serveur.", "error");
+                  onClose();
+              }
+          });
+
       } catch (e) {
+          console.error("Setup Exception:", e);
           notify("Erreur de connexion Live.", "error");
           onClose();
       }
