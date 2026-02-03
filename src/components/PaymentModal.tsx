@@ -17,7 +17,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   const [amount, setAmount] = useState<number>(2000);
   const [refMessage, setRefMessage] = useState('');
   const [isSent, setIsSent] = useState(false);
-  const [isAutoApproved, setIsAutoApproved] = useState(false); // New: Instant approval state
+  const [isAutoApproved, setIsAutoApproved] = useState(false); 
   const [copied, setCopied] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedOperator, setSelectedOperator] = useState<'mvola' | 'airtel' | 'orange' | null>(null);
@@ -38,23 +38,45 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
       setLoading(true);
       
       try {
-          // sendAdminRequest now returns { status: 'pending' | 'approved' }
-          const result = await storageService.sendAdminRequest(
-              user.id,
-              user.username,
-              'credit',
-              credits,
-              `Paiement ${selectedOperator?.toUpperCase()}. Détails: ${refMessage}`
-          );
+          // --- INSTANT VALIDATION CHECK ---
+          const settings = await storageService.loadSystemSettings(); // Ensure fresh settings
+          const validRefs = settings.validTransactionRefs || [];
           
-          if (result.status === 'approved') {
+          // Check if refMessage contains a valid token (case insensitive)
+          const matchedRef = validRefs.find(ref => refMessage.toLowerCase().includes(ref.toLowerCase()));
+
+          if (matchedRef) {
+              // 1. Add Credits Instantly
+              await storageService.addCredits(user.id, credits);
+              
+              // 2. Remove used reference to prevent replay
+              const newRefs = validRefs.filter(r => r !== matchedRef);
+              const newSettings = { ...settings, validTransactionRefs: newRefs };
+              await storageService.updateSystemSettings(newSettings);
+              
               setIsAutoApproved(true);
+              setIsSent(true);
+              
+              setTimeout(() => {
+                  onClose();
+                  // Force page refresh or context update might be needed, but local user credits update handles UI
+                  window.location.reload(); 
+              }, 3000);
+          } else {
+              // Standard Manual Request
+              const result = await storageService.sendAdminRequest(
+                  user.id,
+                  user.username,
+                  'credit',
+                  credits,
+                  `Paiement ${selectedOperator?.toUpperCase()}. Détails: ${refMessage}`
+              );
+              
+              setIsSent(true);
+              setTimeout(() => {
+                  onClose();
+              }, 3000);
           }
-          
-          setIsSent(true);
-          setTimeout(() => {
-              onClose();
-          }, result.status === 'approved' ? 4000 : 3000); // Show success longer if approved
       } catch (e) {
           console.error("Payment Request Error", e);
       } finally {
@@ -225,9 +247,9 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                     <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600 dark:text-indigo-400">
                                         <Smartphone className="w-8 h-8" />
                                     </div>
-                                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">Validation Rapide</h3>
+                                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">Validation</h3>
                                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-                                        Pour que l'admin valide vos <strong>{credits} CRD</strong> instantanément, identifier un indice dans votre transaction, comme nom numéro ou nom du destinataire ou Référence ou Description.
+                                        Pour valider vos <strong>{credits} CRD</strong>, copiez exactement la référence du SMS de transaction reçu.
                                     </p>
                                 </div>
 
@@ -238,12 +260,12 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                             <span className="mx-1">•</span>
                                             <Hash className="w-3 h-3"/> Tél
                                             <span className="mx-1">•</span>
-                                            <FileText className="w-3 h-3"/> Réf
+                                            <FileText className="w-3 h-3"/> Réf SMS
                                         </div>
                                     </div>
                                     <textarea 
                                         rows={3}
-                                        placeholder="Collez la référence du SMS reçu ici..."
+                                        placeholder="Collez la référence exacte du SMS..."
                                         value={refMessage}
                                         onChange={(e) => setRefMessage(e.target.value)}
                                         className="w-full bg-transparent text-slate-800 dark:text-white outline-none resize-none font-medium placeholder:text-slate-400"
@@ -256,7 +278,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                 disabled={!refMessage.trim() || loading}
                                 className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-2xl hover:shadow-lg hover:shadow-emerald-500/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                             >
-                                {loading ? 'Envoi...' : 'Valider maintenant'} <Send className="w-5 h-5" />
+                                {loading ? 'Vérification...' : 'Valider maintenant'} <Send className="w-5 h-5" />
                             </button>
                         </>
                     ) : (
@@ -269,11 +291,12 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                 <>
                                     <h3 className="text-2xl font-black text-slate-800 dark:text-white">Paiement Validé !</h3>
                                     <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Vos {credits} crédits ont été ajoutés instantanément.</p>
+                                    <p className="text-xs text-indigo-500 font-bold mt-4 animate-pulse">Redirection...</p>
                                 </>
                             ) : (
                                 <>
-                                    <h3 className="text-2xl font-black text-slate-800 dark:text-white">Reçu 5/5 !</h3>
-                                    <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">L'admin vérifiera votre paiement sous peu.</p>
+                                    <h3 className="text-2xl font-black text-slate-800 dark:text-white">Demande Envoyée</h3>
+                                    <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">L'admin vérifiera votre référence manuellement.</p>
                                 </>
                             )}
                         </div>

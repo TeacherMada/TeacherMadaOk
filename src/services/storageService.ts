@@ -1,8 +1,9 @@
 
 import { supabase } from "../lib/supabase";
-import { UserProfile, UserPreferences, LearningSession, AdminRequest } from "../types";
+import { UserProfile, UserPreferences, LearningSession, AdminRequest, SystemSettings } from "../types";
 
 const SESSION_PREFIX = 'tm_v3_session_';
+const SETTINGS_KEY = 'tm_system_settings';
 
 // Helper to map Supabase DB shape to UserProfile
 const mapProfile = (data: any): UserProfile => ({
@@ -252,8 +253,37 @@ export const storageService = {
       }
   },
 
-  // --- SETTINGS ---
-  getSystemSettings: () => {
+  // --- SETTINGS (Supabase Sync) ---
+  
+  loadSystemSettings: async (): Promise<SystemSettings> => {
+      try {
+          const { data, error } = await supabase.from('system_settings').select('*').single();
+          
+          if (!error && data) {
+              // Convert DB columns to SystemSettings object
+              const settings: SystemSettings = {
+                  apiKeys: data.api_keys || [],
+                  activeModel: data.active_model || 'gemini-3-flash-preview',
+                  creditPrice: data.credit_price || 50,
+                  customLanguages: data.custom_languages || [],
+                  validTransactionRefs: data.valid_transaction_refs || [],
+                  adminContact: data.admin_contact || { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
+              };
+              // Cache locally
+              localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+              return settings;
+          }
+      } catch (e) {
+          console.warn("Using local settings fallback");
+      }
+      
+      return storageService.getSystemSettings(); // Fallback to local
+  },
+
+  getSystemSettings: (): SystemSettings => {
+      const local = localStorage.getItem(SETTINGS_KEY);
+      if (local) return JSON.parse(local);
+      
       return {
           apiKeys: [],
           activeModel: 'gemini-3-flash-preview',
@@ -263,7 +293,23 @@ export const storageService = {
           adminContact: { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
       };
   },
-  updateSystemSettings: async (s: any) => { /* No-op */ },
+
+  updateSystemSettings: async (settings: SystemSettings) => {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      
+      const payload = {
+          id: 1, // Singleton row
+          api_keys: settings.apiKeys,
+          active_model: settings.activeModel,
+          credit_price: settings.creditPrice,
+          custom_languages: settings.customLanguages,
+          valid_transaction_refs: settings.validTransactionRefs,
+          admin_contact: settings.adminContact
+      };
+
+      const { error } = await supabase.from('system_settings').upsert(payload);
+      if (error) console.error("Failed to sync settings", error);
+  },
   
   deductCreditOrUsage: async (userId: string) => {
       await storageService.checkAndConsumeCredit(userId);

@@ -17,6 +17,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
   const [scrolled, setScrolled] = useState(false);
   const [wordIndex, setWordIndex] = useState(0);
   const [fadeKey, setFadeKey] = useState(0);
+  const [dynamicLanguages, setDynamicLanguages] = useState<any[]>([]);
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -33,20 +34,22 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
     return () => clearInterval(interval);
   }, []);
 
-  const displayedLanguages = useMemo(() => {
-      const systemSettings = storageService.getSystemSettings();
-      const customLangs = systemSettings.customLanguages || [];
-      const staticLangs = Object.values(TargetLanguage);
-      
-      const formattedStatic = staticLangs.map(l => ({
-          code: l,
-          // Fix: cast to string to use split()
-          baseName: (l as string).split(' ')[0],
-          flag: (l as string).split(' ')[1] || '🏳️'
-      }));
+  // Load languages dynamically (async)
+  useEffect(() => {
+      const loadLangs = async () => {
+          const settings = await storageService.loadSystemSettings(); // Ensures Supabase fetch
+          const customLangs = settings.customLanguages || [];
+          const staticLangs = Object.values(TargetLanguage);
+          
+          const formattedStatic = staticLangs.map(l => ({
+              code: l,
+              baseName: (l as string).split(' ')[0],
+              flag: (l as string).split(' ')[1] || '🏳️'
+          }));
 
-      // Merge and take top 5
-      return [...formattedStatic, ...customLangs].slice(0, 7);
+          setDynamicLanguages([...formattedStatic, ...customLangs]);
+      };
+      loadLangs();
   }, []);
 
   return (
@@ -179,7 +182,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
           <div className="max-w-7xl mx-auto px-6">
               <p className="text-center text-sm font-bold text-slate-400 uppercase tracking-widest mb-8">Choisissez votre langue</p>
               <div className="flex flex-wrap justify-center gap-4 md:gap-8">
-                  {displayedLanguages.map((lang, idx) => (
+                  {dynamicLanguages.slice(0, 8).map((lang, idx) => (
                       <LanguageBadge key={idx} flag={lang.flag} name={lang.baseName} onClick={onStart} />
                   ))}
                   <div onClick={onStart} className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm cursor-pointer opacity-70 hover:opacity-100">

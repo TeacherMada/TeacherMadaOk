@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic, StopCircle, ArrowLeft, Sun, Moon, User, Play, Loader2, Library, ChevronDown, Repeat, VolumeX } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -97,6 +97,21 @@ const ChatInterface: React.FC<Props> = ({
   const liveProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const liveNextStartTimeRef = useRef<number>(0);
   const liveSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+
+  // Progress Calculation
+  const progressData = useMemo(() => {
+      const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
+      const currentLevel = user.preferences?.level || 'A1';
+      const currentIndex = levels.indexOf(currentLevel);
+      const nextLevel = currentIndex < levels.length - 1 ? levels[currentIndex + 1] : 'Expert';
+      
+      const points = (user.stats.lessonsCompleted * 10) + (user.stats.exercisesCompleted * 5) + (user.stats.dialoguesCompleted * 8);
+      const threshold = 500;
+      const currentPoints = points % threshold;
+      const percentage = Math.min(Math.round((currentPoints / threshold) * 100), 100);
+      
+      return { percentage, nextLevel };
+  }, [user.stats, user.preferences?.level]);
 
   // Sync theme
   const toggleTheme = () => {
@@ -426,11 +441,12 @@ const ChatInterface: React.FC<Props> = ({
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isStreaming]);
 
-  // Render Live Call Overlay
+  // Render Live Call Overlay (Same as before)
   if (isVoiceMode) {
+      // ... (Keeping Voice Mode UI logic mostly same but compacting for brevity in this response)
       return (
           <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-3xl text-white flex flex-col items-center justify-between p-6 animate-fade-in font-sans overflow-hidden">
-              {/* Top Controls */}
+              {/* ... (Voice UI Header & Avatar - Identical to previous turn) ... */}
               <div className="w-full flex justify-between items-center z-10 pt-4 px-2">
                   <button onClick={() => setIsVoiceMode(false)} className="p-3 bg-white/10 rounded-full hover:bg-white/20 backdrop-blur-md transition-all">
                       <ChevronDown className="w-6 h-6" />
@@ -439,65 +455,30 @@ const ChatInterface: React.FC<Props> = ({
                       <span className="text-xs font-bold uppercase tracking-widest text-slate-300">TeacherMada</span>
                       <span className="font-mono text-sm opacity-70">{formatTime(callDuration)}</span>
                   </div>
-                  <div className="w-12"></div> {/* Spacer */}
+                  <div className="w-12"></div>
               </div>
-
-              {/* Center Avatar & Status */}
               <div className="flex flex-col items-center justify-center gap-8 w-full z-10 flex-1 relative">
-                  
-                  {/* Status Indicator */}
                   <div className="h-6">
                       {voiceStatus === 'listening' && <p className="text-indigo-300 text-sm font-bold animate-pulse tracking-wide">J'écoute...</p>}
                       {voiceStatus === 'speaking' && <p className="text-emerald-300 text-sm font-bold tracking-wide">Teacher parle...</p>}
                       {voiceStatus === 'idle' && <p className="text-slate-400 text-sm font-medium">Connexion...</p>}
                   </div>
-
-                  {/* Pulsing Avatar Container */}
                   <div className="relative">
-                      {voiceStatus === 'speaking' && (
-                          <>
-                            <div className="absolute inset-0 bg-emerald-500/20 rounded-full animate-ping blur-xl"></div>
-                            <div className="absolute inset-0 bg-emerald-500/10 rounded-full animate-pulse delay-100 scale-125"></div>
-                          </>
-                      )}
-                      {voiceStatus === 'listening' && (
-                          <div className="absolute inset-0 bg-indigo-500/20 rounded-full animate-pulse scale-110 blur-xl"></div>
-                      )}
-
+                      {voiceStatus === 'speaking' && <div className="absolute inset-0 bg-emerald-500/20 rounded-full animate-ping blur-xl"></div>}
+                      {voiceStatus === 'listening' && <div className="absolute inset-0 bg-indigo-500/20 rounded-full animate-pulse scale-110 blur-xl"></div>}
                       <div className="relative w-40 h-40 md:w-56 md:h-56 rounded-full p-2 bg-gradient-to-b from-slate-700 to-slate-900 shadow-2xl flex items-center justify-center border-4 border-slate-700/50">
                           <img src="https://api.dicebear.com/9.x/bottts-neutral/svg?seed=Teacher" className="w-full h-full object-cover rounded-full" alt="Teacher AI" />
                       </div>
                   </div>
-
                   <div className="text-center space-y-1">
                       <h2 className="text-2xl font-bold text-white tracking-tight">Appel en cours</h2>
                       <p className="text-slate-400 font-medium text-sm">{user.preferences?.targetLanguage} • {user.preferences?.level}</p>
                   </div>
               </div>
-
-              {/* Bottom Controls */}
               <div className="w-full max-w-sm grid grid-cols-3 gap-6 mb-8 z-10 items-center justify-items-center">
-                  
-                  <button className="flex flex-col items-center gap-2 group opacity-50 hover:opacity-100 transition-opacity">
-                      <div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-white">
-                          <Volume2 className="w-6 h-6" />
-                      </div>
-                      <span className="text-[10px] uppercase font-bold tracking-wider">Speaker</span>
-                  </button>
-
-                  <button onClick={() => setIsVoiceMode(false)} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform">
-                      <div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-slate-900">
-                          <Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" />
-                      </div>
-                  </button>
-
-                  <button className="flex flex-col items-center gap-2 group opacity-50 hover:opacity-100 transition-opacity">
-                      <div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-white">
-                          <MicOff className="w-6 h-6" />
-                      </div>
-                      <span className="text-[10px] uppercase font-bold tracking-wider">Mute</span>
-                  </button>
-
+                  <button className="flex flex-col items-center gap-2 group opacity-50 hover:opacity-100 transition-opacity"><div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-white"><Volume2 className="w-6 h-6" /></div><span className="text-[10px] uppercase font-bold tracking-wider">Speaker</span></button>
+                  <button onClick={() => setIsVoiceMode(false)} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform"><div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-slate-900"><Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" /></div></button>
+                  <button className="flex flex-col items-center gap-2 group opacity-50 hover:opacity-100 transition-opacity"><div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-white"><Mic className="w-6 h-6" /></div><span className="text-[10px] uppercase font-bold tracking-wider">Mute</span></button>
               </div>
           </div>
       );
@@ -509,13 +490,10 @@ const ChatInterface: React.FC<Props> = ({
       {/* --- FIXED HEADER --- */}
       <header className="fixed top-0 left-0 w-full z-30 bg-white/80 dark:bg-[#131825]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm safe-top transition-colors">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-            
             <div className="flex items-center gap-3 flex-1">
                 <button onClick={onExit} className="p-2 -ml-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors shrink-0">
                     <ArrowLeft className="w-6 h-6" />
                 </button>
-                
-                {/* Clickable Badge for Menu */}
                 <div className="relative">
                     <button 
                         onClick={(e) => { e.stopPropagation(); setShowTopMenu(!showTopMenu); }}
@@ -526,69 +504,35 @@ const ChatInterface: React.FC<Props> = ({
                         <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase">{user.preferences?.level}</span>
                         <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${showTopMenu ? 'rotate-180' : ''}`} />
                     </button>
-
-                    {/* Dropdown Menu */}
                     {showTopMenu && (
                         <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden z-50 animate-fade-in-up">
-                            <button onClick={onStartPractice} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
-                                <MessageCircle className="w-4 h-4 text-indigo-500" /> Dialogue
-                            </button>
-                            <button onClick={onStartExercise} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
-                                <Brain className="w-4 h-4 text-emerald-500" /> Exercices
-                            </button>
-                            <button onClick={() => setIsVoiceMode(true)} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
-                                <Phone className="w-4 h-4 text-purple-500" /> Appel Vocal
-                            </button>
+                            <button onClick={onStartPractice} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><MessageCircle className="w-4 h-4 text-indigo-500" /> Dialogue</button>
+                            <button onClick={onStartExercise} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><Brain className="w-4 h-4 text-emerald-500" /> Exercices</button>
+                            <button onClick={() => setIsVoiceMode(true)} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><Phone className="w-4 h-4 text-purple-500" /> Appel Vocal</button>
                             <div className="h-px bg-slate-100 dark:bg-slate-700 mx-2 my-1"></div>
-                            <button onClick={onExit} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs font-bold text-red-500">
-                                <Repeat className="w-3.5 h-3.5" /> Changer Cours
-                            </button>
+                            <button onClick={onExit} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs font-bold text-red-500"><Repeat className="w-3.5 h-3.5" /> Changer Cours</button>
                         </div>
                     )}
                 </div>
             </div>
-
             <div className="flex flex-col items-center justify-center shrink-0">
-                <h1 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-tight">
-                    {currentLessonTitle}
-                </h1>
-                <button 
-                    onClick={onShowPayment} 
-                    className="flex items-center gap-1 mt-0.5 hover:scale-105 transition-transform"
-                >
+                <h1 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-tight">{currentLessonTitle}</h1>
+                <button onClick={onShowPayment} className="flex items-center gap-1 mt-0.5 hover:scale-105 transition-transform">
                     <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                    <span className="text-sm font-black text-amber-500">
-                        {user.freeUsage.count < 3 ? `${3 - user.freeUsage.count} Free` : user.credits}
-                    </span>
+                    <span className="text-sm font-black text-amber-500">{user.freeUsage.count < 3 ? `${3 - user.freeUsage.count} Free` : user.credits}</span>
                 </button>
             </div>
-
             <div className="flex items-center justify-end gap-2 flex-1">
-                <button
-                  onClick={toggleTheme}
-                  className="p-2 text-slate-400 hover:text-indigo-600 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                >
-                  {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-                </button>
-
-                <button 
-                    onClick={onShowProfile} 
-                    className="relative group flex items-center gap-2"
-                >
-                    <div className="hidden sm:flex flex-col items-end">
-                       <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{user.vocabulary.length} Mots</span>
-                    </div>
-                    <img 
-                        src={`https://api.dicebear.com/9.x/micah/svg?seed=${user.username}`} 
-                        alt="User" 
-                        className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-800 shadow-md group-hover:scale-105 transition-transform border border-white dark:border-slate-600"
-                    />
+                <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-indigo-600 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">{isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}</button>
+                <button onClick={onShowProfile} className="relative group flex items-center gap-2">
+                    <div className="hidden sm:flex flex-col items-end"><span className="text-xs font-bold text-slate-700 dark:text-slate-200">{user.vocabulary.length} Mots</span></div>
+                    <img src={`https://api.dicebear.com/9.x/micah/svg?seed=${user.username}`} alt="User" className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-800 shadow-md group-hover:scale-105 transition-transform border border-white dark:border-slate-600"/>
                 </button>
             </div>
         </div>
       </header>
 
-      {/* Chat Area - Padding top for fixed header, padding bottom for fixed footer */}
+      {/* Chat Area */}
       <main className="flex-1 overflow-y-auto pt-16 pb-32 px-4 md:px-6 space-y-6 scrollbar-hide relative">
         <div className="max-w-3xl mx-auto space-y-6">
             {messages.length === 0 && (
@@ -622,7 +566,6 @@ const ChatInterface: React.FC<Props> = ({
                         onPlayAudio={(text) => playMessageAudio(text, msg.id + text)} 
                     />
                     
-                    {/* Audio Playback Control for AI Messages */}
                     {msg.role === 'model' && (
                         <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
                             <button 
@@ -630,11 +573,7 @@ const ChatInterface: React.FC<Props> = ({
                                 className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${speakingMessageId === msg.id ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400'}`}
                                 disabled={isLoadingAudio && speakingMessageId !== msg.id}
                             >
-                                {isLoadingAudio && speakingMessageId === msg.id ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                    speakingMessageId === msg.id ? <StopCircle className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />
-                                )}
+                                {isLoadingAudio && speakingMessageId === msg.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : speakingMessageId === msg.id ? <StopCircle className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
                                 {speakingMessageId === msg.id ? 'Arrêter' : 'Écouter'}
                             </button>
                         </div>
@@ -667,18 +606,27 @@ const ChatInterface: React.FC<Props> = ({
       <footer className="fixed bottom-0 left-0 w-full bg-white/95 dark:bg-[#131825]/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 safe-bottom z-30 shadow-2xl">
         <div className="max-w-3xl mx-auto p-4">
             
-            {/* Enhanced Suggestions (Scrollable) */}
+            {/* SMART PROGRESS STATS (Replaces old buttons) */}
             {!input && messages.length > 0 && !isStreaming && (
-                <div className="flex gap-2 mb-3 overflow-x-auto scrollbar-hide pb-1">
-                    <button onClick={onStartPractice} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-lg text-xs font-bold border border-indigo-100 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-all whitespace-nowrap">
-                        <MessageCircle className="w-3.5 h-3.5" /> Dialogue
-                    </button>
-                    <button onClick={onStartExercise} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-lg text-xs font-bold border border-emerald-100 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all whitespace-nowrap">
-                        <Brain className="w-3.5 h-3.5" /> Quiz
-                    </button>
-                    <button onClick={() => processMessage("Explique la grammaire ici")} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-lg text-xs font-bold border border-transparent hover:border-slate-300 dark:hover:border-slate-600 transition-all whitespace-nowrap">
-                        <BookOpen className="w-3.5 h-3.5" /> Grammaire
-                    </button>
+                <div className="mb-3 px-1 animate-fade-in">
+                    <div className="flex justify-between items-center mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                            <Target className="w-3.5 h-3.5 text-indigo-500" />
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                Progression vers {progressData.nextLevel}
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
+                            <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">{progressData.percentage}%</span>
+                        </div>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                        <div 
+                            className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 bg-[length:200%_100%] animate-gradient"
+                            style={{ width: `${progressData.percentage}%` }}
+                        ></div>
+                    </div>
                 </div>
             )}
 
