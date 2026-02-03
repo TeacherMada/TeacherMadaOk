@@ -37,6 +37,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   const refreshData = async () => {
     setIsLoading(true);
     try {
+        // Trigger auto cleanup of old requests
+        await storageService.cleanupOldRequests();
+
         // Fetch users and requests in parallel
         const [fetchedUsers, fetchedRequests, fetchedSettings] = await Promise.all([
             storageService.getAllUsers(),

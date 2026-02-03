@@ -323,6 +323,17 @@ export const storageService = {
       })) : [];
   },
 
+  // Clean up requests older than 7 days
+  cleanupOldRequests: async () => {
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { error } = await supabase
+          .from('admin_requests')
+          .delete()
+          .lt('created_at', oneWeekAgo);
+      
+      if (error) console.error("Auto Cleanup Error:", error);
+  },
+
   sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'password_reset' | 'message', amount?: number, message?: string, contact?: string): Promise<{ status: 'pending' | 'approved' }> => {
       const fullMessage = contact ? `${message} [Contact: ${contact}]` : message;
       

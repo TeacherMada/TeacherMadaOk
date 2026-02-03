@@ -239,6 +239,14 @@ const ChatInterface: React.FC<Props> = ({
   const handleVoiceModeClick = async () => {
       const canReq = await storageService.canRequest(user.id);
       if (canReq) {
+          // IMPORTANT: Create and resume context HERE on user gesture
+          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+          if (ctx.state === 'suspended') {
+              await ctx.resume();
+          }
+          liveAudioContextRef.current = ctx;
+          liveNextStartTimeRef.current = ctx.currentTime;
+          
           setIsVoiceMode(true);
       } else {
           notify("Crédits insuffisants pour l'appel.", "error");
@@ -247,9 +255,6 @@ const ChatInterface: React.FC<Props> = ({
   };
 
   const startLiveSession = async () => {
-      // Logic moved to click handler to avoid open/close flicker
-      // But we double check here just in case
-      
       try {
           const apiKey = process.env.API_KEY || '';
           if (!apiKey) {
@@ -259,14 +264,13 @@ const ChatInterface: React.FC<Props> = ({
           setVoiceStatus('connecting');
           const ai = new GoogleGenAI({ apiKey });
           
-          // Audio Context for Live Session (Input 16k, Output 24k)
-          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
-          // Fix for autoplay policy: Ensure we resume context on user gesture (Voice button click)
-          if (ctx.state === 'suspended') {
-              await ctx.resume();
+          // Reuse the context created in click handler if available, otherwise create (fallback)
+          let ctx = liveAudioContextRef.current;
+          if (!ctx) {
+              ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+              liveAudioContextRef.current = ctx;
           }
-          liveAudioContextRef.current = ctx;
-          liveNextStartTimeRef.current = ctx.currentTime;
+          if (ctx.state === 'suspended') await ctx.resume();
 
           // Connect
           const sessionPromise = ai.live.connect({
@@ -343,6 +347,7 @@ const ChatInterface: React.FC<Props> = ({
                           }
                       }
 
+                      // Check for audio data
                       const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                       if (audioData) {
                           setVoiceStatus('speaking');
@@ -446,8 +451,6 @@ const ChatInterface: React.FC<Props> = ({
       return () => {
           isMounted = false;
           // Only stop if we are actually exiting voice mode completely
-          // In React Strict Mode, this might fire immediately. 
-          // We check if we are unmounting or if voice mode was turned off.
           if (!isVoiceMode) {
               stopLiveSession();
           }
