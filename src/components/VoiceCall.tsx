@@ -174,14 +174,19 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   };
 
   const connectLive = async () => {
-      // Validate API Key
-      const apiKey = process.env.API_KEY;
-      if (!apiKey) {
+      // Validate API Key - Handle Comma Separated Keys
+      const rawKey = process.env.API_KEY || "";
+      const keys = rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
+      
+      if (keys.length === 0) {
           console.error("API Key missing");
           notify("Clé API manquante.", "error");
           onClose();
           return;
       }
+
+      // Randomly select one key
+      const apiKey = keys[Math.floor(Math.random() * keys.length)];
 
       try {
           const ai = new GoogleGenAI({ apiKey });
@@ -206,7 +211,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                       IDENTITY: You are "TeacherMada", a warm teacher. 
                       USER: ${user.username}, Learning: ${user.preferences?.targetLanguage}, Level: ${user.preferences?.level}.
                       TASK: Simulate a phone call. 
-                      CRITICAL: SPEAK FIRST IMMEDIATELY. Say "Allô !" and introduce yourself.
+                      CRITICAL: SPEAK FIRST IMMEDIATELY. Say "Allô !" and introduce yourself in ${user.preferences?.explanationLanguage || 'French'}.
                       ` }]
                   }
               },
