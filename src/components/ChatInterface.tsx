@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic, StopCircle, ArrowLeft, Sun, Moon, User, Play, Loader2, Library, ChevronDown, Repeat, VolumeX, AlertTriangle, Wifi, WifiOff, Target, Star } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, WifiOff } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -210,8 +210,13 @@ const ChatInterface: React.FC<Props> = ({
   // --- LIVE API (VOICE CALL) LOGIC ---
   const startLiveSession = async () => {
       try {
+          const apiKey = process.env.API_KEY || '';
+          if (!apiKey) {
+              throw new Error("Clé API manquante");
+          }
+
           setVoiceStatus('connecting');
-          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+          const ai = new GoogleGenAI({ apiKey });
           
           // Audio Context for Live Session (Input 16k, Output 24k)
           const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
@@ -267,7 +272,6 @@ const ChatInterface: React.FC<Props> = ({
                                   session.sendRealtimeInput({ media: pcmBlob });
                               }).catch(err => {
                                   console.error("Failed to send audio chunk", err);
-                                  // Optional: Handle subtle reconnection visual logic here
                               });
                           };
                           
@@ -296,7 +300,6 @@ const ChatInterface: React.FC<Props> = ({
                           
                           // Gapless scheduling logic improved for stability
                           const now = ctx.currentTime;
-                          // If nextStartTime is too far in past (lag), reset it to now to catch up
                           if (liveNextStartTimeRef.current < now) {
                               liveNextStartTimeRef.current = now;
                           }
@@ -313,7 +316,6 @@ const ChatInterface: React.FC<Props> = ({
                       }
                       
                       if (msg.serverContent?.interrupted) {
-                          // Stop current playback if interrupted
                           liveSourcesRef.current.forEach(s => s.stop());
                           liveSourcesRef.current.clear();
                           liveNextStartTimeRef.current = ctx.currentTime;
@@ -321,18 +323,16 @@ const ChatInterface: React.FC<Props> = ({
                       }
                   },
                   onclose: () => {
-                      setVoiceStatus('reconnecting');
-                      // Attempt reconnect logic could go here, but for now we show idle/close
-                      setTimeout(() => {
-                          if (isVoiceMode) {
-                              stopLiveSession(); // Clean reset
-                              notify("Connexion perdue. Veuillez rappeler.", "error");
-                          }
-                      }, 2000);
+                      setVoiceStatus('idle');
+                      if (isVoiceMode) {
+                          // Only notify if we didn't close it intentionally
+                          notify("Appel terminé.", "info");
+                          setIsVoiceMode(false);
+                      }
                   },
                   onerror: (e) => {
                       console.error("Live Error", e);
-                      setVoiceStatus('reconnecting');
+                      // Don't kill immediately on minor errors, but notify
                       notify("Instabilité réseau...", "error");
                   }
               }
@@ -342,7 +342,7 @@ const ChatInterface: React.FC<Props> = ({
 
       } catch (e) {
           console.error("Live Connection Failed", e);
-          notify("Impossible de démarrer l'appel. Vérifiez votre connexion.", "error");
+          notify("Impossible de démarrer l'appel.", "error");
           setIsVoiceMode(false);
       }
   };
@@ -362,8 +362,10 @@ const ChatInterface: React.FC<Props> = ({
       
       // Close Session
       if (liveSessionRef.current) {
-          const session = await liveSessionRef.current;
-          try { session.close(); } catch(e) {}
+          try {
+              const session = await liveSessionRef.current;
+              session.close();
+          } catch(e) {}
       }
       
       setIsVoiceMode(false);

@@ -26,7 +26,7 @@ const mapProfile = (data: any): UserProfile => ({
     isSuspended: data.is_suspended
 });
 
-// Helper to handle Login strategy (Email, Phone or Username)
+// Helper to handle Login strategy
 const formatLoginEmail = (input: string) => {
     const trimmed = input.trim();
     if (trimmed.includes('@')) return trimmed;
@@ -128,7 +128,10 @@ export const storageService = {
           dialogues_completed: user.stats.dialoguesCompleted,
           vocabulary: user.vocabulary,
           preferences: user.preferences,
-          free_usage: user.freeUsage
+          free_usage: user.freeUsage,
+          // Only update credits if passed in user object explicitly differs? 
+          // Usually better to handle credits via separate atomic ops, but here we sync full profile
+          // credits: user.credits 
       };
 
       const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
@@ -163,8 +166,11 @@ export const storageService = {
           allowed = true;
           await supabase.from('profiles').update({ free_usage: newFreeUsage }).eq('id', userId);
       } else {
-          const { data, error } = await supabase.rpc('consume_credit', { user_id: userId });
-          allowed = !error && data === true;
+          // Decrement credits directly
+          if (user.credits > 0) {
+              const { error } = await supabase.from('profiles').update({ credits: user.credits - 1 }).eq('id', userId);
+              allowed = !error;
+          }
       }
 
       return allowed;
@@ -189,7 +195,26 @@ export const storageService = {
   },
 
   addCredits: async (userId: string, amount: number) => {
-      await supabase.rpc('add_credits', { target_user_id: userId, amount: amount });
+      // 1. Fetch current credits
+      const { data: user, error: fetchError } = await supabase
+          .from('profiles')
+          .select('credits')
+          .eq('id', userId)
+          .single();
+
+      if (fetchError || !user) {
+          console.error("Failed to fetch user for credit add", fetchError);
+          return;
+      }
+
+      // 2. Calculate and Update
+      const newCredits = (user.credits || 0) + amount;
+      const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ credits: newCredits })
+          .eq('id', userId);
+
+      if (updateError) console.error("Failed to update credits", updateError);
   },
 
   // --- SESSIONS ---
@@ -257,10 +282,9 @@ export const storageService = {
   
   loadSystemSettings: async (): Promise<SystemSettings> => {
       try {
-          const { data, error } = await supabase.from('system_settings').select('*').single();
+          const { data, error } = await supabase.from('system_settings').select('*').eq('id', 1).single();
           
           if (!error && data) {
-              // Convert DB columns to SystemSettings object
               const settings: SystemSettings = {
                   apiKeys: data.api_keys || [],
                   activeModel: data.active_model || 'gemini-3-flash-preview',
@@ -269,15 +293,13 @@ export const storageService = {
                   validTransactionRefs: data.valid_transaction_refs || [],
                   adminContact: data.admin_contact || { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
               };
-              // Cache locally
               localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
               return settings;
           }
       } catch (e) {
-          console.warn("Using local settings fallback");
+          console.warn("Using local settings fallback", e);
       }
-      
-      return storageService.getSystemSettings(); // Fallback to local
+      return storageService.getSystemSettings();
   },
 
   getSystemSettings: (): SystemSettings => {
@@ -307,7 +329,7 @@ export const storageService = {
           admin_contact: settings.adminContact
       };
 
-      const { error } = await supabase.from('system_settings').upsert(payload);
+      const { error } = await supabase.from('system_settings').upsert(payload, { onConflict: 'id' });
       if (error) console.error("Failed to sync settings", error);
   },
   
@@ -348,17 +370,13 @@ export const storageService = {
               try {
                   const data = JSON.parse(e.target?.result as string);
                   if (data.userProfile && data.sessions) {
-                      // Update User Profile via Supabase
-                      const profileToSync = { ...data.userProfile, id: currentUserId }; // Force ID to current user
+                      const profileToSync = { ...data.userProfile, id: currentUserId };
                       await storageService.saveUserProfile(profileToSync);
                       
-                      // Restore Sessions to LocalStorage
                       data.sessions.forEach((session: any) => {
-                          // Remap session ID to current user if needed
                           const newId = session.id.replace(data.userProfile.id, currentUserId);
                           localStorage.setItem(newId, JSON.stringify({ ...session, id: newId }));
                       });
-                      
                       resolve(true);
                   } else {
                       resolve(false);
