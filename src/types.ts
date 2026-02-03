@@ -66,9 +66,8 @@ export interface UserProfile {
   createdAt: number;
   preferences: UserPreferences | null;
   stats: {
-    xp: number;
-    streak: number;
     lessonsCompleted: number;
+    // XP and Streak removed
   };
   vocabulary: VocabularyItem[];
   credits: number;

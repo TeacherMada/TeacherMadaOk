@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { UserProfile, ChatMessage, ExplanationLanguage, UserPreferences } from '../types';
-import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck, Upload } from 'lucide-react';
+import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck, Upload, Library } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { extractVocabulary } from '../services/geminiService';
 import { toast } from './Toaster';
@@ -14,7 +14,7 @@ interface Props {
   isDarkMode: boolean;
   toggleTheme: () => void;
   messages: ChatMessage[];
-  onOpenAdmin: () => void; // New prop
+  onOpenAdmin: () => void;
 }
 
 const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, messages, onOpenAdmin }) => {
@@ -130,8 +130,8 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
             </div>
             
             <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg shadow-indigo-500/20">
-                    {user.username.charAt(0).toUpperCase()}
+                <div className="w-14 h-14 bg-white dark:bg-slate-800 rounded-full overflow-hidden shadow-lg border-2 border-white dark:border-slate-700">
+                    <img src={`https://api.dicebear.com/9.x/micah/svg?seed=${user.username}`} className="w-full h-full object-cover" />
                 </div>
                 <div>
                     <h2 className="font-bold text-lg text-slate-900 dark:text-white truncate max-w-[150px]">{user.username}</h2>
@@ -165,17 +165,17 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
             {activeTab === 'menu' && (
                 <div className="space-y-6 animate-fade-in">
                     
-                    {/* Stats Grid */}
+                    {/* Stats Grid - Updated Metrics */}
                     <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-amber-50 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30 flex flex-col items-center justify-center gap-1">
-                            <Trophy className="w-5 h-5 text-amber-500" />
-                            <div className="text-lg font-black text-slate-800 dark:text-white">{user.stats.xp}</div>
-                            <div className="text-[10px] font-bold text-amber-600/70 uppercase">XP Total</div>
-                        </div>
                         <div className="bg-indigo-50 dark:bg-indigo-900/10 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 flex flex-col items-center justify-center gap-1">
-                            <Book className="w-5 h-5 text-indigo-500" />
+                            <Library className="w-5 h-5 text-indigo-500" />
+                            <div className="text-lg font-black text-slate-800 dark:text-white">{user.vocabulary.length}</div>
+                            <div className="text-[10px] font-bold text-indigo-600/70 uppercase">Mots Appris</div>
+                        </div>
+                        <div className="bg-emerald-50 dark:bg-emerald-900/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/30 flex flex-col items-center justify-center gap-1">
+                            <Book className="w-5 h-5 text-emerald-500" />
                             <div className="text-lg font-black text-slate-800 dark:text-white">{user.stats.lessonsCompleted}</div>
-                            <div className="text-[10px] font-bold text-indigo-600/70 uppercase">Leçons Finies</div>
+                            <div className="text-[10px] font-bold text-emerald-600/70 uppercase">Leçons Finies</div>
                         </div>
                     </div>
 

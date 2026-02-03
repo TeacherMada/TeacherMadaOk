@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic, StopCircle, ArrowLeft, Sun, Moon, User, Play, Loader2 } from 'lucide-react';
+import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic, StopCircle, ArrowLeft, Sun, Moon, User, Play, Loader2, Library } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -76,6 +76,7 @@ const ChatInterface: React.FC<Props> = ({
   const [messages, setMessages] = useState<ChatMessage[]>(session.messages);
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [currentLessonTitle, setCurrentLessonTitle] = useState(`Leçon ${(user.stats.lessonsCompleted || 0) + 1}`);
   
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
   
@@ -127,6 +128,17 @@ const ChatInterface: React.FC<Props> = ({
     return () => clearInterval(interval);
   }, [isVoiceMode]);
 
+  // Lesson Number Sync from AI Messages
+  useEffect(() => {
+      const lastAiMessage = [...messages].reverse().find(m => m.role === 'model');
+      if (lastAiMessage) {
+          const match = lastAiMessage.text.match(/\[Leçon (\d+)\]/i);
+          if (match) {
+              setCurrentLessonTitle(`Leçon ${match[1]}`);
+          }
+      }
+  }, [messages]);
+
   // Format Time
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -157,7 +169,7 @@ const ChatInterface: React.FC<Props> = ({
       try {
           const cleanText = text
             .replace(/[#*`_]/g, '') 
-            .replace(/Lesona \d+/gi, '')
+            .replace(/\[Leçon \d+\]/gi, '')
             .replace(/Tanjona|Vocabulaire|Grammaire|Pratique/gi, '');
 
           // Service returns raw PCM ArrayBuffer
@@ -345,10 +357,13 @@ const ChatInterface: React.FC<Props> = ({
     if (updatedUser) onUpdateUser(updatedUser);
     // --------------------
 
+    const userDisplayMsg = isAuto ? "Suivant" : text;
+    const promptToSend = isAuto ? generateNextLessonPrompt(user) : text;
+
     const userMsg: ChatMessage = { 
         id: Date.now().toString(), 
         role: 'user', 
-        text: isAuto ? `➡️ Leçon ${currentLessonNum || 1} : La suite SVP.` : text, 
+        text: userDisplayMsg, 
         timestamp: Date.now() 
     };
     
@@ -358,8 +373,6 @@ const ChatInterface: React.FC<Props> = ({
     setIsStreaming(true);
 
     try {
-      const promptToSend = isAuto ? generateNextLessonPrompt(user) : text;
-      
       const stream = sendMessageStream(promptToSend, user, messages);
       let fullText = "";
       
@@ -378,10 +391,14 @@ const ChatInterface: React.FC<Props> = ({
       const finalHistory: ChatMessage[] = [...newHistory, { id: aiMsgId, role: 'model', text: fullText, timestamp: Date.now() }];
       storageService.saveSession({ ...session, messages: finalHistory, progress: (messages.length / 20) * 100 });
       
-      const newXp = user.stats.xp + 10; 
-      const xpUser = { ...user, stats: { ...user.stats, xp: newXp } };
-      await storageService.saveUserProfile(xpUser);
-      onUpdateUser(xpUser);
+      // Update User Stats (Simplified)
+      if (isAuto) {
+          // Increment Lesson Count logic could go here or parsing from AI message
+          const newStats = { ...user.stats, lessonsCompleted: (user.stats.lessonsCompleted || 0) + 1 };
+          const updated = { ...user, stats: newStats };
+          await storageService.saveUserProfile(updated);
+          onUpdateUser(updated);
+      }
 
     } catch (e) {
       notify("Connexion instable.", "error");
@@ -398,9 +415,6 @@ const ChatInterface: React.FC<Props> = ({
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isStreaming]);
-
-  // Current Lesson Calc
-  const currentLessonNum = (user.stats.lessonsCompleted || 0) + 1;
 
   // Render Live Call Overlay
   if (isVoiceMode) {
@@ -489,7 +503,7 @@ const ChatInterface: React.FC<Props> = ({
 
             <div className="flex flex-col items-center justify-center shrink-0">
                 <h1 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-tight">
-                    Leçon {currentLessonNum}
+                    {currentLessonTitle}
                 </h1>
                 <button 
                     onClick={onShowPayment} 
@@ -512,11 +526,16 @@ const ChatInterface: React.FC<Props> = ({
 
                 <button 
                     onClick={onShowProfile} 
-                    className="relative group"
+                    className="relative group flex items-center gap-2"
                 >
-                    <div className="w-9 h-9 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold text-sm shadow-md group-hover:scale-105 transition-transform ring-2 ring-white dark:ring-slate-900">
-                        {user.username.charAt(0).toUpperCase()}
+                    <div className="hidden sm:flex flex-col items-end">
+                       <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{user.vocabulary.length} Mots</span>
                     </div>
+                    <img 
+                        src={`https://api.dicebear.com/9.x/micah/svg?seed=${user.username}`} 
+                        alt="User" 
+                        className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-800 shadow-md group-hover:scale-105 transition-transform border border-white dark:border-slate-600"
+                    />
                 </button>
             </div>
         </div>
@@ -531,9 +550,9 @@ const ChatInterface: React.FC<Props> = ({
                         <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-14 h-14 object-contain" />
                     </div>
                     <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Bonjour, {user.username} !</h3>
-                    <p className="text-slate-500 dark:text-slate-400 text-sm text-center max-w-xs">Prêt pour la leçon {currentLessonNum} en {user.preferences?.targetLanguage} ?</p>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm text-center max-w-xs">Prêt pour {currentLessonTitle} en {user.preferences?.targetLanguage} ?</p>
                     <div className="flex flex-wrap justify-center gap-2 mt-6">
-                        <button onClick={() => processMessage("Commence la leçon")} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-xs font-bold shadow-md hover:bg-indigo-700 transition-colors">🚀 Démarrer la leçon {currentLessonNum}</button>
+                        <button onClick={() => processMessage("Commence la leçon")} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-xs font-bold shadow-md hover:bg-indigo-700 transition-colors">🚀 Démarrer {currentLessonTitle}</button>
                     </div>
                 </div>
             )}
@@ -541,8 +560,8 @@ const ChatInterface: React.FC<Props> = ({
             {messages.map((msg, idx) => (
             <div key={msg.id || idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slide-up group`}>
                 {msg.role === 'model' && (
-                    <div className="w-8 h-8 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center mr-3 mt-1 shrink-0 overflow-hidden shadow-sm">
-                        <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-5 h-5 object-contain" />
+                    <div className="w-10 h-10 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center mr-3 mt-1 shrink-0 overflow-hidden shadow-sm">
+                        <img src="https://api.dicebear.com/9.x/bottts-neutral/svg?seed=Teacher" className="w-full h-full object-cover" />
                     </div>
                 )}
                 
@@ -552,7 +571,7 @@ const ChatInterface: React.FC<Props> = ({
                     : 'bg-white dark:bg-[#131825] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 rounded-tl-sm'
                 }`}>
                     <MarkdownRenderer 
-                        content={msg.text} 
+                        content={msg.text.replace(/\[Leçon \d+\]/g, '')} 
                         onPlayAudio={(text) => playMessageAudio(text, msg.id + text)} 
                     />
                     
@@ -574,12 +593,18 @@ const ChatInterface: React.FC<Props> = ({
                         </div>
                     )}
                 </div>
+                
+                {msg.role === 'user' && (
+                    <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 ml-3 mt-1 shrink-0 overflow-hidden shadow-sm border border-white dark:border-slate-600">
+                        <img src={`https://api.dicebear.com/9.x/micah/svg?seed=${user.username}`} className="w-full h-full object-cover" />
+                    </div>
+                )}
             </div>
             ))}
             
             {isStreaming && (
                 <div className="flex justify-start">
-                    <div className="w-8 h-8 mr-3"></div>
+                    <div className="w-10 h-10 mr-3"></div>
                     <div className="bg-white dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-tl-sm border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-2">
                         <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"></div>
                         <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce delay-100"></div>
