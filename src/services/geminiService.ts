@@ -1,28 +1,31 @@
-import { GoogleGenAI, Type } from "@google/genai";
+
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { UserProfile, ChatMessage, VocabularyItem, ExerciseItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
+// --- API KEY ROTATION & CLIENT MANAGEMENT ---
 const getClient = () => {
-  // Get the raw key string from the environment (injected via vite.config.ts)
+  // Get keys from env, supporting comma-separated list
   const rawKey = process.env.API_KEY || "";
-  
-  // Handle multiple keys separated by commas (e.g., "KEY1,KEY2,KEY3")
-  // This allows for simple key rotation to avoid rate limits
   const keys = rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
 
   if (keys.length === 0) {
-    console.warn("API Key is missing. Check your .env file or Render environment variables.");
+    console.warn("API Key is missing.");
     return new GoogleGenAI({ apiKey: "" });
   }
 
-  // Randomly select one key from the list
+  // Random rotation to distribute load (Simple Round-Robin/Random)
+  // In a real 'Pro -> Flash -> Free' scenario, you might try keys sequentially on failure.
+  // Here we assume keys are equivalent or we just pick one to spread usage.
   const selectedKey = keys[Math.floor(Math.random() * keys.length)];
   
   return new GoogleGenAI({ apiKey: selectedKey });
 };
 
-const MODEL_ID = 'gemini-3-flash-preview';
+// Models Configuration
+const TEXT_MODEL = 'gemini-3-flash-preview'; // Fast & Smart
+const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts'; // Specialized TTS
 
 // --- STREAMING MESSAGE ---
 export async function* sendMessageStream(
@@ -39,18 +42,16 @@ export async function* sendMessageStream(
 
   const ai = getClient();
 
-  // Format history for Gemini
   const contents = history.map(msg => ({
     role: msg.role,
     parts: [{ text: msg.text }]
   }));
   
-  // Add current user message
   contents.push({ role: 'user', parts: [{ text: message }] });
 
   try {
     const responseStream = await ai.models.generateContentStream({
-      model: MODEL_ID,
+      model: TEXT_MODEL,
       contents: contents,
       config: {
         systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences),
@@ -63,31 +64,63 @@ export async function* sendMessageStream(
        yield chunk.text;
     }
 
-    // Deduct credit only after successful stream start
     storageService.consumeCredit(user.id);
 
   } catch (error) {
     console.error("Gemini Stream Error:", error);
-    yield "Désolé, une erreur de connexion est survenue. Vérifiez votre clé API ou votre connexion internet.";
+    yield "Désolé, une erreur de connexion est survenue. Vérifiez votre connexion internet.";
   }
 }
+
+// --- GEMINI TTS (Text-to-Speech) ---
+export const generateSpeech = async (text: string, voiceName: string = 'Kore'): Promise<ArrayBuffer | null> => {
+    const ai = getClient();
+    try {
+        const response = await ai.models.generateContent({
+            model: AUDIO_MODEL,
+            contents: [{ parts: [{ text: text }] }],
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: voiceName }
+                    }
+                }
+            }
+        });
+
+        // Extract base64 audio
+        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (!base64Audio) return null;
+
+        // Convert Base64 to ArrayBuffer
+        const binaryString = atob(base64Audio);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+
+    } catch (e) {
+        console.error("Gemini TTS Error:", e);
+        return null;
+    }
+};
 
 // --- VOCABULARY EXTRACTION ---
 export const extractVocabulary = async (history: ChatMessage[]): Promise<VocabularyItem[]> => {
     const ai = getClient();
-    
-    // Take last 6 messages for context
     const context = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
     
     const prompt = `Based on the following conversation, extract 3 to 5 key vocabulary words that are useful for the learner.
     Return a JSON array of objects with keys: word, translation (in the learner's explanation language), and example (a short sentence).
-    
     Conversation:
     ${context}`;
 
     try {
         const response = await ai.models.generateContent({
-            model: MODEL_ID,
+            model: TEXT_MODEL,
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -106,7 +139,6 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
         });
 
         const rawData = JSON.parse(response.text || "[]");
-        
         return rawData.map((item: any) => ({
             id: crypto.randomUUID(),
             word: item.word,
@@ -117,7 +149,6 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
         }));
 
     } catch (e) {
-        console.error("Vocabulary extraction error", e);
         return [];
     }
 };
@@ -130,13 +161,11 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
     const context = history.slice(-10).map(m => m.text).join("\n");
     
     const prompt = `Génère 3 exercices rapides (QCM ou Vrai/Faux) basés sur la conversation récente pour tester la compréhension de l'élève (${user.preferences?.level}).
-    Conversation: ${context}
-    
     Format JSON Array.`;
 
     try {
         const response = await ai.models.generateContent({
-            model: MODEL_ID,
+            model: TEXT_MODEL,
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -158,12 +187,9 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
             }
         });
         
-        // Deduct credit
         storageService.consumeCredit(user.id);
-        
         return JSON.parse(response.text || "[]");
     } catch (e) {
-        console.error("Exercise Gen Error", e);
         return [];
     }
 };
@@ -177,27 +203,17 @@ export const generateRoleplayResponse = async (
     isInitial: boolean = false
 ): Promise<{ aiReply: string; correction?: string; explanation?: string; score?: number; feedback?: string }> => {
     
-    if (!storageService.canRequest(user.id)) {
-        return { aiReply: "⚠️ Crédits insuffisants." };
-    }
+    if (!storageService.canRequest(user.id)) return { aiReply: "⚠️ Crédits insuffisants." };
 
     const ai = getClient();
-    const sysInstruct = `
-    Tu es un partenaire de jeu de rôle linguistique.
-    SCENARIO: ${scenarioPrompt}
-    LANGUE CIBLE: ${user.preferences?.targetLanguage}
-    NIVEAU: ${user.preferences?.level}
-    
-    ${isInitial ? "Initie la conversation. Sois bref." : ""}
-    ${isClosing ? "Analyse la conversation, donne une note sur 20 et un feedback." : "Réponds au rôle. Si erreur grave, fournis correction."}
-    `;
+    const sysInstruct = `Tu es un partenaire de jeu de rôle linguistique. SCENARIO: ${scenarioPrompt}. LANGUE: ${user.preferences?.targetLanguage}. NIVEAU: ${user.preferences?.level}.`;
 
     const contents = history.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
     if (isClosing) contents.push({ role: 'user', parts: [{ text: "Evaluation finale" }] });
 
     try {
         const response = await ai.models.generateContent({
-            model: MODEL_ID,
+            model: TEXT_MODEL,
             contents: contents.length ? contents : [{role:'user', parts:[{text:'Start'}]}],
             config: {
                 systemInstruction: sysInstruct,
@@ -218,11 +234,10 @@ export const generateRoleplayResponse = async (
 
         return JSON.parse(response.text || "{}");
     } catch (e) {
-        console.error("Roleplay Error:", e);
-        return { aiReply: "Désolé, je rencontre un problème technique." };
+        return { aiReply: "Problème technique." };
     }
 };
 
 export const generateNextLessonPrompt = (user: UserProfile): string => {
-  return `Continue le cours pour le niveau ${user.preferences?.level}. Sujet suivant. Sois bref et interactif.`;
+  return `Continue le cours pour le niveau ${user.preferences?.level}.`;
 };
