@@ -93,12 +93,20 @@ export interface AdminRequest {
   createdAt: number;
 }
 
+// Updated Interface for Coupon
+export interface CouponCode {
+  code: string;
+  amount: number;
+  createdAt: string;
+}
+
 export interface SystemSettings {
   apiKeys: string[];
   activeModel: string;
   creditPrice?: number;
   customLanguages?: Array<{code: string, baseName: string, flag: string}>;
-  validTransactionRefs?: string[];
+  // Updated to array of objects
+  validTransactionRefs?: CouponCode[];
   adminContact: {
     telma: string;
     airtel: string;

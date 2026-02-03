@@ -18,6 +18,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   const [refMessage, setRefMessage] = useState('');
   const [isSent, setIsSent] = useState(false);
   const [isAutoApproved, setIsAutoApproved] = useState(false); 
+  const [autoApprovedAmount, setAutoApprovedAmount] = useState(0);
   const [copied, setCopied] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedOperator, setSelectedOperator] = useState<'mvola' | 'airtel' | 'orange' | null>(null);
@@ -38,30 +39,30 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
       setLoading(true);
       
       try {
-          // --- INSTANT VALIDATION CHECK ---
-          const settings = await storageService.loadSystemSettings(); // Ensure fresh settings
-          const validRefs = settings.validTransactionRefs || [];
+          // --- SECURE AUTO-VALIDATION (RPC / Fallback) ---
+          // Attempt to find a matching code in the refMessage
+          // Regex to extract possible codes (alphanumeric sequences > 4 chars)
+          const potentialCodes = refMessage.match(/[A-Za-z0-9-]{4,}/g) || [];
           
-          // Check if refMessage contains a valid token (case insensitive)
-          const matchedRef = validRefs.find(ref => refMessage.toLowerCase().includes(ref.toLowerCase()));
+          let redeemed = false;
+          
+          // Try to redeem each potential code found in the message
+          for (const code of potentialCodes) {
+              const result = await storageService.redeemCode(user.id, code);
+              if (result.success) {
+                  setIsAutoApproved(true);
+                  setAutoApprovedAmount(result.amount || 0);
+                  redeemed = true;
+                  break; 
+              }
+          }
 
-          if (matchedRef) {
-              // 1. Add Credits Instantly
-              await storageService.addCredits(user.id, credits);
-              
-              // 2. Remove used reference to prevent replay
-              const newRefs = validRefs.filter(r => r !== matchedRef);
-              const newSettings = { ...settings, validTransactionRefs: newRefs };
-              await storageService.updateSystemSettings(newSettings);
-              
-              setIsAutoApproved(true);
+          if (redeemed) {
               setIsSent(true);
-              
               setTimeout(() => {
                   onClose();
-                  // Force page refresh or context update might be needed, but local user credits update handles UI
                   window.location.reload(); 
-              }, 3000);
+              }, 3500);
           } else {
               // Standard Manual Request
               await storageService.sendAdminRequest(
@@ -290,7 +291,9 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                             {isAutoApproved ? (
                                 <>
                                     <h3 className="text-2xl font-black text-slate-800 dark:text-white">Paiement Validé !</h3>
-                                    <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Vos {credits} crédits ont été ajoutés instantanément.</p>
+                                    <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">
+                                        Félicitations ! <strong>{autoApprovedAmount} Crédits</strong> ajoutés instantanément.
+                                    </p>
                                     <p className="text-xs text-indigo-500 font-bold mt-4 animate-pulse">Redirection...</p>
                                 </>
                             ) : (

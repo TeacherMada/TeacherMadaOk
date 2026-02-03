@@ -21,7 +21,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   
   const [newLangName, setNewLangName] = useState('');
   const [newLangFlag, setNewLangFlag] = useState('');
+  
+  // New State for Coupon Generation
   const [newTransactionRef, setNewTransactionRef] = useState('');
+  const [couponAmount, setCouponAmount] = useState<number>(50);
 
   const [manualCreditInputs, setManualCreditInputs] = useState<Record<string, string>>({});
   const [passwordInputs, setPasswordInputs] = useState<Record<string, string>>({});
@@ -34,9 +37,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
     try {
         const fetchedUsers = await storageService.getAllUsers();
         const fetchedRequests = await storageService.getAdminRequests();
+        const fetchedSettings = await storageService.loadSystemSettings(); // Explicit load
         setUsers(fetchedUsers);
         setRequests(fetchedRequests);
-        setSettings(storageService.getSystemSettings());
+        setSettings(fetchedSettings);
     } catch (e) {
         notify("Erreur lors du chargement.", 'error');
     }
@@ -105,16 +109,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       await storageService.updateSystemSettings(updatedSettings);
   };
 
-  const handleAddTransactionRef = async () => {
-      if (!newTransactionRef.trim()) return;
-      const updatedSettings = { ...settings, validTransactionRefs: [...(settings.validTransactionRefs || []), newTransactionRef.trim()] };
+  // --- UPDATED: Add Coupon with Specific Amount ---
+  const handleAddCoupon = async () => {
+      if (!newTransactionRef.trim() || couponAmount <= 0) return;
+      
+      const newCoupon = {
+          code: newTransactionRef.trim(),
+          amount: couponAmount,
+          createdAt: new Date().toISOString()
+      };
+
+      const updatedSettings = { 
+          ...settings, 
+          validTransactionRefs: [...(settings.validTransactionRefs || []), newCoupon] 
+      };
+      
       setSettings(updatedSettings);
       await storageService.updateSystemSettings(updatedSettings);
       setNewTransactionRef('');
+      // Keep amount same for ease of bulk entry
+      notify(`Code Auto-Validation créé: ${newCoupon.code} (${newCoupon.amount} CRD)`, 'success');
   };
 
-  const removeTransactionRef = async (refToRemove: string) => {
-      const updatedSettings = { ...settings, validTransactionRefs: (settings.validTransactionRefs || []).filter(r => r !== refToRemove) };
+  const removeCoupon = async (codeToRemove: string) => {
+      const updatedSettings = { 
+          ...settings, 
+          validTransactionRefs: (settings.validTransactionRefs || []).filter(c => c.code !== codeToRemove) 
+      };
       setSettings(updatedSettings);
       await storageService.updateSystemSettings(updatedSettings);
   };
@@ -137,6 +158,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
                 </div>
             </div>
             <div className="flex gap-2 w-full md:w-auto">
+                <button onClick={refreshData} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100">
+                    <RefreshCw className="w-5 h-5 text-indigo-500"/>
+                </button>
                 <button onClick={onBack} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-slate-100 dark:bg-slate-800 rounded-xl font-bold transition-all hover:bg-slate-200">
                     Mode Chat
                 </button>
@@ -154,7 +178,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
             <Tab active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={<Settings className="w-4 h-4"/>} label="Système" />
         </div>
 
-        {/* Tab Content */}
+        {/* USERS TAB */}
         {activeTab === 'users' && (
             <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm overflow-hidden border border-slate-200 dark:border-white/5">
                 <div className="p-4 border-b border-slate-100 dark:border-white/5">
@@ -208,26 +232,45 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
             </div>
         )}
 
-        {/* Requests Tab */}
+        {/* REQUESTS & COUPONS TAB */}
         {activeTab === 'requests' && (
             <div className="space-y-6">
                  {/* Auto Validation refs */}
                  <div className="bg-emerald-50 dark:bg-emerald-900/10 p-6 rounded-[2rem] border border-emerald-100 dark:border-emerald-900/30">
-                     <h3 className="font-black text-emerald-800 dark:text-emerald-400 mb-4 flex items-center gap-2 uppercase tracking-widest text-xs"><Banknote className="w-5 h-5"/> Auto-Validation (Refs Transaction)</h3>
-                     <div className="flex gap-2 mb-6">
-                         <input type="text" placeholder="Coller réf SMS..." value={newTransactionRef} onChange={e => setNewTransactionRef(e.target.value)} className="flex-1 p-4 rounded-2xl border border-emerald-200 dark:border-emerald-800 outline-none bg-white dark:bg-slate-900" />
-                         <button onClick={handleAddTransactionRef} className="px-8 py-4 bg-emerald-600 text-white font-black rounded-2xl">Ajouter</button>
+                     <h3 className="font-black text-emerald-800 dark:text-emerald-400 mb-4 flex items-center gap-2 uppercase tracking-widest text-xs"><Banknote className="w-5 h-5"/> Créer Code Auto-Validation (Crédit)</h3>
+                     <div className="flex flex-col md:flex-row gap-2 mb-6">
+                         <input 
+                            type="text" 
+                            placeholder="Code Référence (ex: MVOLA-REF-123)" 
+                            value={newTransactionRef} 
+                            onChange={e => setNewTransactionRef(e.target.value)} 
+                            className="flex-[2] p-4 rounded-2xl border border-emerald-200 dark:border-emerald-800 outline-none bg-white dark:bg-slate-900" 
+                         />
+                         <div className="flex-1 flex items-center gap-2 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 rounded-2xl px-4">
+                             <span className="text-emerald-600 font-bold text-xs uppercase">Montant</span>
+                             <input 
+                                type="number" 
+                                value={couponAmount} 
+                                onChange={e => setCouponAmount(Number(e.target.value))} 
+                                className="w-full bg-transparent font-black text-lg outline-none"
+                             />
+                         </div>
+                         <button onClick={handleAddCoupon} className="px-8 py-4 bg-emerald-600 text-white font-black rounded-2xl shadow-lg shadow-emerald-600/20 hover:scale-105 transition-transform">Ajouter</button>
                      </div>
-                     <div className="flex flex-wrap gap-2">
+                     
+                     <div className="flex flex-wrap gap-3">
                         {settings.validTransactionRefs?.map((ref, i) => (
-                            <div key={i} className="px-4 py-2 bg-white dark:bg-slate-800 rounded-xl flex items-center gap-3 text-xs font-mono font-black shadow-sm border border-emerald-100 dark:border-white/5">
-                                {ref} <button onClick={() => removeTransactionRef(ref)} className="text-red-400 hover:text-red-600"><X className="w-4 h-4"/></button>
+                            <div key={i} className="px-4 py-2 bg-white dark:bg-slate-800 rounded-xl flex items-center gap-3 text-sm font-bold shadow-sm border border-emerald-100 dark:border-white/5">
+                                <span className="font-mono">{ref.code}</span>
+                                <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs">{ref.amount} CRD</span>
+                                <button onClick={() => removeCoupon(ref.code)} className="text-red-400 hover:text-red-600 p-1 hover:bg-red-50 rounded"><X className="w-3 h-3"/></button>
                             </div>
                         ))}
                      </div>
                  </div>
 
                  <div className="space-y-4">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400 ml-2">Demandes Manuelles</h3>
                     {requests.map(req => (
                         <div key={req.id} className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] shadow-sm border border-slate-200 dark:border-white/5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                             <div>
@@ -256,31 +299,42 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
             </div>
         )}
 
-        {/* Languages Tab */}
+        {/* LANGUAGES TAB */}
         {activeTab === 'languages' && (
             <div className="bg-white dark:bg-slate-900 p-8 rounded-[2rem] shadow-sm border border-slate-200 dark:border-white/5">
-                <h3 className="text-xl font-black mb-8">Gestion des Langues</h3>
-                <div className="flex flex-col md:flex-row gap-4 mb-10">
-                    <input type="text" placeholder="Nom (ex: Italien)" value={newLangName} onChange={e => setNewLangName(e.target.value)} className="flex-1 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-transparent font-bold outline-none focus:ring-2 focus:ring-indigo-500" />
-                    <input type="text" placeholder="Drapeau (ex: 🇮🇹)" value={newLangFlag} onChange={e => setNewLangFlag(e.target.value)} className="w-full md:w-40 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-transparent text-center text-2xl outline-none focus:ring-2 focus:ring-indigo-500" />
-                    <button onClick={handleAddLanguage} className="px-10 py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-600/20">Ajouter</button>
+                <h3 className="text-xl font-black mb-8">Gestion des Langues (Synchronisé Supabase)</h3>
+                <div className="flex flex-col md:flex-row gap-4 mb-10 bg-slate-50 dark:bg-slate-800 p-6 rounded-3xl">
+                    <div className="flex-1 space-y-1">
+                        <label className="text-[10px] font-bold uppercase text-slate-400 pl-2">Nom de la langue</label>
+                        <input type="text" placeholder="ex: Italien" value={newLangName} onChange={e => setNewLangName(e.target.value)} className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                    <div className="w-full md:w-32 space-y-1">
+                        <label className="text-[10px] font-bold uppercase text-slate-400 pl-2">Drapeau</label>
+                        <input type="text" placeholder="ex: 🇮🇹" value={newLangFlag} onChange={e => setNewLangFlag(e.target.value)} className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-center text-2xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                    <div className="flex items-end">
+                        <button onClick={handleAddLanguage} className="w-full md:w-auto px-10 py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-600/20 hover:scale-105 transition-transform">Ajouter</button>
+                    </div>
                 </div>
+                
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {settings.customLanguages?.map(lang => (
-                        <div key={lang.code} className="p-5 bg-slate-50 dark:bg-slate-800 rounded-[1.5rem] flex justify-between items-center border border-slate-100 dark:border-white/5 shadow-sm transition-all hover:scale-[1.02]">
+                        <div key={lang.code} className="p-5 bg-white dark:bg-slate-900 rounded-[1.5rem] flex justify-between items-center border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:border-indigo-500/30">
                             <div className="flex items-center gap-4">
-                                <span className="text-3xl">{lang.flag}</span>
-                                <span className="font-black text-slate-800 dark:text-white">{lang.baseName}</span>
+                                <span className="text-4xl shadow-sm p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">{lang.flag}</span>
+                                <div>
+                                    <span className="font-black text-lg text-slate-800 dark:text-white block">{lang.baseName}</span>
+                                    <span className="text-[10px] text-slate-400 uppercase tracking-wider">Custom</span>
+                                </div>
                             </div>
-                            <button onClick={() => removeLanguage(lang.code)} className="text-red-400 hover:text-red-600 transition-colors p-2 bg-red-50 dark:bg-red-900/10 rounded-xl"><X className="w-5 h-5"/></button>
+                            <button onClick={() => removeLanguage(lang.code)} className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 rounded-xl"><X className="w-5 h-5"/></button>
                         </div>
                     ))}
                 </div>
-                <button onClick={saveSettings} className="w-full mt-12 py-5 bg-emerald-500 text-white font-black rounded-2xl shadow-xl shadow-emerald-500/20 transition-transform active:scale-[0.99]">Enregistrer les Langues</button>
             </div>
         )}
 
-        {/* Settings Tab */}
+        {/* SETTINGS TAB */}
         {activeTab === 'settings' && (
             <div className="bg-white dark:bg-slate-900 p-8 rounded-[2rem] shadow-sm border border-slate-200 dark:border-white/5">
                 <h3 className="text-xl font-black mb-8">Paramètres Plateforme</h3>
