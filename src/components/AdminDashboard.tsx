@@ -360,6 +360,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
                                     <span className="font-black text-lg text-slate-800 dark:text-white">{req.username}</span>
                                     <span className="text-[10px] font-black text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full uppercase tracking-tighter">{new Date(req.createdAt).toLocaleDateString()}</span>
                                     {req.status === 'pending' && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>}
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wider ${req.type === 'credit' ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                        {req.type === 'password_reset' ? 'Reset MDP' : req.type}
+                                    </span>
                                 </div>
                                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 w-full">
                                     {req.amount && (
@@ -375,10 +378,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
                                 {req.status === 'pending' ? (
                                     <>
                                         <button onClick={() => handleResolveRequest(req.id, 'approved')} className="flex-1 md:flex-none px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl shadow-lg shadow-emerald-500/20 font-bold transition-all flex items-center justify-center gap-2">
-                                            <Check className="w-5 h-5"/> Valider
+                                            <CheckCircle className="w-5 h-5"/> Accepter
                                         </button>
-                                        <button onClick={() => handleResolveRequest(req.id, 'rejected')} className="flex-1 md:flex-none px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-500 hover:border-red-200 rounded-2xl transition-all">
-                                            <X className="w-5 h-5 mx-auto"/>
+                                        <button onClick={() => handleResolveRequest(req.id, 'rejected')} className="flex-1 md:flex-none px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-500 hover:border-red-200 rounded-2xl transition-all font-bold flex items-center justify-center gap-2">
+                                            <X className="w-5 h-5"/> Rejeter
                                         </button>
                                     </>
                                 ) : (

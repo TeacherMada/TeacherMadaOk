@@ -319,7 +319,7 @@ export const storageService = {
           amount: d.amount,
           message: d.message,
           status: d.status,
-          createdAt: new Date(d.created_at).getTime()
+          createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now()
       })) : [];
   },
 
