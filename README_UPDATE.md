@@ -1,33 +1,47 @@
 
-# 🚀 TeacherMada - Mise à jour v2.1 "Streaming & Vocabulaire"
+# 🚀 TeacherMada - Mise à jour v2.2 "Optimisation & Fixes"
 
-## 📋 Nouveautés
+## 📋 Nouveautés & Correctifs
 
-1.  **Streaming des Réponses (Chat)** :
-    *   Les réponses de l'IA s'affichent désormais mot par mot en temps réel.
-    *   Améliore la perception de vitesse, crucial pour les connexions lentes à Madagascar.
-    *   Utilise `sendMessageStream` de l'API Gemini.
+1.  **Barre de Progression (UX/UI)** :
+    *   **Format Mobile First** : Nouveau design responsive `Niveau Actuel (Gauche) -- % -- Niveau Suivant (Droite)` (ex: `A1 -- 42% --> A2`).
+    *   **Synchronisation** : Mise à jour visible dans le pied de page du Chat et dans la Sidebar du Profil (SmartDashboard).
 
-2.  **Boîte à Mots (Vocabulaire)** :
-    *   Nouvel onglet "Mots" dans le Dashboard (SmartDashboard).
-    *   **Génération IA** : Un bouton permet d'analyser les 6 derniers messages pour extraire automatiquement 3-5 mots clés avec traduction et contexte.
-    *   **Ajout Manuel** : L'utilisateur peut ajouter ses propres mots.
-    *   **Audio TTS** : Écoute de la prononciation de chaque mot via l'icône haut-parleur.
-    *   **Suivi** : Marquer les mots comme "Maîtrisés".
+2.  **Appel Vocal (Live API)** :
+    *   **Teacher Speaks First** : Correction de la logique pour forcer l'IA à prendre la parole immédiatement au début de l'appel (Présentation, guide).
+    *   **Stabilité Audio** : Amélioration de l'initialisation du contexte audio pour contourner les politiques d'autoplay des navigateurs.
 
-3.  **Gestion Dynamique des Langues (Admin)** :
-    *   L'Admin peut désormais ajouter des langues non prévues initialement (ex: Portugais, Russe...).
-    *   L'IA génère automatiquement le drapeau (Emoji) et le nom standardisé.
-    *   Ces langues apparaissent immédiatement sur la Landing Page et l'Onboarding.
+3.  **Dashboard Admin (Supabase)** :
+    *   **Affichage des Requêtes** : Correction du mapping des données pour afficher correctement la liste complète des demandes de crédits (`admin_requests`) depuis Supabase.
+    *   **Auto-Cleanup** : Fonction automatique qui supprime les requêtes vieilles de plus de 7 jours lors du chargement du dashboard pour économiser le stockage.
 
 ## 🛠️ Modifications Techniques
 
-*   **Frontend** : Refonte de `handleSend` dans `ChatInterface` pour gérer le stream.
-*   **Backend/Storage** : Mise à jour de `UserProfile` pour inclure `vocabulary` et `SystemSettings` pour `customLanguages`.
-*   **Services** : Ajout de `sendMessageToGeminiStream` et `generateVocabularyFromHistory` dans `geminiService`.
+*   **`ChatInterface.tsx`** : Refonte du footer pour la progression et mise à jour de la logique `startLiveSession` avec un trigger textuel caché ("Hello teacher...").
+*   **`storageService.ts`** : 
+    *   Mise à jour de `getAdminRequests` pour mapper correctement le snake_case (DB) vers camelCase (App).
+    *   Ajout de la fonction `cleanupOldRequests`.
+*   **`SmartDashboard.tsx`** : Harmonisation visuelle de la barre de progression latérale.
 
-## ⚠️ Notes Importantes
+## ⚠️ Action Requise (Base de Données)
 
-*   Le streaming fonctionne uniquement en mode Chat texte. Le mode Vocal reste en réponse unique pour optimiser la latence audio.
-*   La génération de vocabulaire consomme 1 crédit utilisateur.
-*   Les langues ajoutées par l'admin sont stockées dans `system_settings` sur Supabase (si connecté) ou LocalStorage.
+Pour que le Dashboard Admin fonctionne correctement avec les nouvelles fonctionnalités, exécutez ce script SQL dans votre éditeur Supabase :
+
+```sql
+create table if not exists admin_requests (
+  id uuid default gen_random_uuid() primary key,
+  user_id text not null,
+  username text not null,
+  type text not null,
+  amount numeric,
+  message text,
+  status text default 'pending',
+  created_at timestamptz default now()
+);
+
+-- Sécurité (RLS)
+alter table admin_requests enable row level security;
+create policy "Enable insert for everyone" on admin_requests for insert with check (true);
+create policy "Enable read for everyone" on admin_requests for select using (true);
+create policy "Enable update for everyone" on admin_requests for update using (true);
+```

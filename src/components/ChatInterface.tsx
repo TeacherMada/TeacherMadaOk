@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff } from 'lucide-react';
+import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff, Lock } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -61,6 +61,28 @@ function createBlob(data: Float32Array): { data: string, mimeType: string } {
   };
 }
 
+// Tone Generator for Ringing
+const playRingingTone = (ctx: AudioContext) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    // Classic phone ring frequencies
+    osc.frequency.value = 440; 
+    osc.type = 'sine';
+    
+    // Modulation to sound like a ring (brrr-brrr)
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.5, now + 0.1);
+    gain.gain.linearRampToValueAtTime(0.5, now + 2);
+    gain.gain.linearRampToValueAtTime(0, now + 2.1);
+    
+    osc.start(now);
+    osc.stop(now + 2.5); // 2.5s loop
+};
+
 const ChatInterface: React.FC<Props> = ({ 
   user, 
   session, 
@@ -79,13 +101,11 @@ const ChatInterface: React.FC<Props> = ({
   
   // Initialize Lesson Title from User Stats or Default
   const [currentLessonTitle, setCurrentLessonTitle] = useState(() => {
-      // Try to find the last lesson number in existing messages
       const lastAiMessage = [...session.messages].reverse().find(m => m.role === 'model');
       if (lastAiMessage) {
           const match = lastAiMessage.text.match(/(?:Leçon|Lesson)\s+(\d+)/i);
           if (match) return `Leçon ${match[1]}`;
       }
-      // Fallback to user stats
       const lessonNum = (user.stats.lessonsCompleted || 0) + 1;
       return `Leçon ${lessonNum}`;
   });
@@ -94,27 +114,38 @@ const ChatInterface: React.FC<Props> = ({
   
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
   
-  // Audio Playback State
+  // Audio Playback State (TTS)
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [currentSource, setCurrentSource] = useState<AudioBufferSourceNode | null>(null);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
 
-  // Live API State
+  // --- LIVE CALL STATE ---
   const [isVoiceMode, setIsVoiceMode] = useState(false);
-  const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'speaking' | 'connecting' | 'reconnecting'>('idle');
+  const [callStatus, setCallStatus] = useState<'idle' | 'ringing' | 'connecting' | 'connected' | 'reconnecting'>('idle');
   const [callDuration, setCallDuration] = useState(0);
+  const [aiSpeaking, setAiSpeaking] = useState(false);
+  
+  // Refs for Live API
   const liveSessionRef = useRef<any>(null);
   const liveAudioContextRef = useRef<AudioContext | null>(null);
   const liveInputSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const liveProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const liveNextStartTimeRef = useRef<number>(0);
   const liveSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const ringIntervalRef = useRef<any>(null);
 
-  // Logo URL for avatar
+  // Invisible Tracking Metrics
+  const callMetrics = useRef({
+      userSpeakingTime: 0,
+      aiSpeakingTime: 0,
+      hesitationCount: 0,
+      vocabularyScore: 0
+  });
+
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
+  const MIN_LESSONS_FOR_CALL = 4;
 
-  // Sync theme
   const toggleTheme = () => {
       const newMode = !isDarkMode;
       setIsDarkMode(newMode);
@@ -126,7 +157,7 @@ const ChatInterface: React.FC<Props> = ({
   useEffect(() => {
       const initAudio = () => {
           if (!audioContext) {
-              const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000}); // TTS is 24kHz
+              const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
               setAudioContext(ctx);
           }
       };
@@ -137,37 +168,37 @@ const ChatInterface: React.FC<Props> = ({
   // Voice Call Timer
   useEffect(() => {
     let interval: any;
-    if (isVoiceMode) {
-      interval = setInterval(() => setCallDuration(p => p + 1), 1000);
+    if (callStatus === 'connected') {
+      interval = setInterval(() => {
+          setCallDuration(p => p + 1);
+          // Invisible metric tracking
+          if (!aiSpeaking) callMetrics.current.userSpeakingTime += 1;
+      }, 1000);
     } else {
       setCallDuration(0);
     }
     return () => clearInterval(interval);
-  }, [isVoiceMode]);
+  }, [callStatus, aiSpeaking]);
 
-  // Automatic Lesson Number Detection & Topbar Update
+  // Lesson Title Update
   useEffect(() => {
       const lastAiMessage = [...messages].reverse().find(m => m.role === 'model');
       if (lastAiMessage) {
-          // Regex looks for "Leçon X" or "Lesson X" at the beginning of content or lines
           const match = lastAiMessage.text.match(/(?:Leçon|Lesson)\s+(\d+)/i);
           if (match) {
               const newTitle = `Leçon ${match[1]}`;
-              if (newTitle !== currentLessonTitle) {
-                  setCurrentLessonTitle(newTitle);
-              }
+              if (newTitle !== currentLessonTitle) setCurrentLessonTitle(newTitle);
           }
       }
   }, [messages, currentLessonTitle]);
 
-  // Format Time
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  // --- GEMINI HIGH QUALITY TTS PLAYBACK (MESSAGE CLICK) ---
+  // --- TTS PLAYBACK ---
   const stopSpeaking = () => {
       if (currentSource) {
           try { currentSource.stop(); } catch (e) {}
@@ -182,50 +213,33 @@ const ChatInterface: React.FC<Props> = ({
           stopSpeaking();
           return;
       }
-
       if (!(await storageService.canRequest(user.id))) {
           notify("Crédits insuffisants pour le TTS.", "error");
           return;
       }
-
       stopSpeaking();
       setIsLoadingAudio(true);
       setSpeakingMessageId(id);
 
       try {
-          const cleanText = text
-            .replace(/[#*`_]/g, '') 
-            .replace(/\[Leçon \d+\]/gi, '')
-            .replace(/Tanjona|Vocabulaire|Grammaire|Pratique|Objectif|Concept|Exemple|Dialogue/gi, '');
-
-          // Service returns raw PCM ArrayBuffer and consumes credit
+          const cleanText = text.replace(/[#*`_]/g, '').replace(/\[Leçon \d+\]/gi, '');
           const pcmBuffer = await generateSpeech(cleanText);
-          
-          // Only update UI if success (credit consumed in service)
           const updatedUser = await storageService.getUserById(user.id);
           if (updatedUser) onUpdateUser(updatedUser);
 
-          if (!pcmBuffer || !audioContext) {
-              throw new Error("Audio init failed or No credits");
-          }
+          if (!pcmBuffer || !audioContext) throw new Error("Audio init failed");
 
-          // Decode PCM
           const audioBuffer = pcmToAudioBuffer(new Uint8Array(pcmBuffer), audioContext, 24000);
-          
           const source = audioContext.createBufferSource();
           source.buffer = audioBuffer;
           source.connect(audioContext.destination);
-          
           source.onended = () => {
               setSpeakingMessageId(null);
               setCurrentSource(null);
           };
-
           source.start(0);
           setCurrentSource(source);
-
       } catch (e) {
-          console.error("Audio Playback Error", e);
           notify("Erreur lecture ou Crédits épuisés", "error");
           setSpeakingMessageId(null);
       } finally {
@@ -233,46 +247,56 @@ const ChatInterface: React.FC<Props> = ({
       }
   };
 
-  // --- LIVE API (VOICE CALL) LOGIC ---
-  
-  // Handler to open voice mode with pre-check
+  // --- LIVE CALL SIMULATION ---
+
   const handleVoiceModeClick = async () => {
+      // 1. Check Condition
+      if ((user.stats.lessonsCompleted || 0) < MIN_LESSONS_FOR_CALL) {
+          notify(`Complétez ${MIN_LESSONS_FOR_CALL - (user.stats.lessonsCompleted || 0)} leçons de plus pour débloquer l'appel !`, "error");
+          return;
+      }
+
+      // 2. Check Credits
       const canReq = await storageService.canRequest(user.id);
-      if (canReq) {
-          // IMPORTANT: Create and resume context HERE on user gesture
-          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
-          if (ctx.state === 'suspended') {
-              await ctx.resume();
-          }
-          liveAudioContextRef.current = ctx;
-          liveNextStartTimeRef.current = ctx.currentTime;
-          
-          setIsVoiceMode(true);
-      } else {
+      if (!canReq) {
           notify("Crédits insuffisants pour l'appel.", "error");
           onShowPayment();
+          return;
       }
+
+      // 3. Initialize Audio Context (User Gesture)
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+      if (ctx.state === 'suspended') await ctx.resume();
+      liveAudioContextRef.current = ctx;
+      liveNextStartTimeRef.current = ctx.currentTime;
+
+      // 4. Start Ringing Phase
+      setIsVoiceMode(true);
+      setCallStatus('ringing');
+      
+      // Simulate Ringing Sound
+      playRingingTone(ctx);
+      ringIntervalRef.current = setInterval(() => playRingingTone(ctx), 3000);
+
+      // 5. Connect after delay (Simulate pick up)
+      setTimeout(() => {
+          clearInterval(ringIntervalRef.current);
+          startLiveSession();
+      }, 4500); // 4.5s ringing
   };
 
   const startLiveSession = async () => {
       try {
           const apiKey = process.env.API_KEY || '';
-          if (!apiKey) {
-              throw new Error("Clé API manquante");
-          }
-
-          setVoiceStatus('connecting');
+          setCallStatus('connecting');
           const ai = new GoogleGenAI({ apiKey });
           
-          // Reuse the context created in click handler if available, otherwise create (fallback)
           let ctx = liveAudioContextRef.current;
           if (!ctx) {
               ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
               liveAudioContextRef.current = ctx;
           }
-          if (ctx.state === 'suspended') await ctx.resume();
 
-          // Connect
           const sessionPromise = ai.live.connect({
               model: 'gemini-2.5-flash-native-audio-preview-12-2025',
               config: {
@@ -282,36 +306,39 @@ const ChatInterface: React.FC<Props> = ({
                   },
                   systemInstruction: {
                       parts: [{ text: `
-                      ACT AS: A friendly language teacher on a phone call with your student ${user.username}.
-                      TARGET LANGUAGE: ${user.preferences?.targetLanguage}.
-                      LEVEL: ${user.preferences?.level}.
-                      GOAL: Practice speaking naturally.
+                      IDENTITY: You are "TeacherMada", a warm, human teacher located in Antananarivo, Madagascar. The administrator is Tsanta Fiderana.
                       
-                      IMPORTANT: 
-                      1. You MUST speak first immediately when connected.
-                      2. Introduce yourself briefly and suggest a topic.
-                      3. Keep responses short and conversational.
-                      4. Correct pronunciation or grammar gently.
+                      USER CONTEXT:
+                      - Name: ${user.username}
+                      - Target Language: ${user.preferences?.targetLanguage}
+                      - Level: ${user.preferences?.level}
+                      - Lessons Done: ${user.stats.lessonsCompleted}
+                      
+                      GOAL: Simulate a REAL phone call to practice speaking fluency.
+                      
+                      BEHAVIOR RULES (IMPORTANT):
+                      1. **SPEAK FIRST**: When connection starts, IMMEDIATELY say "Allô !" followed by a warm intro in ${user.preferences?.targetLanguage}.
+                      2. **ACT HUMAN**: Use filler words ("umm", "euh...", "alors"), laugh naturally ("haha"), take breaths. Do NOT sound robotic.
+                      3. **PEDAGOGY**: Briefly review a concept from recent lessons, then ask a question. Correct major errors gently but focus on flow.
+                      4. **ACCENT**: Speak with a native accent for the target language.
+                      5. **EMOTION**: Be encouraging, patient, and dynamic.
+                      
+                      Start the call now.
                       ` }]
                   }
               },
               callbacks: {
                   onopen: async () => {
-                      setVoiceStatus('listening');
+                      setCallStatus('connected');
                       
-                      // Trigger AI to speak first by sending a hidden "Hello" (if supported) 
-                      // or relying on System Instruction "You MUST speak first". 
-                      // Sending a dummy text input often triggers the model.
+                      // TRIGGER AI TO SPEAK FIRST (Crucial)
                       sessionPromise.then(session => {
                           try {
-                              // @ts-ignore - The SDK types might lag, but text input triggers response
-                              session.send({ parts: [{ text: "Hello teacher, please start the conversation." }] });
-                          } catch (e) {
-                              console.log("Auto-start text trigger not supported or failed, relying on system prompt.");
-                          }
+                              session.send({ parts: [{ text: "L'utilisateur a décroché le téléphone. Dis 'Allô !' immédiatement et présente-toi chaleureusement comme TeacherMada." }] });
+                          } catch(e) {}
                       });
 
-                      // Start Microphone Streaming
+                      // Microphone Setup
                       try {
                           const stream = await navigator.mediaDevices.getUserMedia({ audio: {
                               sampleRate: 16000,
@@ -330,27 +357,22 @@ const ChatInterface: React.FC<Props> = ({
                               const pcmBlob = createBlob(inputData);
                               sessionPromise.then(session => {
                                   session.sendRealtimeInput({ media: pcmBlob });
-                              }).catch(err => {
-                                  // Quiet fail for stream chunks
-                              });
+                              }).catch(err => {});
                           };
                           
                           source.connect(processor);
                           processor.connect(inputCtx.destination);
-                          
                           liveInputSourceRef.current = source;
                           liveProcessorRef.current = processor;
                       } catch (micErr) {
-                          console.error("Microphone Access Error", micErr);
                           notify("Microphone inaccessible.", "error");
                           stopLiveSession();
                       }
                   },
                   onmessage: async (msg: LiveServerMessage) => {
-                      // Credit Consumption: Turn Complete
                       if (msg.serverContent?.turnComplete) {
+                          // Credit deduction logic
                           const currentUser = await storageService.getUserById(user.id);
-                          // Re-check credits on turn complete to handle mid-call depletion
                           if (currentUser && await storageService.canRequest(currentUser.id)) {
                               await storageService.consumeCredit(currentUser.id);
                               const updatedUser = await storageService.getUserById(currentUser.id);
@@ -362,23 +384,19 @@ const ChatInterface: React.FC<Props> = ({
                           }
                       }
 
-                      // Check for audio data
                       const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                       if (audioData) {
-                          setVoiceStatus('speaking');
+                          setAiSpeaking(true);
+                          callMetrics.current.aiSpeakingTime += 1; // Metric
+                          
                           const bytes = base64ToUint8Array(audioData);
                           const buffer = pcmToAudioBuffer(bytes, ctx, 24000);
-                          
-                          // Schedule playback
                           const source = ctx.createBufferSource();
                           source.buffer = buffer;
                           source.connect(ctx.destination);
                           
-                          // Gapless scheduling logic improved for stability
                           const now = ctx.currentTime;
-                          if (liveNextStartTimeRef.current < now) {
-                              liveNextStartTimeRef.current = now;
-                          }
+                          if (liveNextStartTimeRef.current < now) liveNextStartTimeRef.current = now;
                           
                           const startAt = liveNextStartTimeRef.current;
                           source.start(startAt);
@@ -387,41 +405,23 @@ const ChatInterface: React.FC<Props> = ({
                           liveSourcesRef.current.add(source);
                           source.onended = () => {
                               liveSourcesRef.current.delete(source);
-                              if (liveSourcesRef.current.size === 0) setVoiceStatus('listening');
+                              if (liveSourcesRef.current.size === 0) setAiSpeaking(false);
                           };
                       }
-                      
-                      if (msg.serverContent?.interrupted) {
-                          liveSourcesRef.current.forEach(s => s.stop());
-                          liveSourcesRef.current.clear();
-                          liveNextStartTimeRef.current = ctx.currentTime;
-                          setVoiceStatus('listening');
-                      }
                   },
-                  onclose: () => {
-                      // Only set state if component is still mounted/voice mode is active
-                      if (isVoiceMode) {
-                          setVoiceStatus('idle');
-                      }
-                  },
-                  onerror: (e) => {
-                      console.error("Live Error", e);
-                      // Don't kill immediately on minor errors
-                  }
+                  onclose: () => { if (isVoiceMode) setCallStatus('idle'); },
+                  onerror: (e) => console.error(e)
               }
           });
-          
           liveSessionRef.current = sessionPromise;
-
       } catch (e) {
-          console.error("Live Connection Failed", e);
-          notify("Impossible de démarrer l'appel.", "error");
+          notify("Echec de l'appel.", "error");
           setIsVoiceMode(false);
       }
   };
 
   const stopLiveSession = async () => {
-      // Stop Mic
+      clearInterval(ringIntervalRef.current);
       if (liveInputSourceRef.current) {
           liveInputSourceRef.current.disconnect();
           liveInputSourceRef.current = null;
@@ -430,8 +430,6 @@ const ChatInterface: React.FC<Props> = ({
           liveProcessorRef.current.disconnect();
           liveProcessorRef.current = null;
       }
-      
-      // Stop Playback
       liveSourcesRef.current.forEach(s => s.stop());
       liveSourcesRef.current.clear();
       
@@ -440,89 +438,43 @@ const ChatInterface: React.FC<Props> = ({
       }
       liveAudioContextRef.current = null;
       
-      // Close Session
       if (liveSessionRef.current) {
-          try {
-              const session = await liveSessionRef.current;
-              session.close();
-          } catch(e) {}
+          try { (await liveSessionRef.current).close(); } catch(e) {}
           liveSessionRef.current = null;
       }
-      
-      setVoiceStatus('idle');
+      setCallStatus('idle');
+      setAiSpeaking(false);
   };
 
-  // Toggle Voice Mode
   useEffect(() => {
-      let isMounted = true;
-
-      if (isVoiceMode) {
-          startLiveSession();
-      } else {
-          stopLiveSession();
-      }
-      
-      // Cleanup on unmount or when mode changes
-      return () => {
-          isMounted = false;
-          // Only stop if we are actually exiting voice mode completely
-          if (!isVoiceMode) {
-              stopLiveSession();
-          }
-      };
+      return () => { if (!isVoiceMode) stopLiveSession(); };
   }, [isVoiceMode]);
 
-
-  // -------------------
-
-  // Progress Calculation - Updated logic
+  // --- PROGRESS ---
   const progressData = useMemo(() => {
       const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
       const currentLevel = user.preferences?.level || 'A1';
       const currentIndex = levels.indexOf(currentLevel);
       const nextLevel = currentIndex < levels.length - 1 ? levels[currentIndex + 1] : 'Expert';
-      
-      // Extract lesson number from title (e.g., "Leçon 12" -> 12)
-      // If title is "Leçon 1", we want 2%.
       let lessonNum = 1;
       const match = currentLessonTitle.match(/(\d+)/);
-      if (match) {
-          lessonNum = parseInt(match[1], 10);
-      } else {
-          // Fallback to stats if title parsing fails
-          lessonNum = (user.stats.lessonsCompleted || 0) + 1;
-      }
-
-      // 50 lessons per level assumption => 1 lesson = 2%
+      if (match) lessonNum = parseInt(match[1], 10);
+      else lessonNum = (user.stats.lessonsCompleted || 0) + 1;
       const percentage = Math.min(lessonNum * 2, 100);
-      
       return { percentage, nextLevel, currentLevel };
   }, [currentLessonTitle, user.preferences?.level, user.stats.lessonsCompleted]);
 
-  // -------------------
-
+  // --- TEXT CHAT ---
   const processMessage = async (text: string, isAuto: boolean = false) => {
     if (isStreaming) return;
-    
-    // --- CREDIT CHECK ---
-    // Only CHECK eligibility here. Consumption happens in the service after response.
     const canProceed = await storageService.canRequest(user.id);
     if (!canProceed) {
         onShowPayment();
         return;
     }
-    // --------------------
-
     const userDisplayMsg = isAuto ? "Suivant" : text;
     const promptToSend = isAuto ? generateNextLessonPrompt(user) : text;
-
-    const userMsg: ChatMessage = { 
-        id: Date.now().toString(), 
-        role: 'user', 
-        text: userDisplayMsg, 
-        timestamp: Date.now() 
-    };
-    
+    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: userDisplayMsg, timestamp: Date.now() };
     const newHistory = [...messages, userMsg];
     setMessages(newHistory);
     setInput('');
@@ -531,10 +483,8 @@ const ChatInterface: React.FC<Props> = ({
     try {
       const stream = sendMessageStream(promptToSend, user, messages);
       let fullText = "";
-      
       const aiMsgId = (Date.now() + 1).toString();
-      const initialAiMsg: ChatMessage = { id: aiMsgId, role: 'model', text: "", timestamp: Date.now() };
-      setMessages(prev => [...prev, initialAiMsg]);
+      setMessages(prev => [...prev, { id: aiMsgId, role: 'model', text: "", timestamp: Date.now() }]);
 
       for await (const chunk of stream) {
         if (chunk) {
@@ -544,23 +494,15 @@ const ChatInterface: React.FC<Props> = ({
         }
       }
       
-      // Update User UI State after credit consumption in service
       const updatedUser = await storageService.getUserById(user.id);
       if (updatedUser) onUpdateUser(updatedUser);
-
-      const finalHistory: ChatMessage[] = [...newHistory, { id: aiMsgId, role: 'model', text: fullText, timestamp: Date.now() }];
-      storageService.saveSession({ ...session, messages: finalHistory, progress: (messages.length / 20) * 100 });
-      
-      // Update User Stats (Simplified)
+      storageService.saveSession({ ...session, messages: [...newHistory, { id: aiMsgId, role: 'model', text: fullText, timestamp: Date.now() }], progress: (messages.length / 20) * 100 });
       if (isAuto) {
-          // Increment Lesson Count logic
           const newStats = { ...user.stats, lessonsCompleted: (user.stats.lessonsCompleted || 0) + 1 };
           const updated = { ...(updatedUser || user), stats: newStats };
           await storageService.saveUserProfile(updated);
           onUpdateUser(updated);
-          // Current Lesson Title will update via useEffect above based on message content
       }
-
     } catch (e) {
       notify("Connexion instable.", "error");
     } finally {
@@ -568,92 +510,98 @@ const ChatInterface: React.FC<Props> = ({
     }
   };
 
-  const handleSend = () => {
-    if (!input.trim()) return;
-    processMessage(input);
-  };
+  const handleSend = () => { if (input.trim()) processMessage(input); };
+  useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming]);
 
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isStreaming]);
-
-  // Render Live Call Overlay
+  // --- LIVE CALL UI ---
   if (isVoiceMode) {
+      const isRinging = callStatus === 'ringing';
       return (
-          <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-3xl text-white flex flex-col items-center justify-between p-6 animate-fade-in font-sans overflow-hidden">
-              {/* Top Controls */}
-              <div className="w-full flex justify-between items-center z-10 pt-4 px-2">
-                  <button onClick={() => setIsVoiceMode(false)} className="p-3 bg-white/10 rounded-full hover:bg-white/20 backdrop-blur-md transition-all">
-                      <ChevronDown className="w-6 h-6" />
-                  </button>
-                  <div className="flex flex-col items-center">
-                      <span className="text-xs font-bold uppercase tracking-widest text-slate-300">TeacherMada</span>
-                      <span className="font-mono text-sm opacity-70">{formatTime(callDuration)}</span>
-                  </div>
-                  <div className="w-12">
-                      {voiceStatus === 'reconnecting' && <WifiOff className="w-5 h-5 text-red-400 animate-pulse"/>}
-                  </div>
-              </div>
-
-              {/* Center Avatar & Status */}
-              <div className="flex flex-col items-center justify-center gap-8 w-full z-10 flex-1 relative">
-                  
-                  {/* Status Indicator */}
-                  <div className="h-6">
-                      {voiceStatus === 'listening' && <p className="text-indigo-300 text-sm font-bold animate-pulse tracking-wide">J'écoute...</p>}
-                      {voiceStatus === 'speaking' && <p className="text-emerald-300 text-sm font-bold tracking-wide">Teacher parle...</p>}
-                      {voiceStatus === 'connecting' && <p className="text-slate-400 text-sm font-medium animate-pulse">Connexion en cours...</p>}
-                      {voiceStatus === 'reconnecting' && <p className="text-red-400 text-sm font-bold animate-pulse">Reconnexion...</p>}
-                      {voiceStatus === 'idle' && <p className="text-slate-400 text-sm font-medium">En attente...</p>}
+          <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col font-sans overflow-hidden">
+              {/* Background Image/Blur */}
+              <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1555445054-d166d149d751?q=80&w=2000')] bg-cover bg-center opacity-20 blur-xl scale-110"></div>
+              
+              <div className="relative z-10 flex flex-col h-full items-center justify-between p-8 safe-top safe-bottom">
+                  {/* Top Info */}
+                  <div className="text-center pt-8 space-y-2">
+                      <div className="inline-flex items-center gap-2 bg-white/10 px-3 py-1 rounded-full backdrop-blur-md">
+                          <Lock className="w-3 h-3 text-white/70" />
+                          <span className="text-[10px] text-white/70 font-bold uppercase tracking-wider">Sécurisé</span>
+                      </div>
+                      <h2 className="text-3xl font-black text-white tracking-tight">TeacherMada</h2>
+                      <p className="text-indigo-200 text-sm font-medium animate-pulse">
+                          {isRinging ? "Appel entrant..." : formatTime(callDuration)}
+                      </p>
                   </div>
 
-                  {/* Pulsing Avatar Container */}
+                  {/* Avatar / Visualizer */}
                   <div className="relative">
-                      {voiceStatus === 'speaking' && (
+                      {isRinging && (
                           <>
-                            <div className="absolute inset-0 bg-emerald-500/20 rounded-full animate-ping blur-xl"></div>
-                            <div className="absolute inset-0 bg-emerald-500/10 rounded-full animate-pulse delay-100 scale-125"></div>
+                            <div className="absolute inset-0 bg-white/10 rounded-full animate-ping blur-2xl delay-100"></div>
+                            <div className="absolute inset-0 bg-white/5 rounded-full animate-ping blur-3xl delay-300 scale-150"></div>
                           </>
                       )}
-                      {voiceStatus === 'listening' && (
-                          <div className="absolute inset-0 bg-indigo-500/20 rounded-full animate-pulse scale-110 blur-xl"></div>
-                      )}
-                      {voiceStatus === 'reconnecting' && (
-                          <div className="absolute inset-0 bg-red-500/20 rounded-full animate-ping blur-xl"></div>
+                      
+                      {/* Active Speaking Indicator */}
+                      {!isRinging && aiSpeaking && (
+                          <div className="absolute inset-0 border-4 border-emerald-400/50 rounded-full animate-pulse scale-110"></div>
                       )}
 
-                      <div className="relative w-40 h-40 md:w-56 md:h-56 rounded-full p-2 bg-gradient-to-b from-slate-700 to-slate-900 shadow-2xl flex items-center justify-center border-4 border-slate-700/50 overflow-hidden">
-                          <img src={TEACHER_AVATAR} className="w-full h-full object-cover rounded-full p-4" alt="Teacher AI" />
+                      <div className="w-48 h-48 rounded-full bg-gradient-to-br from-slate-800 to-slate-900 border-4 border-white/10 shadow-2xl flex items-center justify-center relative overflow-hidden">
+                          <img src={TEACHER_AVATAR} className={`w-full h-full object-cover p-6 ${isRinging ? 'animate-bounce-slight' : ''}`} alt="Teacher" />
                       </div>
                   </div>
 
-                  <div className="text-center space-y-1">
-                      <h2 className="text-2xl font-bold text-white tracking-tight">Appel en cours</h2>
-                      <p className="text-slate-400 font-medium text-sm">{user.preferences?.targetLanguage} • {user.preferences?.level}</p>
+                  {/* Context Info */}
+                  {!isRinging && (
+                      <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 w-full max-w-xs border border-white/5 text-center">
+                          <p className="text-white text-sm font-medium leading-relaxed">
+                              "Je suis ton prof à Tana. On discute du cours ?"
+                          </p>
+                          <div className="mt-2 flex justify-center gap-1">
+                              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce"></span>
+                              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce delay-100"></span>
+                              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce delay-200"></span>
+                          </div>
+                      </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="grid grid-cols-3 gap-8 w-full max-w-xs items-center mb-8">
+                      {!isRinging && (
+                          <>
+                            <button className="flex flex-col items-center gap-2 group">
+                                <div className="w-14 h-14 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center backdrop-blur-md transition-all">
+                                    <MicOff className="w-6 h-6 text-white" />
+                                </div>
+                                <span className="text-[10px] text-white/50 font-bold uppercase">Mute</span>
+                            </button>
+                            <button onClick={() => { setIsVoiceMode(false); stopLiveSession(); }} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform">
+                                <div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-white/10">
+                                    <Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" />
+                                </div>
+                            </button>
+                            <button className="flex flex-col items-center gap-2 group">
+                                <div className="w-14 h-14 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center backdrop-blur-md transition-all">
+                                    <Volume2 className="w-6 h-6 text-white" />
+                                </div>
+                                <span className="text-[10px] text-white/50 font-bold uppercase">Speaker</span>
+                            </button>
+                          </>
+                      )}
+                      
+                      {isRinging && (
+                          <div className="col-span-3 flex justify-center">
+                              <button onClick={() => { setIsVoiceMode(false); stopLiveSession(); }} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform">
+                                <div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-white/10">
+                                    <Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" />
+                                </div>
+                                <span className="text-xs text-white font-bold">Refuser</span>
+                            </button>
+                          </div>
+                      )}
                   </div>
-              </div>
-
-              {/* Bottom Controls */}
-              <div className="w-full max-w-sm grid grid-cols-3 gap-6 mb-8 z-10 items-center justify-items-center">
-                  <button className="flex flex-col items-center gap-2 group opacity-50 hover:opacity-100 transition-opacity">
-                      <div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-white">
-                          <Volume2 className="w-6 h-6" />
-                      </div>
-                      <span className="text-[10px] uppercase font-bold tracking-wider">Speaker</span>
-                  </button>
-
-                  <button onClick={() => setIsVoiceMode(false)} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform">
-                      <div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-slate-900">
-                          <Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" />
-                      </div>
-                  </button>
-
-                  <button className="flex flex-col items-center gap-2 group opacity-50 hover:opacity-100 transition-opacity">
-                      <div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-white">
-                          <MicOff className="w-6 h-6" />
-                      </div>
-                      <span className="text-[10px] uppercase font-bold tracking-wider">Mute</span>
-                  </button>
               </div>
           </div>
       );
@@ -683,7 +631,21 @@ const ChatInterface: React.FC<Props> = ({
                         <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden z-50 animate-fade-in-up">
                             <button onClick={onStartPractice} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><MessageCircle className="w-4 h-4 text-indigo-500" /> Dialogue</button>
                             <button onClick={onStartExercise} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><Brain className="w-4 h-4 text-emerald-500" /> Exercices</button>
-                            <button onClick={handleVoiceModeClick} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><Phone className="w-4 h-4 text-purple-500" /> Appel Vocal</button>
+                            
+                            {/* LOCKED VOICE CALL BUTTON */}
+                            <button 
+                                onClick={handleVoiceModeClick} 
+                                className={`w-full text-left px-4 py-3 flex items-center gap-2 text-sm font-bold transition-colors ${
+                                    (user.stats.lessonsCompleted || 0) >= MIN_LESSONS_FOR_CALL 
+                                    ? 'hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200' 
+                                    : 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-800/50 text-slate-400'
+                                }`}
+                            >
+                                <Phone className="w-4 h-4 text-purple-500" /> 
+                                Appel Vocal
+                                {(user.stats.lessonsCompleted || 0) < MIN_LESSONS_FOR_CALL && <Lock className="w-3 h-3 ml-auto text-slate-400"/>}
+                            </button>
+
                             <div className="h-px bg-slate-100 dark:bg-slate-700 mx-2 my-1"></div>
                             <button onClick={onExit} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs font-bold text-red-500"><Repeat className="w-3.5 h-3.5" /> Changer Cours</button>
                         </div>
@@ -802,12 +764,18 @@ const ChatInterface: React.FC<Props> = ({
             )}
 
             <div className="flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border border-transparent focus-within:border-indigo-500/30 focus-within:bg-white dark:focus-within:bg-slate-900 transition-all shadow-inner">
+                {/* LOCKED PHONE BUTTON */}
                 <button 
                     onClick={handleVoiceModeClick}
-                    className="h-10 w-10 shrink-0 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 flex items-center justify-center transition-all"
+                    className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-all ${
+                        (user.stats.lessonsCompleted || 0) >= MIN_LESSONS_FOR_CALL 
+                        ? 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-900/30' 
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-300 dark:text-slate-600 cursor-not-allowed'
+                    }`}
                 >
-                    <Phone className="w-5 h-5" />
+                    {(user.stats.lessonsCompleted || 0) >= MIN_LESSONS_FOR_CALL ? <Phone className="w-5 h-5" /> : <Lock className="w-4 h-4"/>}
                 </button>
+
                 <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
