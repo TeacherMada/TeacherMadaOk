@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { UserProfile, ChatMessage, VocabularyItem, ExerciseItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";

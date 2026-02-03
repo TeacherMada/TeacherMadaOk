@@ -101,7 +101,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       setLastCorrection(null);
 
       // Check credit locally before sending
-      if (!storageService.canRequest(user.id)) {
+      if (!(await storageService.canRequest(user.id))) {
           notify("Crédits insuffisants.", 'error');
           onShowPayment();
           setIsLoading(false);
@@ -119,7 +119,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
           }
 
           // Force UI update after consumption
-          const updatedUser = storageService.getUserById(user.id);
+          const updatedUser = await storageService.getUserById(user.id);
           if (updatedUser) onUpdateUser(updatedUser);
 
           if (result.correction) {
@@ -147,7 +147,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
           // Final evaluation consumes 1 credit
           const result = await generateRoleplayResponse(messages, scenario.prompt, user, true);
           
-          const updatedUser = storageService.getUserById(user.id);
+          const updatedUser = await storageService.getUserById(user.id);
           if (updatedUser) onUpdateUser(updatedUser);
 
           setFinalScore({
@@ -160,7 +160,10 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
               ...user.stats, 
               dialoguesCompleted: (user.stats.dialoguesCompleted || 0) + 1 
           };
-          const userWithStats = { ...(storageService.getUserById(user.id) || user), stats: newStats };
+          
+          const freshUser = await storageService.getUserById(user.id);
+          const userWithStats = { ...(freshUser || user), stats: newStats };
+          
           await storageService.saveUserProfile(userWithStats);
           onUpdateUser(userWithStats);
 
