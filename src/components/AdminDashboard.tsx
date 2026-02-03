@@ -138,13 +138,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       }
       
       const newCoupon = {
-          code: newTransactionRef.trim(),
+          code: newTransactionRef.trim().toUpperCase(), // Normalize to uppercase
           amount: couponAmount,
           createdAt: new Date().toISOString()
       };
 
       // Handle fallback if validTransactionRefs is undefined
       const currentRefs = settings.validTransactionRefs || [];
+
+      // Prevent duplicate codes
+      if (currentRefs.some(c => c.code === newCoupon.code)) {
+          notify("Ce code existe déjà.", 'error');
+          return;
+      }
 
       const updatedSettings = { 
           ...settings, 
@@ -281,8 +287,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
                                     type="text" 
                                     placeholder="Ex: PROMO-2024" 
                                     value={newTransactionRef} 
-                                    onChange={e => setNewTransactionRef(e.target.value)} 
-                                    className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 font-bold font-mono text-lg" 
+                                    onChange={e => setNewTransactionRef(e.target.value.toUpperCase())} 
+                                    className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 font-bold font-mono text-lg uppercase" 
                                 />
                             </div>
                             <div className="flex-1">
@@ -302,14 +308,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
                         </div>
                         
                         <div>
-                            <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Coupons Actifs</h4>
+                            <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Coupons Actifs ({settings.validTransactionRefs?.length || 0})</h4>
                             <div className="flex flex-wrap gap-3">
                                 {settings.validTransactionRefs?.length === 0 && <span className="text-slate-400 text-sm italic">Aucun coupon actif.</span>}
                                 {settings.validTransactionRefs?.map((ref, i) => (
-                                    <div key={i} className="px-4 py-2 bg-white dark:bg-slate-800 rounded-xl flex items-center gap-3 text-sm font-bold shadow-sm border border-slate-100 dark:border-slate-700 group">
+                                    <div key={i} className="px-4 py-2 bg-white dark:bg-slate-800 rounded-xl flex items-center gap-3 text-sm font-bold shadow-sm border border-slate-100 dark:border-slate-700 group hover:border-emerald-200 transition-colors">
                                         <span className="font-mono text-slate-700 dark:text-slate-300">{ref.code}</span>
                                         <span className="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded text-xs">{ref.amount} CRD</span>
-                                        <button onClick={() => removeCoupon(ref.code)} className="text-slate-300 hover:text-red-500 transition-colors p-1"><Trash2 className="w-3.5 h-3.5"/></button>
+                                        <button onClick={() => removeCoupon(ref.code)} className="text-slate-300 hover:text-red-500 transition-colors p-1 bg-slate-50 dark:bg-slate-700 rounded"><Trash2 className="w-3.5 h-3.5"/></button>
                                     </div>
                                 ))}
                             </div>
