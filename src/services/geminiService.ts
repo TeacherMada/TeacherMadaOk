@@ -275,5 +275,6 @@ export const generateRoleplayResponse = async (
 };
 
 export const generateNextLessonPrompt = (user: UserProfile): string => {
-  return `Continue le cours pour le niveau ${user.preferences?.level}.`;
+  const nextLessonNum = (user.stats.lessonsCompleted || 0) + 1;
+  return `Continue le cours. Génère le contenu complet pour la Leçon ${nextLessonNum} en respectant strictement le format "Leçon [N] : [Titre]" et la structure Markdown définie.`;
 };

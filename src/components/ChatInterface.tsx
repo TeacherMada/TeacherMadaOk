@@ -77,8 +77,15 @@ const ChatInterface: React.FC<Props> = ({
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   
-  // Initialize Lesson Title from User Stats + 1
+  // Initialize Lesson Title from User Stats or Default
   const [currentLessonTitle, setCurrentLessonTitle] = useState(() => {
+      // Try to find the last lesson number in existing messages
+      const lastAiMessage = [...session.messages].reverse().find(m => m.role === 'model');
+      if (lastAiMessage) {
+          const match = lastAiMessage.text.match(/(?:Leçon|Lesson)\s+(\d+)/i);
+          if (match) return `Leçon ${match[1]}`;
+      }
+      // Fallback to user stats
       const lessonNum = (user.stats.lessonsCompleted || 0) + 1;
       return `Leçon ${lessonNum}`;
   });
@@ -138,17 +145,16 @@ const ChatInterface: React.FC<Props> = ({
     return () => clearInterval(interval);
   }, [isVoiceMode]);
 
-  // Lesson Number Sync from AI Messages (DYNAMIC UPDATE)
+  // Automatic Lesson Number Detection & Topbar Update
   useEffect(() => {
       const lastAiMessage = [...messages].reverse().find(m => m.role === 'model');
       if (lastAiMessage) {
-          const match = lastAiMessage.text.match(/\[Leçon (\d+)\]/i);
+          // Regex looks for "Leçon X" or "Lesson X" at the beginning of content or lines
+          const match = lastAiMessage.text.match(/(?:Leçon|Lesson)\s+(\d+)/i);
           if (match) {
               const newTitle = `Leçon ${match[1]}`;
               if (newTitle !== currentLessonTitle) {
                   setCurrentLessonTitle(newTitle);
-                  // Optionally sync back to user stats if we detect a jump, 
-                  // though processMessage usually handles the stats update for explicit "Next" clicks.
               }
           }
       }
@@ -190,7 +196,7 @@ const ChatInterface: React.FC<Props> = ({
           const cleanText = text
             .replace(/[#*`_]/g, '') 
             .replace(/\[Leçon \d+\]/gi, '')
-            .replace(/Tanjona|Vocabulaire|Grammaire|Pratique/gi, '');
+            .replace(/Tanjona|Vocabulaire|Grammaire|Pratique|Objectif|Concept|Exemple|Dialogue/gi, '');
 
           // Service returns raw PCM ArrayBuffer and consumes credit
           const pcmBuffer = await generateSpeech(cleanText);
