@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff, Lock } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
@@ -143,7 +144,7 @@ const ChatInterface: React.FC<Props> = ({
   });
 
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
-  const MIN_LESSONS_FOR_CALL = 4;
+  const MIN_LESSONS_FOR_CALL = 1;
 
   const toggleTheme = () => {
       const newMode = !isDarkMode;
@@ -251,7 +252,7 @@ const ChatInterface: React.FC<Props> = ({
   const handleVoiceModeClick = async () => {
       // 1. Check Condition
       if ((user.stats.lessonsCompleted || 0) < MIN_LESSONS_FOR_CALL) {
-          notify(`Complétez ${MIN_LESSONS_FOR_CALL - (user.stats.lessonsCompleted || 0)} leçons de plus pour débloquer l'appel !`, "error");
+          notify(`Complétez ${MIN_LESSONS_FOR_CALL - (user.stats.lessonsCompleted || 0)} leçon(s) de plus pour débloquer l'appel !`, "error");
           return;
       }
 
