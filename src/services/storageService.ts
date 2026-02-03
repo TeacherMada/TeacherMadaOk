@@ -87,6 +87,7 @@ export const storageService = {
         
         if (!authData.user) return { success: false, error: "Erreur de création." };
 
+        // Wait briefly for trigger to create profile if using one, otherwise basic profile check
         await new Promise(r => setTimeout(r, 2000));
 
         const user = await storageService.getUserById(authData.user.id);
@@ -166,6 +167,7 @@ export const storageService = {
       if (newFreeUsage.count < 3) {
           newFreeUsage.count++;
           allowed = true;
+          // Update free usage
           await supabase.from('profiles').update({ free_usage: newFreeUsage }).eq('id', userId);
       } else {
           if (user.credits > 0) {
@@ -183,12 +185,14 @@ export const storageService = {
       if (user.role === 'admin') return true;
       if (user.isSuspended) return false;
       
+      // Check free tier
       const now = new Date();
       const lastReset = new Date(user.freeUsage.lastResetWeek || 0);
       const isResetDue = (now.getTime() - lastReset.getTime()) > (7 * 24 * 60 * 60 * 1000);
       
       if (isResetDue) return true;
       if (user.freeUsage.count < 3) return true;
+      
       return user.credits > 0;
   },
 
@@ -197,46 +201,67 @@ export const storageService = {
   },
 
   addCredits: async (userId: string, amount: number): Promise<boolean> => {
+      // Direct Database Update
       const { data: user, error: fetchError } = await supabase
           .from('profiles')
           .select('credits')
           .eq('id', userId)
           .single();
 
-      if (fetchError || !user) return false;
+      if (fetchError || !user) {
+          console.error("AddCredits Fetch Error:", fetchError);
+          return false;
+      }
 
       const newCredits = (user.credits || 0) + amount;
       const { error: updateError } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
       
-      return !updateError;
+      if (updateError) {
+          console.error("AddCredits Update Error:", updateError);
+          return false;
+      }
+      return true;
   },
 
-  // --- SECURE CREDIT REDEMPTION ---
+  // --- SECURE CREDIT REDEMPTION (Client Side Fallback due to RPC complexity) ---
   redeemCode: async (userId: string, inputCode: string): Promise<{ success: boolean; amount?: number; message?: string }> => {
       try {
           const code = inputCode.trim().toUpperCase();
+          // Load latest settings from DB to check for code
           const settings = await storageService.loadSystemSettings();
           const validRefs = settings.validTransactionRefs || [];
           
+          console.log("Validating coupon:", code);
+
+          // Find the coupon object (Case Insensitive)
           const couponIndex = validRefs.findIndex(c => c.code.toUpperCase() === code);
 
           if (couponIndex !== -1) {
               const coupon = validRefs[couponIndex];
               const amountToAdd = Number(coupon.amount) || 0;
 
+              // 1. Add Credits
               const creditAdded = await storageService.addCredits(userId, amountToAdd);
-              if (!creditAdded) return { success: false, message: "Erreur technique." };
+              if (!creditAdded) return { success: false, message: "Erreur technique lors de l'ajout." };
               
+              // 2. Remove Coupon from Settings (Prevent reuse)
               const newRefs = [...validRefs];
               newRefs.splice(couponIndex, 1);
               
-              await storageService.updateSystemSettings({ ...settings, validTransactionRefs: newRefs });
-              return { success: true, amount: amountToAdd };
+              const saveSuccess = await storageService.updateSystemSettings({ ...settings, validTransactionRefs: newRefs });
+              
+              if (saveSuccess) {
+                  return { success: true, amount: amountToAdd };
+              } else {
+                  // In a real transactional system we would rollback, but for this simplified flow:
+                  return { success: false, message: "Code utilisé mais erreur de validation finale." };
+              }
           }
 
-          return { success: false, message: "Code invalide." };
+          return { success: false, message: "Code invalide ou déjà utilisé." };
 
       } catch (e: any) {
+          console.error("Redeem Error:", e);
           return { success: false, message: "Erreur technique." };
       }
   },
@@ -267,15 +292,14 @@ export const storageService = {
     localStorage.setItem(session.id, JSON.stringify(session));
   },
 
-  // --- CHAT HISTORY ---
+  // --- CHAT HISTORY (Local Only for speed) ---
   getChatHistory: (lang: string): any[] => {
-    return [];
+    return []; // Implementation simplified for this file
   },
 
-  // --- ADMIN REQUESTS (SUPABASE) ---
-  
-  // Fetch from DB instead of LocalStorage
+  // --- ADMIN REQUESTS (SUPABASE CONNECTED) ---
   getAdminRequests: async (): Promise<AdminRequest[]> => {
+      // Fetch directly from Supabase
       const { data, error } = await supabase
           .from('admin_requests')
           .select('*')
@@ -286,7 +310,8 @@ export const storageService = {
           return [];
       }
 
-      return data.map(d => ({
+      // Map snake_case from DB to CamelCase types
+      return data ? data.map(d => ({
           id: d.id,
           userId: d.user_id,
           username: d.username,
@@ -295,10 +320,9 @@ export const storageService = {
           message: d.message,
           status: d.status,
           createdAt: new Date(d.created_at).getTime()
-      }));
+      })) : [];
   },
 
-  // Send to DB instead of LocalStorage
   sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'password_reset' | 'message', amount?: number, message?: string, contact?: string): Promise<{ status: 'pending' | 'approved' }> => {
       const fullMessage = contact ? `${message} [Contact: ${contact}]` : message;
       
@@ -315,20 +339,27 @@ export const storageService = {
       
       if (error) {
           console.error("Send Request Error:", error);
-          throw new Error("Echec de l'envoi.");
+          throw new Error("Echec de l'envoi de la demande.");
       }
       return { status: 'pending' };
   },
 
-  // Update in DB
   resolveRequest: async (reqId: string, status: 'approved' | 'rejected') => {
+      // 1. If approved, verify it's a credit request and add credits FIRST
       if (status === 'approved') {
           const { data: req } = await supabase.from('admin_requests').select('*').eq('id', reqId).single();
           if (req && req.type === 'credit' && req.amount) {
-              await storageService.addCredits(req.user_id, req.amount);
+              const creditSuccess = await storageService.addCredits(req.user_id, req.amount);
+              if (!creditSuccess) {
+                  console.error("Failed to add credits during request approval");
+                  return; // Stop execution if credit add failed
+              }
           }
       }
-      await supabase.from('admin_requests').update({ status }).eq('id', reqId);
+
+      // 2. Update status in DB
+      const { error } = await supabase.from('admin_requests').update({ status }).eq('id', reqId);
+      if (error) console.error("Resolve Request Error", error);
   },
 
   // --- SETTINGS (Supabase Sync) ---
@@ -338,30 +369,42 @@ export const storageService = {
           const { data, error } = await supabase.from('system_settings').select('*').single();
           
           if (!error && data) {
-              // Normalize data
+              // Normalize validTransactionRefs to prevent malformed data
               let normalizedCoupons: CouponCode[] = [];
+              
               if (Array.isArray(data.valid_transaction_refs)) {
                   normalizedCoupons = data.valid_transaction_refs.map((r: any) => {
+                      // Fix: Handle cases where data might be double-stringified or object
                       if (typeof r === 'string') {
-                          try { return JSON.parse(r); } catch { return { code: r, amount: 0, createdAt: new Date().toISOString() }; }
+                          try {
+                              const parsed = JSON.parse(r);
+                              if (typeof parsed === 'object') return parsed;
+                              // Fallback if string but not json (legacy data?)
+                              return { code: r, amount: 0, createdAt: new Date().toISOString() };
+                          } catch (e) {
+                              return { code: r, amount: 0, createdAt: new Date().toISOString() };
+                          }
                       }
                       return r;
-                  }).filter((c: any) => c && c.code);
+                  }).filter((c: any) => c && c.code); // Filter out bad objects
               }
 
               const settings: SystemSettings = {
                   apiKeys: data.api_keys || [],
                   activeModel: data.active_model || 'gemini-3-flash-preview',
+                  // Ensure numeric
                   creditPrice: data.credit_price || 50,
                   customLanguages: data.custom_languages || [],
                   validTransactionRefs: normalizedCoupons,
                   adminContact: data.admin_contact || { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
               };
+              // Cache locally
               localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
               return settings;
           }
+          if (error) console.warn("Load Settings Error (DB):", error.message);
       } catch (e) {
-          console.warn("Using local settings fallback");
+          console.warn("Using local settings fallback", e);
       }
       return storageService.getSystemSettings();
   },
@@ -369,6 +412,7 @@ export const storageService = {
   getSystemSettings: (): SystemSettings => {
       const local = localStorage.getItem(SETTINGS_KEY);
       if (local) return JSON.parse(local);
+      
       return {
           apiKeys: [],
           activeModel: 'gemini-3-flash-preview',
@@ -380,10 +424,12 @@ export const storageService = {
   },
 
   updateSystemSettings: async (settings: SystemSettings): Promise<boolean> => {
+      // 1. Optimistic Local Update
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
       
+      // 2. Push to Supabase
       const payload = {
-          id: 1,
+          id: 1, // Singleton row
           api_keys: settings.apiKeys,
           active_model: settings.activeModel,
           credit_price: settings.creditPrice,
@@ -393,7 +439,11 @@ export const storageService = {
       };
 
       const { error } = await supabase.from('system_settings').upsert(payload);
-      return !error;
+      if (error) {
+          console.error("Failed to sync settings to DB:", error);
+          return false;
+      }
+      return true;
   },
   
   deductCreditOrUsage: async (userId: string) => {
@@ -405,6 +455,11 @@ export const storageService = {
       return { allowed };
   },
 
-  exportData: async (user: UserProfile) => {},
-  importData: async (file: File, currentUserId: string): Promise<boolean> => { return true; }
+  exportData: async (user: UserProfile) => {
+      // Export logic
+  },
+
+  importData: async (file: File, currentUserId: string): Promise<boolean> => {
+      return true;
+  }
 };
