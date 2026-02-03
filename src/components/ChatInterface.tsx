@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic, StopCircle, ArrowLeft, Sun, Moon, User, Play, Loader2, Library, ChevronDown, Repeat, VolumeX, AlertTriangle, Wifi, WifiOff, Target, Star } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -89,7 +89,7 @@ const ChatInterface: React.FC<Props> = ({
 
   // Live API State
   const [isVoiceMode, setIsVoiceMode] = useState(false);
-  const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'speaking'>('idle');
+  const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'speaking' | 'connecting' | 'reconnecting'>('idle');
   const [callDuration, setCallDuration] = useState(0);
   const liveSessionRef = useRef<any>(null);
   const liveAudioContextRef = useRef<AudioContext | null>(null);
@@ -98,20 +98,8 @@ const ChatInterface: React.FC<Props> = ({
   const liveNextStartTimeRef = useRef<number>(0);
   const liveSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
-  // Progress Calculation
-  const progressData = useMemo(() => {
-      const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
-      const currentLevel = user.preferences?.level || 'A1';
-      const currentIndex = levels.indexOf(currentLevel);
-      const nextLevel = currentIndex < levels.length - 1 ? levels[currentIndex + 1] : 'Expert';
-      
-      const points = (user.stats.lessonsCompleted * 10) + (user.stats.exercisesCompleted * 5) + (user.stats.dialoguesCompleted * 8);
-      const threshold = 500;
-      const currentPoints = points % threshold;
-      const percentage = Math.min(Math.round((currentPoints / threshold) * 100), 100);
-      
-      return { percentage, nextLevel };
-  }, [user.stats, user.preferences?.level]);
+  // Logo URL for avatar
+  const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
 
   // Sync theme
   const toggleTheme = () => {
@@ -222,10 +210,15 @@ const ChatInterface: React.FC<Props> = ({
   // --- LIVE API (VOICE CALL) LOGIC ---
   const startLiveSession = async () => {
       try {
+          setVoiceStatus('connecting');
           const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
           
           // Audio Context for Live Session (Input 16k, Output 24k)
           const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+          // Fix for autoplay policy: Ensure we resume context on user gesture (Voice button click)
+          if (ctx.state === 'suspended') {
+              await ctx.resume();
+          }
           liveAudioContextRef.current = ctx;
           liveNextStartTimeRef.current = ctx.currentTime;
 
@@ -254,29 +247,40 @@ const ChatInterface: React.FC<Props> = ({
                   onopen: async () => {
                       setVoiceStatus('listening');
                       // Start Microphone Streaming
-                      const stream = await navigator.mediaDevices.getUserMedia({ audio: {
-                          sampleRate: 16000,
-                          channelCount: 1,
-                          echoCancellation: true
-                      }});
-                      
-                      const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 16000});
-                      const source = inputCtx.createMediaStreamSource(stream);
-                      const processor = inputCtx.createScriptProcessor(4096, 1, 1);
-                      
-                      processor.onaudioprocess = (e) => {
-                          const inputData = e.inputBuffer.getChannelData(0);
-                          const pcmBlob = createBlob(inputData);
-                          sessionPromise.then(session => {
-                              session.sendRealtimeInput({ media: pcmBlob });
-                          });
-                      };
-                      
-                      source.connect(processor);
-                      processor.connect(inputCtx.destination);
-                      
-                      liveInputSourceRef.current = source;
-                      liveProcessorRef.current = processor;
+                      try {
+                          const stream = await navigator.mediaDevices.getUserMedia({ audio: {
+                              sampleRate: 16000,
+                              channelCount: 1,
+                              echoCancellation: true,
+                              noiseSuppression: true,
+                              autoGainControl: true
+                          }});
+                          
+                          const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 16000});
+                          const source = inputCtx.createMediaStreamSource(stream);
+                          const processor = inputCtx.createScriptProcessor(4096, 1, 1);
+                          
+                          processor.onaudioprocess = (e) => {
+                              const inputData = e.inputBuffer.getChannelData(0);
+                              const pcmBlob = createBlob(inputData);
+                              sessionPromise.then(session => {
+                                  session.sendRealtimeInput({ media: pcmBlob });
+                              }).catch(err => {
+                                  console.error("Failed to send audio chunk", err);
+                                  // Optional: Handle subtle reconnection visual logic here
+                              });
+                          };
+                          
+                          source.connect(processor);
+                          processor.connect(inputCtx.destination);
+                          
+                          liveInputSourceRef.current = source;
+                          liveProcessorRef.current = processor;
+                      } catch (micErr) {
+                          console.error("Microphone Access Error", micErr);
+                          notify("Microphone inaccessible.", "error");
+                          stopLiveSession();
+                      }
                   },
                   onmessage: (msg: LiveServerMessage) => {
                       const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
@@ -290,9 +294,14 @@ const ChatInterface: React.FC<Props> = ({
                           source.buffer = buffer;
                           source.connect(ctx.destination);
                           
-                          // Gapless scheduling
+                          // Gapless scheduling logic improved for stability
                           const now = ctx.currentTime;
-                          const startAt = Math.max(now, liveNextStartTimeRef.current);
+                          // If nextStartTime is too far in past (lag), reset it to now to catch up
+                          if (liveNextStartTimeRef.current < now) {
+                              liveNextStartTimeRef.current = now;
+                          }
+                          
+                          const startAt = liveNextStartTimeRef.current;
                           source.start(startAt);
                           liveNextStartTimeRef.current = startAt + buffer.duration;
                           
@@ -312,12 +321,19 @@ const ChatInterface: React.FC<Props> = ({
                       }
                   },
                   onclose: () => {
-                      setVoiceStatus('idle');
+                      setVoiceStatus('reconnecting');
+                      // Attempt reconnect logic could go here, but for now we show idle/close
+                      setTimeout(() => {
+                          if (isVoiceMode) {
+                              stopLiveSession(); // Clean reset
+                              notify("Connexion perdue. Veuillez rappeler.", "error");
+                          }
+                      }, 2000);
                   },
                   onerror: (e) => {
                       console.error("Live Error", e);
-                      notify("Erreur Appel Vocal", "error");
-                      stopLiveSession();
+                      setVoiceStatus('reconnecting');
+                      notify("Instabilité réseau...", "error");
                   }
               }
           });
@@ -326,7 +342,7 @@ const ChatInterface: React.FC<Props> = ({
 
       } catch (e) {
           console.error("Live Connection Failed", e);
-          notify("Impossible de démarrer l'appel.", "error");
+          notify("Impossible de démarrer l'appel. Vérifiez votre connexion.", "error");
           setIsVoiceMode(false);
       }
   };
@@ -340,12 +356,14 @@ const ChatInterface: React.FC<Props> = ({
       liveSourcesRef.current.forEach(s => s.stop());
       liveSourcesRef.current.clear();
       
-      if (liveAudioContextRef.current) liveAudioContextRef.current.close();
+      if (liveAudioContextRef.current) {
+          try { await liveAudioContextRef.current.close(); } catch(e) {}
+      }
       
       // Close Session
       if (liveSessionRef.current) {
           const session = await liveSessionRef.current;
-          session.close();
+          try { session.close(); } catch(e) {}
       }
       
       setIsVoiceMode(false);
@@ -365,6 +383,23 @@ const ChatInterface: React.FC<Props> = ({
       };
   }, [isVoiceMode]);
 
+
+  // -------------------
+
+  // Progress Calculation
+  const progressData = useMemo(() => {
+      const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
+      const currentLevel = user.preferences?.level || 'A1';
+      const currentIndex = levels.indexOf(currentLevel);
+      const nextLevel = currentIndex < levels.length - 1 ? levels[currentIndex + 1] : 'Expert';
+      
+      const points = (user.stats.lessonsCompleted * 10) + (user.stats.exercisesCompleted * 5) + (user.stats.dialoguesCompleted * 8);
+      const threshold = 500;
+      const currentPoints = points % threshold;
+      const percentage = Math.min(Math.round((currentPoints / threshold) * 100), 100);
+      
+      return { percentage, nextLevel };
+  }, [user.stats, user.preferences?.level]);
 
   // -------------------
 
@@ -441,12 +476,11 @@ const ChatInterface: React.FC<Props> = ({
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isStreaming]);
 
-  // Render Live Call Overlay (Same as before)
+  // Render Live Call Overlay
   if (isVoiceMode) {
-      // ... (Keeping Voice Mode UI logic mostly same but compacting for brevity in this response)
       return (
           <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-3xl text-white flex flex-col items-center justify-between p-6 animate-fade-in font-sans overflow-hidden">
-              {/* ... (Voice UI Header & Avatar - Identical to previous turn) ... */}
+              {/* Top Controls */}
               <div className="w-full flex justify-between items-center z-10 pt-4 px-2">
                   <button onClick={() => setIsVoiceMode(false)} className="p-3 bg-white/10 rounded-full hover:bg-white/20 backdrop-blur-md transition-all">
                       <ChevronDown className="w-6 h-6" />
@@ -455,30 +489,70 @@ const ChatInterface: React.FC<Props> = ({
                       <span className="text-xs font-bold uppercase tracking-widest text-slate-300">TeacherMada</span>
                       <span className="font-mono text-sm opacity-70">{formatTime(callDuration)}</span>
                   </div>
-                  <div className="w-12"></div>
+                  <div className="w-12">
+                      {voiceStatus === 'reconnecting' && <WifiOff className="w-5 h-5 text-red-400 animate-pulse"/>}
+                  </div>
               </div>
+
+              {/* Center Avatar & Status */}
               <div className="flex flex-col items-center justify-center gap-8 w-full z-10 flex-1 relative">
+                  
+                  {/* Status Indicator */}
                   <div className="h-6">
                       {voiceStatus === 'listening' && <p className="text-indigo-300 text-sm font-bold animate-pulse tracking-wide">J'écoute...</p>}
                       {voiceStatus === 'speaking' && <p className="text-emerald-300 text-sm font-bold tracking-wide">Teacher parle...</p>}
-                      {voiceStatus === 'idle' && <p className="text-slate-400 text-sm font-medium">Connexion...</p>}
+                      {voiceStatus === 'connecting' && <p className="text-slate-400 text-sm font-medium animate-pulse">Connexion en cours...</p>}
+                      {voiceStatus === 'reconnecting' && <p className="text-red-400 text-sm font-bold animate-pulse">Reconnexion...</p>}
+                      {voiceStatus === 'idle' && <p className="text-slate-400 text-sm font-medium">En attente...</p>}
                   </div>
+
+                  {/* Pulsing Avatar Container */}
                   <div className="relative">
-                      {voiceStatus === 'speaking' && <div className="absolute inset-0 bg-emerald-500/20 rounded-full animate-ping blur-xl"></div>}
-                      {voiceStatus === 'listening' && <div className="absolute inset-0 bg-indigo-500/20 rounded-full animate-pulse scale-110 blur-xl"></div>}
-                      <div className="relative w-40 h-40 md:w-56 md:h-56 rounded-full p-2 bg-gradient-to-b from-slate-700 to-slate-900 shadow-2xl flex items-center justify-center border-4 border-slate-700/50">
-                          <img src="https://api.dicebear.com/9.x/bottts-neutral/svg?seed=Teacher" className="w-full h-full object-cover rounded-full" alt="Teacher AI" />
+                      {voiceStatus === 'speaking' && (
+                          <>
+                            <div className="absolute inset-0 bg-emerald-500/20 rounded-full animate-ping blur-xl"></div>
+                            <div className="absolute inset-0 bg-emerald-500/10 rounded-full animate-pulse delay-100 scale-125"></div>
+                          </>
+                      )}
+                      {voiceStatus === 'listening' && (
+                          <div className="absolute inset-0 bg-indigo-500/20 rounded-full animate-pulse scale-110 blur-xl"></div>
+                      )}
+                      {voiceStatus === 'reconnecting' && (
+                          <div className="absolute inset-0 bg-red-500/20 rounded-full animate-ping blur-xl"></div>
+                      )}
+
+                      <div className="relative w-40 h-40 md:w-56 md:h-56 rounded-full p-2 bg-gradient-to-b from-slate-700 to-slate-900 shadow-2xl flex items-center justify-center border-4 border-slate-700/50 overflow-hidden">
+                          <img src={TEACHER_AVATAR} className="w-full h-full object-cover rounded-full p-4" alt="Teacher AI" />
                       </div>
                   </div>
+
                   <div className="text-center space-y-1">
                       <h2 className="text-2xl font-bold text-white tracking-tight">Appel en cours</h2>
                       <p className="text-slate-400 font-medium text-sm">{user.preferences?.targetLanguage} • {user.preferences?.level}</p>
                   </div>
               </div>
+
+              {/* Bottom Controls */}
               <div className="w-full max-w-sm grid grid-cols-3 gap-6 mb-8 z-10 items-center justify-items-center">
-                  <button className="flex flex-col items-center gap-2 group opacity-50 hover:opacity-100 transition-opacity"><div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-white"><Volume2 className="w-6 h-6" /></div><span className="text-[10px] uppercase font-bold tracking-wider">Speaker</span></button>
-                  <button onClick={() => setIsVoiceMode(false)} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform"><div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-slate-900"><Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" /></div></button>
-                  <button className="flex flex-col items-center gap-2 group opacity-50 hover:opacity-100 transition-opacity"><div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-white"><Mic className="w-6 h-6" /></div><span className="text-[10px] uppercase font-bold tracking-wider">Mute</span></button>
+                  <button className="flex flex-col items-center gap-2 group opacity-50 hover:opacity-100 transition-opacity">
+                      <div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-white">
+                          <Volume2 className="w-6 h-6" />
+                      </div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider">Speaker</span>
+                  </button>
+
+                  <button onClick={() => setIsVoiceMode(false)} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform">
+                      <div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-slate-900">
+                          <Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" />
+                      </div>
+                  </button>
+
+                  <button className="flex flex-col items-center gap-2 group opacity-50 hover:opacity-100 transition-opacity">
+                      <div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-white">
+                          <MicOff className="w-6 h-6" />
+                      </div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider">Mute</span>
+                  </button>
               </div>
           </div>
       );
@@ -552,7 +626,7 @@ const ChatInterface: React.FC<Props> = ({
             <div key={msg.id || idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slide-up group`}>
                 {msg.role === 'model' && (
                     <div className="w-10 h-10 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center mr-3 mt-1 shrink-0 overflow-hidden shadow-sm">
-                        <img src="https://api.dicebear.com/9.x/bottts-neutral/svg?seed=Teacher" className="w-full h-full object-cover" />
+                        <img src={TEACHER_AVATAR} className="w-full h-full object-cover p-1" />
                     </div>
                 )}
                 
@@ -606,7 +680,7 @@ const ChatInterface: React.FC<Props> = ({
       <footer className="fixed bottom-0 left-0 w-full bg-white/95 dark:bg-[#131825]/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 safe-bottom z-30 shadow-2xl">
         <div className="max-w-3xl mx-auto p-4">
             
-            {/* SMART PROGRESS STATS (Replaces old buttons) */}
+            {/* SMART PROGRESS STATS */}
             {!input && messages.length > 0 && !isStreaming && (
                 <div className="mb-3 px-1 animate-fade-in">
                     <div className="flex justify-between items-center mb-1.5">

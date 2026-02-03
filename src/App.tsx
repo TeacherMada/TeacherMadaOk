@@ -203,7 +203,8 @@ const App: React.FC = () => {
               isDarkMode={isDarkMode} 
               toggleTheme={() => setIsDarkMode(!isDarkMode)}
               messages={currentSession.messages}
-              onOpenAdmin={() => { setShowDashboard(false); setShowAdmin(true); }} // Pass admin handler
+              onOpenAdmin={() => { setShowDashboard(false); setShowAdmin(true); }}
+              onShowPayment={() => { setShowDashboard(false); setShowPayment(true); }} // Inject payment handler
             />
           )}
 
