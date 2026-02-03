@@ -16,8 +16,6 @@ const getClient = () => {
   }
 
   // Random rotation to distribute load (Simple Round-Robin/Random)
-  // In a real 'Pro -> Flash -> Free' scenario, you might try keys sequentially on failure.
-  // Here we assume keys are equivalent or we just pick one to spread usage.
   const selectedKey = keys[Math.floor(Math.random() * keys.length)];
   
   return new GoogleGenAI({ apiKey: selectedKey });
@@ -42,11 +40,15 @@ export async function* sendMessageStream(
 
   const ai = getClient();
 
-  const contents = history.map(msg => ({
-    role: msg.role,
-    parts: [{ text: msg.text }]
-  }));
+  // Sanitize history: remove empty messages and ensure structure
+  const contents = history
+    .filter(msg => msg.text && msg.text.trim().length > 0) // Filter empty messages
+    .map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'model', // Explicitly map role
+      parts: [{ text: msg.text }]
+    }));
   
+  // Add current user message
   contents.push({ role: 'user', parts: [{ text: message }] });
 
   try {
@@ -60,15 +62,26 @@ export async function* sendMessageStream(
       }
     });
 
+    let hasYielded = false;
     for await (const chunk of responseStream) {
-       yield chunk.text;
+       const text = chunk.text;
+       if (text) {
+           yield text;
+           hasYielded = true;
+       }
     }
 
-    storageService.consumeCredit(user.id);
+    if (hasYielded) {
+        storageService.consumeCredit(user.id);
+    }
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini Stream Error:", error);
-    yield "Désolé, une erreur de connexion est survenue. Vérifiez votre connexion internet.";
+    if (error.message && error.message.includes("API key")) {
+        yield "Erreur de configuration API Key. Contactez l'admin.";
+    } else {
+        yield `Désolé, une erreur de connexion est survenue (${error.status || 'Reseau'}).`;
+    }
   }
 }
 
@@ -215,7 +228,10 @@ export const generateRoleplayResponse = async (
     const ai = getClient();
     const sysInstruct = `Tu es un partenaire de jeu de rôle linguistique. SCENARIO: ${scenarioPrompt}. LANGUE: ${user.preferences?.targetLanguage}. NIVEAU: ${user.preferences?.level}.`;
 
-    const contents = history.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+    const contents = history
+        .filter(msg => msg.text && msg.text.trim().length > 0)
+        .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+    
     if (isClosing) contents.push({ role: 'user', parts: [{ text: "Evaluation finale" }] });
 
     try {
