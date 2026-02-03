@@ -38,7 +38,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Timer Logic: Just for display, 1 Credit per interaction now
+  // Timer Logic: Just for display, 1 Credit per interaction (Request-Based)
   useEffect(() => {
     let interval: any;
     if (scenario && !finalScore && !showIntro && !isInitializing) {
@@ -61,15 +61,13 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
   const startSession = async () => {
       if (!scenario) return;
       
-      const allowed = await storageService.checkAndConsumeCredit(user.id);
+      // Check if user CAN request, consumption happens in service
+      const allowed = await storageService.canRequest(user.id);
       
       if (allowed) {
           setShowIntro(false);
           setIsInitializing(true);
           
-          const u = await storageService.getUserById(user.id);
-          if (u) onUpdateUser(u);
-
           try {
               const result = await generateRoleplayResponse([], scenario.prompt, user, false, true);
               setMessages([{
@@ -78,6 +76,11 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                   text: result.aiReply,
                   timestamp: Date.now()
               }]);
+              
+              // Update user state after credit consumption by service
+              const u = await storageService.getUserById(user.id);
+              if (u) onUpdateUser(u);
+
           } catch (e) {
               notify("Erreur d'initialisation. Réessayez.", 'error');
               setScenario(null);

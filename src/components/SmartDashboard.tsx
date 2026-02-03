@@ -51,11 +51,15 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
     
     setIsExtracting(true);
     try {
+      // Consumption handled in extractVocabulary service
       const newWords = await extractVocabulary(messages);
+      
+      // Fetch fresh user data after credit consumption
+      const freshUser = await storageService.getUserById(user.id);
+      
       const updatedUser = { 
-          ...user, 
-          vocabulary: [...newWords, ...user.vocabulary].slice(0, 50),
-          credits: user.credits > 0 ? user.credits - 1 : 0 
+          ...(freshUser || user), 
+          vocabulary: [...newWords, ...user.vocabulary].slice(0, 50)
       };
       
       await storageService.saveUserProfile(updatedUser);

@@ -456,14 +456,12 @@ const ChatInterface: React.FC<Props> = ({
     if (isStreaming) return;
     
     // --- CREDIT CHECK ---
-    const canProceed = await storageService.checkAndConsumeCredit(user.id);
+    // Only CHECK eligibility here. Consumption happens in the service after response.
+    const canProceed = await storageService.canRequest(user.id);
     if (!canProceed) {
         onShowPayment();
         return;
     }
-    
-    const updatedUser = await storageService.getUserById(user.id);
-    if (updatedUser) onUpdateUser(updatedUser);
     // --------------------
 
     const userDisplayMsg = isAuto ? "Suivant" : text;
@@ -497,6 +495,10 @@ const ChatInterface: React.FC<Props> = ({
         }
       }
       
+      // Update User UI State after credit consumption in service
+      const updatedUser = await storageService.getUserById(user.id);
+      if (updatedUser) onUpdateUser(updatedUser);
+
       const finalHistory: ChatMessage[] = [...newHistory, { id: aiMsgId, role: 'model', text: fullText, timestamp: Date.now() }];
       storageService.saveSession({ ...session, messages: finalHistory, progress: (messages.length / 20) * 100 });
       
@@ -504,7 +506,7 @@ const ChatInterface: React.FC<Props> = ({
       if (isAuto) {
           // Increment Lesson Count logic
           const newStats = { ...user.stats, lessonsCompleted: (user.stats.lessonsCompleted || 0) + 1 };
-          const updated = { ...user, stats: newStats };
+          const updated = { ...(updatedUser || user), stats: newStats };
           await storageService.saveUserProfile(updated);
           onUpdateUser(updated);
           // Current Lesson Title will update via useEffect above based on message content
