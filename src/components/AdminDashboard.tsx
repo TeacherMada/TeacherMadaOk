@@ -37,14 +37,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   const refreshData = async () => {
     setIsLoading(true);
     try {
-        const fetchedUsers = await storageService.getAllUsers();
-        const fetchedRequests = await storageService.getAdminRequests();
-        const fetchedSettings = await storageService.loadSystemSettings(); // Explicit load from Supabase
+        // Fetch users and requests in parallel
+        const [fetchedUsers, fetchedRequests, fetchedSettings] = await Promise.all([
+            storageService.getAllUsers(),
+            storageService.getAdminRequests(),
+            storageService.loadSystemSettings()
+        ]);
+        
         setUsers(fetchedUsers);
         setRequests(fetchedRequests);
         setSettings(fetchedSettings);
     } catch (e) {
-        notify("Erreur lors du chargement des données.", 'error');
+        notify("Erreur lors du chargement des données. Vérifiez la connexion.", 'error');
     } finally {
         setIsLoading(false);
     }
@@ -132,10 +136,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
 
   // --- COUPON MANAGEMENT ---
   const handleAddCoupon = async () => {
-      // Sanitize Input: Prevent users from pasting JSON or weird characters
+      // 1. Sanitize Input: Prevent users from pasting JSON or weird characters
       let rawCode = newTransactionRef.trim();
       
-      // Basic sanitization to avoid the "JSON String" issue in display
+      // Basic sanitization
       if (rawCode.startsWith('{') || rawCode.includes('"') || rawCode.length > 30) {
           notify("Format invalide. Entrez un code simple (ex: PROMO10).", 'error');
           return;
@@ -152,6 +156,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
           createdAt: new Date().toISOString()
       };
 
+      // Handle fallback if validTransactionRefs is undefined
       const currentRefs = settings.validTransactionRefs || [];
 
       // Prevent duplicate codes

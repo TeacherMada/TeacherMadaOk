@@ -20,7 +20,7 @@ const mapProfile = (data: any): UserProfile => ({
     },
     preferences: data.preferences,
     vocabulary: data.vocabulary || [],
-    freeUsage: data.free_usage || { count: 0, lastReset: new Date().toISOString() },
+    freeUsage: data.free_usage || { count: 0, lastResetWeek: new Date().toISOString() },
     aiMemory: "Étudiant motivé",
     createdAt: new Date(data.created_at).getTime(),
     isSuspended: data.is_suspended
@@ -73,7 +73,7 @@ export const storageService = {
             options: {
                 data: {
                     username: username.trim(),
-                    phone: phoneNumber?.trim() || ""
+                    phone_number: phoneNumber?.trim() || ""
                 }
             }
         });
@@ -87,6 +87,7 @@ export const storageService = {
         
         if (!authData.user) return { success: false, error: "Erreur de création." };
 
+        // Wait briefly for trigger to create profile if using one, otherwise basic profile check
         await new Promise(r => setTimeout(r, 2000));
 
         const user = await storageService.getUserById(authData.user.id);
@@ -166,6 +167,7 @@ export const storageService = {
       if (newFreeUsage.count < 3) {
           newFreeUsage.count++;
           allowed = true;
+          // Update free usage
           await supabase.from('profiles').update({ free_usage: newFreeUsage }).eq('id', userId);
       } else {
           if (user.credits > 0) {
@@ -183,12 +185,14 @@ export const storageService = {
       if (user.role === 'admin') return true;
       if (user.isSuspended) return false;
       
+      // Check free tier
       const now = new Date();
       const lastReset = new Date(user.freeUsage.lastResetWeek || 0);
       const isResetDue = (now.getTime() - lastReset.getTime()) > (7 * 24 * 60 * 60 * 1000);
       
       if (isResetDue) return true;
       if (user.freeUsage.count < 3) return true;
+      
       return user.credits > 0;
   },
 
@@ -223,6 +227,7 @@ export const storageService = {
   redeemCode: async (userId: string, inputCode: string): Promise<{ success: boolean; amount?: number; message?: string }> => {
       try {
           const code = inputCode.trim().toUpperCase();
+          // Load latest settings from DB to check for code
           const settings = await storageService.loadSystemSettings();
           const validRefs = settings.validTransactionRefs || [];
           
@@ -248,7 +253,8 @@ export const storageService = {
               if (saveSuccess) {
                   return { success: true, amount: amountToAdd };
               } else {
-                  return { success: false, message: "Erreur système lors de la validation." };
+                  // In a real transactional system we would rollback, but for this simplified flow:
+                  return { success: false, message: "Code utilisé mais erreur de validation finale." };
               }
           }
 
@@ -293,7 +299,7 @@ export const storageService = {
 
   // --- ADMIN REQUESTS (SUPABASE CONNECTED) ---
   getAdminRequests: async (): Promise<AdminRequest[]> => {
-      // Ensure we select all fields mapping from DB snake_case to CamelCase
+      // Fetch directly from Supabase
       const { data, error } = await supabase
           .from('admin_requests')
           .select('*')
@@ -304,6 +310,7 @@ export const storageService = {
           return [];
       }
 
+      // Map snake_case from DB to CamelCase types
       return data ? data.map(d => ({
           id: d.id,
           userId: d.user_id,
@@ -367,11 +374,12 @@ export const storageService = {
               
               if (Array.isArray(data.valid_transaction_refs)) {
                   normalizedCoupons = data.valid_transaction_refs.map((r: any) => {
-                      // Fix: Handle cases where data might be double-stringified
+                      // Fix: Handle cases where data might be double-stringified or object
                       if (typeof r === 'string') {
                           try {
                               const parsed = JSON.parse(r);
                               if (typeof parsed === 'object') return parsed;
+                              // Fallback if string but not json (legacy data?)
                               return { code: r, amount: 0, createdAt: new Date().toISOString() };
                           } catch (e) {
                               return { code: r, amount: 0, createdAt: new Date().toISOString() };
@@ -384,11 +392,13 @@ export const storageService = {
               const settings: SystemSettings = {
                   apiKeys: data.api_keys || [],
                   activeModel: data.active_model || 'gemini-3-flash-preview',
+                  // Ensure numeric
                   creditPrice: data.credit_price || 50,
                   customLanguages: data.custom_languages || [],
                   validTransactionRefs: normalizedCoupons,
                   adminContact: data.admin_contact || { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
               };
+              // Cache locally
               localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
               return settings;
           }
