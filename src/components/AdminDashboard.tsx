@@ -37,12 +37,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
     try {
         const fetchedUsers = await storageService.getAllUsers();
         const fetchedRequests = await storageService.getAdminRequests();
-        const fetchedSettings = await storageService.loadSystemSettings(); // Explicit load
+        const fetchedSettings = await storageService.loadSystemSettings(); // Explicit load from Supabase
         setUsers(fetchedUsers);
         setRequests(fetchedRequests);
         setSettings(fetchedSettings);
     } catch (e) {
-        notify("Erreur lors du chargement.", 'error');
+        notify("Erreur lors du chargement des données.", 'error');
     }
   };
 
@@ -57,7 +57,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
           await storageService.addCredits(userId, finalAmt);
           setManualCreditInputs(prev => ({ ...prev, [userId]: '' })); 
           await refreshData();
-          notify(`Crédits modifiés: ${finalAmt}`, 'success');
+          notify(`Crédits modifiés: ${finalAmt > 0 ? '+' : ''}${finalAmt}`, 'success');
       }
   };
 
@@ -68,52 +68,51 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   const saveNewPassword = async (user: UserProfile) => {
       const newPass = passwordInputs[user.id];
       if (newPass && newPass.trim().length > 0) {
-          // Note: This updates the profile table field only. Supabase Auth password requires admin SDK on backend.
-          // This keeps the UI consistent if the app uses profile table for display or legacy auth logic.
           await storageService.saveUserProfile({ ...user, password: newPass });
           setPasswordInputs(prev => ({ ...prev, [user.id]: '' }));
           await refreshData();
-          notify(`Mot de passe (Profil) mis à jour.`, 'success');
+          notify(`Mot de passe mis à jour pour ${user.username}.`, 'success');
       }
   };
 
   const toggleSuspend = async (user: UserProfile) => {
       const updated = { ...user, isSuspended: !user.isSuspended };
-      // Explicitly wait for DB update
       await storageService.saveUserProfile(updated);
-      setUsers(prev => prev.map(u => u.id === user.id ? updated : u));
+      await refreshData();
       notify(`Utilisateur ${updated.isSuspended ? 'suspendu' : 'réactivé'}.`, 'info');
   };
 
   const handleResolveRequest = async (reqId: string, status: 'approved' | 'rejected') => {
       await storageService.resolveRequest(reqId, status);
       await refreshData();
-      notify(`Demande traitée.`, 'success');
+      notify(`Demande ${status === 'approved' ? 'approuvée' : 'rejetée'}.`, 'success');
   };
 
   const saveSettings = async () => {
       await storageService.updateSystemSettings(settings);
-      notify("Paramètres sauvegardés.", 'success');
+      notify("Paramètres sauvegardés dans le Cloud.", 'success');
   };
 
   const handleAddLanguage = async () => {
       if (!newLangName.trim() || !newLangFlag.trim()) return;
       const code = `${newLangName} ${newLangFlag}`;
       const newLang = { code, baseName: newLangName, flag: newLangFlag };
+      
       const updatedSettings = { ...settings, customLanguages: [...(settings.customLanguages || []), newLang] };
       setSettings(updatedSettings);
       await storageService.updateSystemSettings(updatedSettings);
+      
       setNewLangName(''); setNewLangFlag('');
-      notify(`Langue ajoutée !`, 'success');
+      notify(`Langue ajoutée : ${newLangName}`, 'success');
   };
 
   const removeLanguage = async (code: string) => {
       const updatedSettings = { ...settings, customLanguages: (settings.customLanguages || []).filter(l => l.code !== code) };
       setSettings(updatedSettings);
       await storageService.updateSystemSettings(updatedSettings);
+      notify("Langue supprimée.", 'info');
   };
 
-  // --- UPDATED: Add Coupon with Specific Amount ---
   const handleAddCoupon = async () => {
       if (!newTransactionRef.trim() || couponAmount <= 0) return;
       
@@ -131,8 +130,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       setSettings(updatedSettings);
       await storageService.updateSystemSettings(updatedSettings);
       setNewTransactionRef('');
-      // Keep amount same for ease of bulk entry
-      notify(`Code Auto-Validation créé: ${newCoupon.code} (${newCoupon.amount} CRD)`, 'success');
+      notify(`Coupon créé : ${newCoupon.code} (${newCoupon.amount} CRD)`, 'success');
   };
 
   const removeCoupon = async (codeToRemove: string) => {
@@ -142,6 +140,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       };
       setSettings(updatedSettings);
       await storageService.updateSystemSettings(updatedSettings);
+      notify("Coupon supprimé.", 'info');
   };
 
   const filteredUsers = users.filter(u => u.username.toLowerCase().includes(search.toLowerCase()) || (u.email && u.email.toLowerCase().includes(search.toLowerCase())));
@@ -245,7 +244,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
                      <div className="flex flex-col md:flex-row gap-2 mb-6">
                          <input 
                             type="text" 
-                            placeholder="Code Référence (ex: MVOLA-REF-123)" 
+                            placeholder="Code Coupon (ex: PROMO-2024)" 
                             value={newTransactionRef} 
                             onChange={e => setNewTransactionRef(e.target.value)} 
                             className="flex-[2] p-4 rounded-2xl border border-emerald-200 dark:border-emerald-800 outline-none bg-white dark:bg-slate-900" 

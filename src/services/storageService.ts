@@ -49,7 +49,6 @@ export const storageService = {
 
         if (authData.user) {
             const user = await storageService.getUserById(authData.user.id);
-            // Check suspension status immediately after login
             if (user?.isSuspended) return { success: false, error: "Compte suspendu par l'administrateur." };
             if (user) return { success: true, user };
             return { success: false, error: "Compte créé mais profil introuvable." };
@@ -124,17 +123,16 @@ export const storageService = {
   // --- DATA SYNC ---
 
   saveUserProfile: async (user: UserProfile) => {
-      // Sync all important fields to Supabase
       const updates = {
           username: user.username,
-          credits: user.credits, // Ensure client-side credit deduction persists
+          credits: user.credits,
           lessons_completed: user.stats.lessonsCompleted,
           exercises_completed: user.stats.exercisesCompleted,
           dialogues_completed: user.stats.dialoguesCompleted,
           vocabulary: user.vocabulary,
           preferences: user.preferences,
           free_usage: user.freeUsage,
-          is_suspended: user.isSuspended // Critical for Admin Action
+          is_suspended: user.isSuspended
       };
 
       const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
@@ -142,7 +140,7 @@ export const storageService = {
   },
 
   getAllUsers: async (): Promise<UserProfile[]> => {
-      const { data } = await supabase.from('profiles').select('*');
+      const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
       return data ? data.map(mapProfile) : [];
   },
 
@@ -199,6 +197,7 @@ export const storageService = {
   },
 
   addCredits: async (userId: string, amount: number) => {
+      // Direct Database Update for reliability
       const { data: user, error: fetchError } = await supabase
           .from('profiles')
           .select('credits')
@@ -223,27 +222,23 @@ export const storageService = {
 
           console.warn("RPC Failed/Not Setup", error);
           
-          // Attempt 2: Fallback Logic (Client-side, necessitates Admin Privileges or open RLS for system_settings update which is risky)
-          // Ideally, RPC should always be used. This fallback is for legacy/dev environments.
+          // Attempt 2: Fallback (Logic handled on Client if RPC fails - risky but better than broken feature)
           const settings = await storageService.loadSystemSettings();
-          const couponIndex = settings.validTransactionRefs?.findIndex(c => c.code.toLowerCase() === code.toLowerCase());
+          const validRefs = settings.validTransactionRefs || [];
+          const couponIndex = validRefs.findIndex(c => c.code.toLowerCase() === code.toLowerCase());
 
-          if (couponIndex !== undefined && couponIndex !== -1) {
-              const coupon = settings.validTransactionRefs![couponIndex];
-              
-              // 1. Add Credits
+          if (couponIndex !== -1) {
+              const coupon = validRefs[couponIndex];
               await storageService.addCredits(userId, coupon.amount);
               
-              // 2. Remove Coupon
-              const newRefs = [...(settings.validTransactionRefs || [])];
+              const newRefs = [...validRefs];
               newRefs.splice(couponIndex, 1);
-              
               await storageService.updateSystemSettings({ ...settings, validTransactionRefs: newRefs });
               
               return { success: true, amount: coupon.amount };
           }
 
-          return { success: false, message: "Code invalide ou expiré." };
+          return { success: false, message: "Code invalide." };
 
       } catch (e: any) {
           return { success: false, message: e.message };
@@ -332,7 +327,7 @@ export const storageService = {
               return settings;
           }
       } catch (e) {
-          console.warn("Using local settings fallback");
+          console.warn("Using local settings fallback", e);
       }
       return storageService.getSystemSettings();
   },
@@ -352,15 +347,17 @@ export const storageService = {
   },
 
   updateSystemSettings: async (settings: SystemSettings) => {
+      // 1. Optimistic Local Update
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
       
+      // 2. Push to Supabase
       const payload = {
           id: 1,
           api_keys: settings.apiKeys,
           active_model: settings.activeModel,
           credit_price: settings.creditPrice,
-          custom_languages: settings.customLanguages,
-          valid_transaction_refs: settings.validTransactionRefs, 
+          custom_languages: settings.customLanguages, // Maps to JSONB
+          valid_transaction_refs: settings.validTransactionRefs, // Maps to JSONB
           admin_contact: settings.adminContact
       };
 
@@ -378,11 +375,49 @@ export const storageService = {
   },
 
   exportData: async (user: UserProfile) => {
-      // Export logic
+      const exportObj = {
+          userProfile: user,
+          sessions: Object.keys(localStorage)
+              .filter(k => k.startsWith(SESSION_PREFIX + user.id))
+              .map(k => JSON.parse(localStorage.getItem(k) || '{}')),
+          timestamp: new Date().toISOString()
+      };
+      
+      const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `teachermada_backup_${user.username}_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
   },
 
   importData: async (file: File, currentUserId: string): Promise<boolean> => {
-      // Import logic
-      return true;
+      return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = async (e) => {
+              try {
+                  const data = JSON.parse(e.target?.result as string);
+                  if (data.userProfile && data.sessions) {
+                      const profileToSync = { ...data.userProfile, id: currentUserId };
+                      await storageService.saveUserProfile(profileToSync);
+                      
+                      data.sessions.forEach((session: any) => {
+                          const newId = session.id.replace(data.userProfile.id, currentUserId);
+                          localStorage.setItem(newId, JSON.stringify({ ...session, id: newId }));
+                      });
+                      resolve(true);
+                  } else {
+                      resolve(false);
+                  }
+              } catch (err) {
+                  console.error("Import failed", err);
+                  resolve(false);
+              }
+          };
+          reader.readAsText(file);
+      });
   }
 };

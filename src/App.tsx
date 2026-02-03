@@ -30,8 +30,8 @@ const App: React.FC = () => {
 
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
 
+  // Load User & Theme
   useEffect(() => {
-    // Sync Supabase user on load
     const init = async () => {
         const curr = await storageService.getCurrentUser();
         if (curr) setUser(curr);
@@ -41,6 +41,21 @@ const App: React.FC = () => {
     document.documentElement.classList.toggle('dark', isDarkMode);
     localStorage.setItem('tm_theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
+
+  // Refresh User Data on Focus (To sync credits/admin changes)
+  useEffect(() => {
+      const handleFocus = async () => {
+          if (user) {
+              const updated = await storageService.getUserById(user.id);
+              if (updated && (updated.credits !== user.credits || updated.isSuspended !== user.isSuspended)) {
+                  setUser(updated);
+                  if(updated.isSuspended) toast.info("Votre compte a été mis à jour.");
+              }
+          }
+      };
+      window.addEventListener('focus', handleFocus);
+      return () => window.removeEventListener('focus', handleFocus);
+  }, [user]);
 
   // Legacy notify bridge
   const notify = (msg: string, type: string = 'info') => {
