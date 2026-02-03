@@ -289,16 +289,23 @@ const ChatInterface: React.FC<Props> = ({
 
   const sendLiveTextMessage = (text: string) => {
       if (!liveSessionRef.current) return;
+      
       liveSessionRef.current.then((session: any) => {
           try {
-              session.send({
-                  clientContent: {
-                      turns: [{ role: "user", parts: [{ text: text }] }],
-                      turnComplete: true
-                  }
-              });
-              setVoiceInput('');
-              setShowVoiceInput(false); // Hide input after sending
+              // Safety check for method existence
+              if (typeof session.send === 'function') {
+                  session.send({
+                      clientContent: {
+                          turns: [{ role: "user", parts: [{ text: text }] }],
+                          turnComplete: true
+                      }
+                  });
+                  setVoiceInput('');
+                  setShowVoiceInput(false); 
+              } else {
+                  console.warn("LiveSession.send is not available on this client version.");
+                  notify("Impossible d'envoyer le message texte (Erreur API)", "error");
+              }
           } catch(e) {
               console.error("Failed to send text in live session", e);
               notify("Erreur d'envoi du message", "error");
@@ -349,22 +356,28 @@ const ChatInterface: React.FC<Props> = ({
                   onopen: async () => {
                       setCallStatus('connected');
                       
-                      // TRIGGER AI TO SPEAK FIRST (Crucial)
-                      // We send a hidden text message as if the user said "Hello" to force a reply
+                      // DUAL TRIGGER SYSTEM: Ensure AI speaks first
                       sessionPromise.then(session => {
-                          try {
-                              setTimeout(() => {
-                                  // Type assertion for 'any' to bypass TS check if method definition is missing in type
-                                  (session as any).send({
-                                    clientContent: {
-                                      turns: [{ role: "user", parts: [{ text: "I have connected to the call. Please say 'Allô' and answer me now!" }] }],
-                                      turnComplete: true
-                                    }
-                                  });
-                              }, 500); // Small delay to ensure session is fully ready
-                          } catch(e) {
-                              console.error("Failed to kickstart AI speech", e);
-                          }
+                          setTimeout(() => {
+                              // Trigger 1: Silent Audio Burst (Wakes up VAD/Session)
+                              try {
+                                  const silentData = new Float32Array(1600); // 100ms silence
+                                  const pcmBlob = createBlob(silentData);
+                                  session.sendRealtimeInput({ media: pcmBlob });
+                              } catch(e) { console.error("Audio trigger failed", e); }
+
+                              // Trigger 2: Hidden Text Command
+                              try {
+                                  if (typeof (session as any).send === 'function') {
+                                      (session as any).send({
+                                        clientContent: {
+                                          turns: [{ role: "user", parts: [{ text: "SYSTEM: User connected. Say 'Allô' and introduce yourself now." }] }],
+                                          turnComplete: true
+                                        }
+                                      });
+                                  }
+                              } catch(e) { console.error("Text trigger failed", e); }
+                          }, 500); 
                       });
 
                       // Microphone Setup
