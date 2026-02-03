@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { UserProfile, ChatMessage, ExplanationLanguage, UserPreferences } from '../types';
-import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck } from 'lucide-react';
+import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck, Upload } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { extractVocabulary } from '../services/geminiService';
 import { toast } from './Toaster';
@@ -20,6 +20,7 @@ interface Props {
 const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, messages, onOpenAdmin }) => {
   const [activeTab, setActiveTab] = useState<'menu' | 'vocab' | 'edit'>('menu');
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   
   // Edit Profile State
   const [editName, setEditName] = useState(user.username);
@@ -40,7 +41,7 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
           credits: user.credits > 0 ? user.credits - 1 : 0 
       };
       
-      storageService.saveUserProfile(updatedUser);
+      await storageService.saveUserProfile(updatedUser);
       onUpdateUser(updatedUser);
       toast.success(`${newWords.length} mots ajoutés !`);
     } catch (e) {
@@ -58,34 +59,50 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
       window.speechSynthesis.speak(utterance);
   };
 
-  const deleteWord = (id: string) => {
+  const deleteWord = async (id: string) => {
       const updated = { ...user, vocabulary: user.vocabulary.filter(w => w.id !== id) };
-      storageService.saveUserProfile(updated);
+      await storageService.saveUserProfile(updated);
       onUpdateUser(updated);
   };
 
-  const handleSaveProfile = () => {
+  const handleSaveProfile = async () => {
       if (!editName.trim()) return;
       const updated = { ...user, username: editName, password: editPass };
-      storageService.saveUserProfile(updated);
+      await storageService.saveUserProfile(updated);
       onUpdateUser(updated);
       toast.success("Profil mis à jour !");
       setActiveTab('menu');
   };
 
-  const toggleExplanationLang = () => {
+  const toggleExplanationLang = async () => {
       const current = user.preferences?.explanationLanguage;
       const next = current === ExplanationLanguage.French ? ExplanationLanguage.Malagasy : ExplanationLanguage.French;
       const updatedPrefs = { ...user.preferences, explanationLanguage: next } as UserPreferences;
       const updatedUser = { ...user, preferences: updatedPrefs };
-      storageService.saveUserProfile(updatedUser);
+      await storageService.saveUserProfile(updatedUser);
       onUpdateUser(updatedUser);
       toast.success(`Langue d'explication : ${next}`);
   };
 
   const handleExport = () => {
-      storageService.exportData();
+      storageService.exportData(user);
       toast.success("Données exportées.");
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      
+      setIsImporting(true);
+      const success = await storageService.importData(file, user.id);
+      setIsImporting(false);
+      
+      if (success) {
+          toast.success("Données importées ! Rechargement...");
+          setTimeout(() => window.location.reload(), 1500);
+      } else {
+          toast.error("Fichier invalide ou corrompu.");
+      }
   };
 
   return (
@@ -199,15 +216,19 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                             <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-colors" />
                         </button>
 
-                        <button onClick={handleExport} className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors group">
-                            <div className="flex items-center gap-3">
-                                <Download className="w-5 h-5 text-slate-400" />
-                                <div className="text-left">
-                                    <div className="font-bold text-sm text-slate-700 dark:text-slate-200">Sauvegarder</div>
-                                    <div className="text-[10px] text-slate-400">Exporter les données</div>
-                                </div>
-                            </div>
-                        </button>
+                        {/* Export / Import */}
+                        <div className="grid grid-cols-2 gap-3 mt-2">
+                            <button onClick={handleExport} className="w-full flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors">
+                                <Download className="w-6 h-6 text-slate-400 mb-2" />
+                                <span className="font-bold text-xs text-slate-600 dark:text-slate-300">Exporter</span>
+                            </button>
+                            
+                            <label className="w-full flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors cursor-pointer relative">
+                                {isImporting ? <Loader2 className="w-6 h-6 animate-spin text-indigo-500 mb-2"/> : <Upload className="w-6 h-6 text-slate-400 mb-2" />}
+                                <span className="font-bold text-xs text-slate-600 dark:text-slate-300">Importer</span>
+                                <input type="file" accept=".json" onChange={handleImport} className="hidden" disabled={isImporting} />
+                            </label>
+                        </div>
                     </div>
                 </div>
             )}

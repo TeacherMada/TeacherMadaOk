@@ -28,15 +28,8 @@ const mapProfile = (data: any): UserProfile => ({
 // Helper to handle Login strategy (Email, Phone or Username)
 const formatLoginEmail = (input: string) => {
     const trimmed = input.trim();
-    // If it looks like an email, return it
     if (trimmed.includes('@')) return trimmed;
-    
-    // Normalize username/phone to a synthetic email
-    // We remove spaces and special chars to create a valid email format
-    // Ex: "Jean Paul" -> "JeanPaul@teachermada.com"
-    // Ex: "034 123" -> "034123@teachermada.com"
     const cleanId = trimmed.replace(/[^a-zA-Z0-9.\-_+]/g, '');
-    
     return `${cleanId}@teachermada.com`;
 };
 
@@ -46,23 +39,17 @@ export const storageService = {
   login: async (id: string, pass: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
     try {
         const email = formatLoginEmail(id);
-        
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
             email: email, 
             password: pass
         });
 
-        if (authError) {
-            console.error("Login Auth Error:", authError);
-            return { success: false, error: "Identifiants incorrects." };
-        }
+        if (authError) return { success: false, error: "Identifiants incorrects." };
 
         if (authData.user) {
             const user = await storageService.getUserById(authData.user.id);
             if (user) return { success: true, user };
-            
-            // Edge case: User exists in Auth but not in Profiles table (Trigger failed?)
-            return { success: false, error: "Compte créé mais profil introuvable. Contactez le support." };
+            return { success: false, error: "Compte créé mais profil introuvable." };
         }
         return { success: false, error: "Erreur inconnue." };
     } catch (e: any) {
@@ -74,16 +61,10 @@ export const storageService = {
     if (!password) return { success: false, error: "Mot de passe requis." };
     if (!username) return { success: false, error: "Nom d'utilisateur requis." };
 
-    // Strategy: If email provided, use it. If not, generate synthetic email from username.
     let finalEmail = email?.trim() || "";
-    
-    if (!finalEmail) {
-        finalEmail = formatLoginEmail(username);
-    }
+    if (!finalEmail) finalEmail = formatLoginEmail(username);
 
     try {
-        // 1. Create Auth User
-        // Metadata 'username' is used by the Trigger to create the profile row
         const { data: authData, error: authError } = await supabase.auth.signUp({
             email: finalEmail,
             password: password,
@@ -96,8 +77,6 @@ export const storageService = {
         });
 
         if (authError) {
-            console.error("Signup Auth Error:", authError);
-            // Handle common Supabase errors
             if (authError.message.includes("already registered")) {
                 return { success: false, error: "Ce nom ou cet email est déjà pris." };
             }
@@ -106,16 +85,11 @@ export const storageService = {
         
         if (!authData.user) return { success: false, error: "Erreur de création." };
 
-        // Wait a moment for trigger to create profile
         await new Promise(r => setTimeout(r, 2000));
 
         const user = await storageService.getUserById(authData.user.id);
-        if (user) {
-            return { success: true, user };
-        } else {
-            // Profile trigger failed or slow
-            return { success: false, error: "Compte créé. Veuillez vous connecter." };
-        }
+        if (user) return { success: true, user };
+        return { success: false, error: "Compte créé. Veuillez vous connecter." };
 
     } catch (e: any) {
         return { success: false, error: e.message };
@@ -147,7 +121,6 @@ export const storageService = {
   // --- DATA SYNC ---
 
   saveUserProfile: async (user: UserProfile) => {
-      // Security: Users can only update their own non-sensitive data via RLS
       const updates = {
           xp: user.stats.xp,
           streak: user.stats.streak,
@@ -155,7 +128,6 @@ export const storageService = {
           vocabulary: user.vocabulary,
           preferences: user.preferences,
           free_usage: user.freeUsage
-          // Note: credits are NOT updated here to prevent client-side manipulation
       };
 
       const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
@@ -167,7 +139,7 @@ export const storageService = {
       return data ? data.map(mapProfile) : [];
   },
 
-  // --- LOGIC: CREDITS & USAGE (SECURE BACKEND) ---
+  // --- LOGIC: CREDITS & USAGE ---
 
   checkAndConsumeCredit: async (userId: string): Promise<boolean> => {
       const user = await storageService.getUserById(userId);
@@ -181,26 +153,17 @@ export const storageService = {
       let allowed = false;
       let newFreeUsage = { ...user.freeUsage };
 
-      // 1. Check Weekly Reset
       if (now.getTime() - lastReset.getTime() > oneWeek) {
           newFreeUsage = { count: 0, lastResetWeek: now.toISOString() };
       }
 
-      // 2. Logic
       if (newFreeUsage.count < 3) {
-          // Free Tier (Client logic verified by RLS on update)
           newFreeUsage.count++;
           allowed = true;
           await supabase.from('profiles').update({ free_usage: newFreeUsage }).eq('id', userId);
       } else {
-          // Paid Tier: Call Secure RPC
           const { data, error } = await supabase.rpc('consume_credit', { user_id: userId });
-          
-          if (!error && data === true) {
-              allowed = true;
-          } else {
-              allowed = false;
-          }
+          allowed = !error && data === true;
       }
 
       return allowed;
@@ -220,15 +183,12 @@ export const storageService = {
       return user.credits > 0;
   },
 
-  // Legacy wrapper
   consumeCredit: async (userId: string) => {
       await storageService.checkAndConsumeCredit(userId);
   },
 
-  // ADMIN ONLY FUNCTION (Secure RPC)
   addCredits: async (userId: string, amount: number) => {
-      const { error } = await supabase.rpc('add_credits', { target_user_id: userId, amount: amount });
-      if (error) console.error("Add Credits Error:", error.message);
+      await supabase.rpc('add_credits', { target_user_id: userId, amount: amount });
   },
 
   // --- SESSIONS ---
@@ -283,10 +243,7 @@ export const storageService = {
   },
 
   resolveRequest: async (reqId: string, status: 'approved' | 'rejected') => {
-      // Update status
       const { error } = await supabase.from('admin_requests').update({ status }).eq('id', reqId);
-      
-      // If approved, add credits via RPC
       if (!error && status === 'approved') {
           const { data: req } = await supabase.from('admin_requests').select('*').eq('id', reqId).single();
           if (req && req.type === 'credit' && req.amount) {
@@ -306,9 +263,8 @@ export const storageService = {
           adminContact: { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
       };
   },
-  updateSystemSettings: async (s: any) => { /* No-op for now */ },
+  updateSystemSettings: async (s: any) => { /* No-op */ },
   
-  // Helpers needed for some components
   deductCreditOrUsage: async (userId: string) => {
       await storageService.checkAndConsumeCredit(userId);
       return storageService.getUserById(userId);
@@ -317,6 +273,56 @@ export const storageService = {
       const allowed = await storageService.canRequest(userId);
       return { allowed };
   },
-  exportData: () => {}, // PWA local export deprecated in cloud version
-  importData: async () => false
+
+  // --- IMPORT / EXPORT DATA ---
+  exportData: async (user: UserProfile) => {
+      const exportObj = {
+          userProfile: user,
+          sessions: Object.keys(localStorage)
+              .filter(k => k.startsWith(SESSION_PREFIX + user.id))
+              .map(k => JSON.parse(localStorage.getItem(k) || '{}')),
+          timestamp: new Date().toISOString()
+      };
+      
+      const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `teachermada_backup_${user.username}_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+  },
+
+  importData: async (file: File, currentUserId: string): Promise<boolean> => {
+      return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = async (e) => {
+              try {
+                  const data = JSON.parse(e.target?.result as string);
+                  if (data.userProfile && data.sessions) {
+                      // Update User Profile via Supabase
+                      const profileToSync = { ...data.userProfile, id: currentUserId }; // Force ID to current user
+                      await storageService.saveUserProfile(profileToSync);
+                      
+                      // Restore Sessions to LocalStorage
+                      data.sessions.forEach((session: any) => {
+                          // Remap session ID to current user if needed
+                          const newId = session.id.replace(data.userProfile.id, currentUserId);
+                          localStorage.setItem(newId, JSON.stringify({ ...session, id: newId }));
+                      });
+                      
+                      resolve(true);
+                  } else {
+                      resolve(false);
+                  }
+              } catch (err) {
+                  console.error("Import failed", err);
+                  resolve(false);
+              }
+          };
+          reader.readAsText(file);
+      });
+  }
 };
