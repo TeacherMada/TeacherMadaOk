@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { UserProfile, ChatMessage, VocabularyItem, ExerciseItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
@@ -33,7 +32,8 @@ export async function* sendMessageStream(
 ) {
   if (!user.preferences) throw new Error("Profil incomplet");
   
-  if (!storageService.canRequest(user.id)) {
+  // Note: canRequest is async
+  if (!(await storageService.canRequest(user.id))) {
     yield "⚠️ Crédits insuffisants. Veuillez recharger votre compte.";
     return;
   }
@@ -72,7 +72,7 @@ export async function* sendMessageStream(
     }
 
     if (hasYielded) {
-        storageService.consumeCredit(user.id);
+        await storageService.consumeCredit(user.id);
     }
 
   } catch (error: any) {
@@ -87,6 +87,9 @@ export async function* sendMessageStream(
 
 // --- GEMINI TTS (Text-to-Speech) ---
 export const generateSpeech = async (text: string, voiceName: string = 'Kore'): Promise<ArrayBuffer | null> => {
+    const user = await storageService.getCurrentUser();
+    if (!user || !(await storageService.canRequest(user.id))) return null;
+
     const ai = getClient();
     try {
         const response = await ai.models.generateContent({
@@ -106,6 +109,8 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (!base64Audio) return null;
 
+        await storageService.consumeCredit(user.id);
+
         // Convert Base64 to ArrayBuffer
         const binaryString = atob(base64Audio);
         const len = binaryString.length;
@@ -123,6 +128,9 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
 
 // --- VOCABULARY EXTRACTION ---
 export const extractVocabulary = async (history: ChatMessage[]): Promise<VocabularyItem[]> => {
+    const user = await storageService.getCurrentUser();
+    if (!user || !(await storageService.canRequest(user.id))) return [];
+
     const ai = getClient();
     const context = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
     
@@ -152,6 +160,9 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
         });
 
         const rawData = JSON.parse(response.text || "[]");
+        
+        await storageService.consumeCredit(user.id);
+
         return rawData.map((item: any) => ({
             id: crypto.randomUUID(),
             word: item.word,
@@ -168,7 +179,7 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
 
 // --- EXERCISE GENERATION ---
 export const generateExerciseFromHistory = async (history: ChatMessage[], user: UserProfile): Promise<ExerciseItem[]> => {
-    if (!storageService.canRequest(user.id)) return [];
+    if (!(await storageService.canRequest(user.id))) return [];
 
     const ai = getClient();
     const context = history.slice(-10).map(m => m.text).join("\n");
@@ -207,7 +218,7 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
             }
         });
         
-        storageService.consumeCredit(user.id);
+        await storageService.consumeCredit(user.id);
         return JSON.parse(response.text || "[]");
     } catch (e) {
         return [];
@@ -223,7 +234,7 @@ export const generateRoleplayResponse = async (
     isInitial: boolean = false
 ): Promise<{ aiReply: string; correction?: string; explanation?: string; score?: number; feedback?: string }> => {
     
-    if (!storageService.canRequest(user.id)) return { aiReply: "⚠️ Crédits insuffisants." };
+    if (!(await storageService.canRequest(user.id))) return { aiReply: "⚠️ Crédits insuffisants." };
 
     const ai = getClient();
     const sysInstruct = `Tu es un partenaire de jeu de rôle linguistique. SCENARIO: ${scenarioPrompt}. LANGUE: ${user.preferences?.targetLanguage}. NIVEAU: ${user.preferences?.level}.`;
@@ -255,6 +266,7 @@ export const generateRoleplayResponse = async (
             }
         });
 
+        await storageService.consumeCredit(user.id);
         return JSON.parse(response.text || "{}");
     } catch (e) {
         return { aiReply: "Problème technique." };

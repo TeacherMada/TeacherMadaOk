@@ -38,33 +38,16 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Timer Logic: 1 min = 1 Credit
+  // Timer Logic: Just for display, 1 Credit per interaction now
   useEffect(() => {
     let interval: any;
     if (scenario && !finalScore && !showIntro && !isInitializing) {
-        interval = setInterval(async () => {
-            setSecondsActive(prev => {
-                const newVal = prev + 1;
-                // Every 60 seconds, deduct 1 credit
-                if (newVal > 0 && newVal % 60 === 0) {
-                   storageService.checkAndConsumeCredit(user.id).then(allowed => {
-                        if (allowed) {
-                            storageService.getUserById(user.id).then(u => u && onUpdateUser(u));
-                            notify("1 min écoulée : -1 Crédit", 'info');
-                        } else {
-                            clearInterval(interval);
-                            notify("Crédits épuisés.", 'error');
-                            onShowPayment();
-                            handleFinish(); 
-                        }
-                   });
-                }
-                return newVal;
-            });
+        interval = setInterval(() => {
+            setSecondsActive(prev => prev + 1);
         }, 1000);
     }
     return () => clearInterval(interval);
-  }, [scenario, finalScore, user.id, showIntro, isInitializing]);
+  }, [scenario, finalScore, showIntro, isInitializing]);
 
   useEffect(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -117,10 +100,28 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       setIsLoading(true);
       setLastCorrection(null);
 
+      // Check credit locally before sending
+      if (!storageService.canRequest(user.id)) {
+          notify("Crédits insuffisants.", 'error');
+          onShowPayment();
+          setIsLoading(false);
+          return;
+      }
+
       try {
           const currentHistory = [...messages, userMsg];
           const result = await generateRoleplayResponse(currentHistory, scenario.prompt, user);
           
+          if (result.aiReply === "⚠️ Crédits insuffisants.") {
+              notify("Crédits épuisés.", 'error');
+              onShowPayment();
+              return;
+          }
+
+          // Force UI update after consumption
+          const updatedUser = storageService.getUserById(user.id);
+          if (updatedUser) onUpdateUser(updatedUser);
+
           if (result.correction) {
               setLastCorrection({
                   original: userText,
@@ -143,7 +144,12 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       if (!scenario) return;
       setIsLoading(true);
       try {
+          // Final evaluation consumes 1 credit
           const result = await generateRoleplayResponse(messages, scenario.prompt, user, true);
+          
+          const updatedUser = storageService.getUserById(user.id);
+          if (updatedUser) onUpdateUser(updatedUser);
+
           setFinalScore({
               score: result.score || 0,
               feedback: result.feedback || "Bravo pour ta participation !"
@@ -154,9 +160,9 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
               ...user.stats, 
               dialoguesCompleted: (user.stats.dialoguesCompleted || 0) + 1 
           };
-          const updatedUser = { ...user, stats: newStats };
-          await storageService.saveUserProfile(updatedUser);
-          onUpdateUser(updatedUser);
+          const userWithStats = { ...(storageService.getUserById(user.id) || user), stats: newStats };
+          await storageService.saveUserProfile(userWithStats);
+          onUpdateUser(userWithStats);
 
       } catch (e) {
           setFinalScore({ score: 0, feedback: "Erreur lors de l'évaluation." });
@@ -210,7 +216,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                   <div className={`absolute top-0 left-0 w-full h-2 ${scenario.color}`}></div>
                   <div className={`w-20 h-20 mx-auto ${scenario.color} rounded-full flex items-center justify-center shadow-lg mb-6 animate-float`}><div className="text-white">{scenario.icon}</div></div>
                   <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-2">{scenario.title}</h2>
-                  <p className="text-slate-500 dark:text-slate-400 mb-8 px-4 leading-relaxed">"Tu vas être immergé dans une situation réelle. Fais de ton mieux pour parler uniquement en <strong>{user.preferences?.targetLanguage}</strong>."</p>
+                  <p className="text-slate-500 dark:text-slate-400 mb-8 px-4 leading-relaxed">"Tu vas être immergé dans une situation réelle. Chaque réponse de l'IA consomme <strong>1 crédit</strong>."</p>
                   
                   <div className="flex gap-3">
                       <button onClick={() => setScenario(null)} className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors">Retour</button>

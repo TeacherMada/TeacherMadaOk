@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
@@ -69,7 +68,7 @@ const ChatInterface: React.FC<Props> = ({
   onUpdateUser, 
   onStartPractice, 
   onStartExercise,
-  notify,
+  notify, 
   onShowPayment
 }) => {
   const [input, setInput] = useState('');
@@ -177,6 +176,11 @@ const ChatInterface: React.FC<Props> = ({
           return;
       }
 
+      if (!(await storageService.canRequest(user.id))) {
+          notify("Crédits insuffisants pour le TTS.", "error");
+          return;
+      }
+
       stopSpeaking();
       setIsLoadingAudio(true);
       setSpeakingMessageId(id);
@@ -187,11 +191,15 @@ const ChatInterface: React.FC<Props> = ({
             .replace(/\[Leçon \d+\]/gi, '')
             .replace(/Tanjona|Vocabulaire|Grammaire|Pratique/gi, '');
 
-          // Service returns raw PCM ArrayBuffer
+          // Service returns raw PCM ArrayBuffer and consumes credit
           const pcmBuffer = await generateSpeech(cleanText);
           
+          // Only update UI if success (credit consumed in service)
+          const updatedUser = await storageService.getUserById(user.id);
+          if (updatedUser) onUpdateUser(updatedUser);
+
           if (!pcmBuffer || !audioContext) {
-              throw new Error("Audio init failed");
+              throw new Error("Audio init failed or No credits");
           }
 
           // Decode PCM
@@ -211,7 +219,7 @@ const ChatInterface: React.FC<Props> = ({
 
       } catch (e) {
           console.error("Audio Playback Error", e);
-          notify("Erreur lecture audio", "error");
+          notify("Erreur lecture ou Crédits épuisés", "error");
           setSpeakingMessageId(null);
       } finally {
           setIsLoadingAudio(false);
@@ -220,6 +228,13 @@ const ChatInterface: React.FC<Props> = ({
 
   // --- LIVE API (VOICE CALL) LOGIC ---
   const startLiveSession = async () => {
+      if (!(await storageService.canRequest(user.id))) {
+          notify("Crédits insuffisants pour l'appel.", "error");
+          setIsVoiceMode(false);
+          onShowPayment();
+          return;
+      }
+
       try {
           const apiKey = process.env.API_KEY || '';
           if (!apiKey) {
@@ -297,7 +312,21 @@ const ChatInterface: React.FC<Props> = ({
                           stopLiveSession();
                       }
                   },
-                  onmessage: (msg: LiveServerMessage) => {
+                  onmessage: async (msg: LiveServerMessage) => {
+                      // Credit Consumption: Turn Complete
+                      if (msg.serverContent?.turnComplete) {
+                          const currentUser = await storageService.getUserById(user.id);
+                          if (currentUser && await storageService.canRequest(currentUser.id)) {
+                              await storageService.consumeCredit(currentUser.id);
+                              const updatedUser = await storageService.getUserById(currentUser.id);
+                              if (updatedUser) onUpdateUser(updatedUser);
+                          } else {
+                              stopLiveSession();
+                              notify("Crédits épuisés.", "error");
+                              onShowPayment();
+                          }
+                      }
+
                       const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                       if (audioData) {
                           setVoiceStatus('speaking');
