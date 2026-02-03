@@ -1,4 +1,3 @@
-// ... (imports remain the same)
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff, Lock } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
@@ -264,7 +263,7 @@ const ChatInterface: React.FC<Props> = ({
           return;
       }
 
-      // 3. Initialize Audio Context (User Gesture)
+      // 3. Initialize Audio Context (User Gesture - Essential for mobile)
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
       if (ctx.state === 'suspended') await ctx.resume();
       liveAudioContextRef.current = ctx;
@@ -296,6 +295,7 @@ const ChatInterface: React.FC<Props> = ({
               ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
               liveAudioContextRef.current = ctx;
           }
+          if (ctx.state === 'suspended') await ctx.resume();
 
           const sessionPromise = ai.live.connect({
               model: 'gemini-2.5-flash-native-audio-preview-12-2025',
@@ -312,18 +312,14 @@ const ChatInterface: React.FC<Props> = ({
                       - Name: ${user.username}
                       - Target Language: ${user.preferences?.targetLanguage}
                       - Level: ${user.preferences?.level}
-                      - Lessons Done: ${user.stats.lessonsCompleted}
                       
                       GOAL: Simulate a REAL phone call to practice speaking fluency.
                       
                       BEHAVIOR RULES (IMPORTANT):
-                      1. **SPEAK FIRST**: When connection starts, IMMEDIATELY say "Allô !" followed by a warm intro in ${user.preferences?.targetLanguage}.
-                      2. **ACT HUMAN**: Use filler words ("umm", "euh...", "alors"), laugh naturally ("haha"), take breaths. Do NOT sound robotic.
-                      3. **PEDAGOGY**: Briefly review a concept from recent lessons, then ask a question. Correct major errors gently but focus on flow.
+                      1. **SPEAK FIRST**: When the user picks up, IMMEDIATELY say "Allô !" and introduce yourself warmly.
+                      2. **ACT HUMAN**: Use filler words ("umm", "euh...", "alors"), laugh naturally ("haha"). Do NOT sound robotic.
+                      3. **PEDAGOGY**: Briefly review a concept from recent lessons, then ask a question.
                       4. **ACCENT**: Speak with a native accent for the target language.
-                      5. **EMOTION**: Be encouraging, patient, and dynamic.
-                      
-                      Start the call now.
                       ` }]
                   }
               },
@@ -332,11 +328,18 @@ const ChatInterface: React.FC<Props> = ({
                       setCallStatus('connected');
                       
                       // TRIGGER AI TO SPEAK FIRST (Crucial)
+                      // We send a hidden text message as if the user said "Hello" to force a reply
                       sessionPromise.then(session => {
                           try {
-                              // @ts-ignore
-                              session.send({ parts: [{ text: "L'utilisateur a décroché le téléphone. Dis 'Allô !' immédiatement et présente-toi chaleureusement comme TeacherMada." }] }, true);
-                          } catch(e) {}
+                              session.send({
+                                clientContent: {
+                                  turns: [{ role: "user", parts: [{ text: "Hello, who is this?" }] }],
+                                  turnComplete: true
+                                }
+                              });
+                          } catch(e) {
+                              console.error("Failed to kickstart AI speech", e);
+                          }
                       });
 
                       // Microphone Setup
@@ -411,7 +414,10 @@ const ChatInterface: React.FC<Props> = ({
                       }
                   },
                   onclose: () => { if (isVoiceMode) setCallStatus('idle'); },
-                  onerror: (e) => console.error(e)
+                  onerror: (e) => {
+                      console.error("Live Error", e);
+                      // Don't close immediately on minor errors, but log
+                  }
               }
           });
           liveSessionRef.current = sessionPromise;
@@ -448,7 +454,7 @@ const ChatInterface: React.FC<Props> = ({
   };
 
   useEffect(() => {
-      return () => { if (!isVoiceMode) stopLiveSession(); };
+      return () => { if (isVoiceMode) stopLiveSession(); };
   }, [isVoiceMode]);
 
   // --- PROGRESS ---
