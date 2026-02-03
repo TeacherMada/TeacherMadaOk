@@ -76,7 +76,13 @@ const ChatInterface: React.FC<Props> = ({
   const [messages, setMessages] = useState<ChatMessage[]>(session.messages);
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [currentLessonTitle, setCurrentLessonTitle] = useState(`Leçon ${(user.stats.lessonsCompleted || 0) + 1}`);
+  
+  // Initialize Lesson Title from User Stats + 1
+  const [currentLessonTitle, setCurrentLessonTitle] = useState(() => {
+      const lessonNum = (user.stats.lessonsCompleted || 0) + 1;
+      return `Leçon ${lessonNum}`;
+  });
+  
   const [showTopMenu, setShowTopMenu] = useState(false);
   
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
@@ -132,16 +138,21 @@ const ChatInterface: React.FC<Props> = ({
     return () => clearInterval(interval);
   }, [isVoiceMode]);
 
-  // Lesson Number Sync from AI Messages
+  // Lesson Number Sync from AI Messages (DYNAMIC UPDATE)
   useEffect(() => {
       const lastAiMessage = [...messages].reverse().find(m => m.role === 'model');
       if (lastAiMessage) {
           const match = lastAiMessage.text.match(/\[Leçon (\d+)\]/i);
           if (match) {
-              setCurrentLessonTitle(`Leçon ${match[1]}`);
+              const newTitle = `Leçon ${match[1]}`;
+              if (newTitle !== currentLessonTitle) {
+                  setCurrentLessonTitle(newTitle);
+                  // Optionally sync back to user stats if we detect a jump, 
+                  // though processMessage usually handles the stats update for explicit "Next" clicks.
+              }
           }
       }
-  }, [messages]);
+  }, [messages, currentLessonTitle]);
 
   // Format Time
   const formatTime = (secs: number) => {
@@ -455,11 +466,12 @@ const ChatInterface: React.FC<Props> = ({
       
       // Update User Stats (Simplified)
       if (isAuto) {
-          // Increment Lesson Count logic could go here or parsing from AI message
+          // Increment Lesson Count logic
           const newStats = { ...user.stats, lessonsCompleted: (user.stats.lessonsCompleted || 0) + 1 };
           const updated = { ...user, stats: newStats };
           await storageService.saveUserProfile(updated);
           onUpdateUser(updated);
+          // Current Lesson Title will update via useEffect above based on message content
       }
 
     } catch (e) {

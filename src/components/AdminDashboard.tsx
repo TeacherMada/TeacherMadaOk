@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, SystemSettings, AdminRequest } from '../types';
 import { storageService } from '../services/storageService';
-import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle, AlertTriangle, Globe, Banknote, Flag, Info, Shield, Loader2 } from 'lucide-react';
+import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle, AlertTriangle, Globe, Banknote, Flag, Info, Shield, Loader2, Trash2 } from 'lucide-react';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
@@ -25,7 +25,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   
   // New State for Coupon Generation
   const [newTransactionRef, setNewTransactionRef] = useState('');
-  const [couponAmount, setCouponAmount] = useState<number>(50);
+  const [couponAmount, setCouponAmount] = useState<number>(10);
 
   const [manualCreditInputs, setManualCreditInputs] = useState<Record<string, string>>({});
   const [passwordInputs, setPasswordInputs] = useState<Record<string, string>>({});
@@ -94,7 +94,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   const handleResolveRequest = async (reqId: string, status: 'approved' | 'rejected') => {
       await storageService.resolveRequest(reqId, status);
       await refreshData();
-      notify(`Demande ${status === 'approved' ? 'approuvée' : 'rejetée'}.`, 'success');
+      notify(`Demande ${status === 'approved' ? 'approuvée (Crédits ajoutés)' : 'rejetée'}.`, 'success');
   };
 
   const saveSettings = async () => {
@@ -130,8 +130,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       notify("Langue supprimée.", 'info');
   };
 
+  // --- COUPON MANAGEMENT ---
   const handleAddCoupon = async () => {
-      if (!newTransactionRef.trim() || couponAmount <= 0) return;
+      if (!newTransactionRef.trim() || couponAmount <= 0) {
+          notify("Code et montant requis.", 'error');
+          return;
+      }
       
       const newCoupon = {
           code: newTransactionRef.trim(),
@@ -139,9 +143,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
           createdAt: new Date().toISOString()
       };
 
+      // Handle fallback if validTransactionRefs is undefined
+      const currentRefs = settings.validTransactionRefs || [];
+
       const updatedSettings = { 
           ...settings, 
-          validTransactionRefs: [...(settings.validTransactionRefs || []), newCoupon] 
+          validTransactionRefs: [...currentRefs, newCoupon] 
       };
       
       setSettings(updatedSettings);
@@ -258,63 +265,102 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
 
         {/* REQUESTS & COUPONS TAB */}
         {activeTab === 'requests' && (
-            <div className="space-y-6">
+            <div className="space-y-8">
                  {/* Auto Validation refs */}
-                 <div className="bg-emerald-50 dark:bg-emerald-900/10 p-6 rounded-[2rem] border border-emerald-100 dark:border-emerald-900/30">
-                     <h3 className="font-black text-emerald-800 dark:text-emerald-400 mb-4 flex items-center gap-2 uppercase tracking-widest text-xs"><Banknote className="w-5 h-5"/> Créer Code Auto-Validation (Crédit)</h3>
-                     <div className="flex flex-col md:flex-row gap-2 mb-6">
-                         <input 
-                            type="text" 
-                            placeholder="Code Coupon (ex: PROMO-2024)" 
-                            value={newTransactionRef} 
-                            onChange={e => setNewTransactionRef(e.target.value)} 
-                            className="flex-[2] p-4 rounded-2xl border border-emerald-200 dark:border-emerald-800 outline-none bg-white dark:bg-slate-900" 
-                         />
-                         <div className="flex-1 flex items-center gap-2 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 rounded-2xl px-4">
-                             <span className="text-emerald-600 font-bold text-xs uppercase">Montant</span>
-                             <input 
-                                type="number" 
-                                value={couponAmount} 
-                                onChange={e => setCouponAmount(Number(e.target.value))} 
-                                className="w-full bg-transparent font-black text-lg outline-none"
-                             />
-                         </div>
-                         <button onClick={handleAddCoupon} className="px-8 py-4 bg-emerald-600 text-white font-black rounded-2xl shadow-lg shadow-emerald-600/20 hover:scale-105 transition-transform">Ajouter</button>
-                     </div>
+                 <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-emerald-100 dark:border-emerald-900/30 shadow-sm relative overflow-hidden">
+                     <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-100 dark:bg-emerald-900/20 rounded-full blur-2xl -mr-16 -mt-16"></div>
                      
-                     <div className="flex flex-wrap gap-3">
-                        {settings.validTransactionRefs?.map((ref, i) => (
-                            <div key={i} className="px-4 py-2 bg-white dark:bg-slate-800 rounded-xl flex items-center gap-3 text-sm font-bold shadow-sm border border-emerald-100 dark:border-white/5">
-                                <span className="font-mono">{ref.code}</span>
-                                <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs">{ref.amount} CRD</span>
-                                <button onClick={() => removeCoupon(ref.code)} className="text-red-400 hover:text-red-600 p-1 hover:bg-red-50 rounded"><X className="w-3 h-3"/></button>
+                     <div className="relative z-10">
+                        <h3 className="font-black text-emerald-800 dark:text-emerald-400 mb-6 flex items-center gap-2 uppercase tracking-widest text-sm">
+                            <Banknote className="w-5 h-5"/> Créer un Coupon (Code)
+                        </h3>
+                        <div className="flex flex-col md:flex-row gap-3 mb-8">
+                            <div className="flex-[2]">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-2 mb-1 block">Code à distribuer</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="Ex: PROMO-2024" 
+                                    value={newTransactionRef} 
+                                    onChange={e => setNewTransactionRef(e.target.value)} 
+                                    className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 font-bold font-mono text-lg" 
+                                />
                             </div>
-                        ))}
+                            <div className="flex-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-2 mb-1 block">Valeur (Crédits)</label>
+                                <input 
+                                    type="number" 
+                                    value={couponAmount} 
+                                    onChange={e => setCouponAmount(Number(e.target.value))} 
+                                    className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-center text-lg"
+                                />
+                            </div>
+                            <div className="flex items-end">
+                                <button onClick={handleAddCoupon} className="h-[60px] px-8 bg-emerald-600 text-white font-black rounded-2xl shadow-lg shadow-emerald-600/20 hover:scale-105 transition-transform flex items-center justify-center gap-2">
+                                    <Plus className="w-5 h-5"/> Créer
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Coupons Actifs</h4>
+                            <div className="flex flex-wrap gap-3">
+                                {settings.validTransactionRefs?.length === 0 && <span className="text-slate-400 text-sm italic">Aucun coupon actif.</span>}
+                                {settings.validTransactionRefs?.map((ref, i) => (
+                                    <div key={i} className="px-4 py-2 bg-white dark:bg-slate-800 rounded-xl flex items-center gap-3 text-sm font-bold shadow-sm border border-slate-100 dark:border-slate-700 group">
+                                        <span className="font-mono text-slate-700 dark:text-slate-300">{ref.code}</span>
+                                        <span className="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded text-xs">{ref.amount} CRD</span>
+                                        <button onClick={() => removeCoupon(ref.code)} className="text-slate-300 hover:text-red-500 transition-colors p-1"><Trash2 className="w-3.5 h-3.5"/></button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                      </div>
                  </div>
 
                  <div className="space-y-4">
-                    <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400 ml-2">Demandes Manuelles</h3>
+                    <div className="flex items-center justify-between ml-2">
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">Demandes de Rechargement</h3>
+                        <span className="bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-bold px-2 py-1 rounded-lg">{requests.filter(r => r.status === 'pending').length} en attente</span>
+                    </div>
+                    
+                    {requests.length === 0 && (
+                        <div className="text-center py-10 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800">
+                            <p className="text-slate-400 text-sm">Aucune demande.</p>
+                        </div>
+                    )}
+
                     {requests.map(req => (
-                        <div key={req.id} className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] shadow-sm border border-slate-200 dark:border-white/5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                            <div>
+                        <div key={req.id} className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] shadow-sm border border-slate-200 dark:border-white/5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 group hover:border-indigo-500/20 transition-all">
+                            <div className="flex-1">
                                 <div className="flex items-center gap-3 mb-2">
-                                    <span className="font-black text-lg">{req.username}</span>
-                                    <span className="text-[10px] font-black text-slate-400 bg-slate-100 dark:bg-white/5 px-3 py-1 rounded-full uppercase tracking-tighter">{new Date(req.createdAt).toLocaleDateString()}</span>
+                                    <span className="font-black text-lg text-slate-800 dark:text-white">{req.username}</span>
+                                    <span className="text-[10px] font-black text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full uppercase tracking-tighter">{new Date(req.createdAt).toLocaleDateString()}</span>
+                                    {req.status === 'pending' && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>}
                                 </div>
                                 <div className="flex flex-wrap items-center gap-4">
-                                    {req.amount && <div className="text-indigo-600 font-black bg-indigo-50 dark:bg-indigo-900/20 px-4 py-1 rounded-xl text-xs">{req.amount} CRD</div>}
-                                    <div className="text-slate-500 italic text-sm">"{req.message}"</div>
+                                    {req.amount && (
+                                        <div className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-black bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1.5 rounded-xl text-sm border border-indigo-100 dark:border-indigo-800">
+                                            <CreditCard className="w-3.5 h-3.5"/>
+                                            {req.amount} CRD
+                                        </div>
+                                    )}
+                                    {req.message && <div className="text-slate-500 dark:text-slate-400 italic text-sm border-l-2 border-slate-200 dark:border-slate-700 pl-3">"{req.message}"</div>}
                                 </div>
                             </div>
                             <div className="flex gap-2 w-full sm:w-auto">
                                 {req.status === 'pending' ? (
                                     <>
-                                        <button onClick={() => handleResolveRequest(req.id, 'approved')} className="flex-1 sm:flex-none p-4 bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-500/20"><Check className="w-6 h-6 mx-auto"/></button>
-                                        <button onClick={() => handleResolveRequest(req.id, 'rejected')} className="flex-1 sm:flex-none p-4 bg-red-500 text-white rounded-2xl shadow-lg shadow-red-500/20"><X className="w-6 h-6 mx-auto"/></button>
+                                        <button onClick={() => handleResolveRequest(req.id, 'approved')} className="flex-1 sm:flex-none px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl shadow-lg shadow-emerald-500/20 font-bold transition-all flex items-center justify-center gap-2">
+                                            <Check className="w-5 h-5"/> Valider
+                                        </button>
+                                        <button onClick={() => handleResolveRequest(req.id, 'rejected')} className="flex-1 sm:flex-none px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-500 hover:border-red-200 rounded-2xl transition-all">
+                                            <X className="w-5 h-5 mx-auto"/>
+                                        </button>
                                     </>
                                 ) : (
-                                    <span className={`px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${req.status === 'approved' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>{req.status}</span>
+                                    <span className={`px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border ${req.status === 'approved' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                                        {req.status === 'approved' ? 'Validé' : 'Rejeté'}
+                                    </span>
                                 )}
                             </div>
                         </div>

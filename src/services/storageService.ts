@@ -222,34 +222,40 @@ export const storageService = {
   // --- SECURE CREDIT REDEMPTION (RPC) ---
   redeemCode: async (userId: string, code: string): Promise<{ success: boolean; amount?: number; message?: string }> => {
       try {
-          // Attempt 1: RPC
+          // Attempt 1: RPC (Best for atomicity)
           const { data, error } = await supabase.rpc('redeem_coupon', { user_id: userId, coupon_code: code });
           
           if (!error && data) {
               return { success: data.success, amount: data.credits_added, message: data.message };
           }
 
-          // Attempt 2: Client Side Fallback (Assuming RLS allows update on settings)
+          // Attempt 2: Fallback (Client-side logic if RPC not available)
           console.warn("RPC Failed, trying client-side logic...", error);
           const settings = await storageService.loadSystemSettings();
           const validRefs = settings.validTransactionRefs || [];
+          
+          // Find the coupon object
           const couponIndex = validRefs.findIndex(c => c.code.toLowerCase() === code.toLowerCase());
 
           if (couponIndex !== -1) {
               const coupon = validRefs[couponIndex];
-              await storageService.addCredits(userId, coupon.amount);
+              const amountToAdd = coupon.amount || 0; // Ensure amount exists
+
+              // 1. Add Credits
+              await storageService.addCredits(userId, amountToAdd);
               
+              // 2. Remove Coupon from Settings
               const newRefs = [...validRefs];
               newRefs.splice(couponIndex, 1);
               
               const saveSuccess = await storageService.updateSystemSettings({ ...settings, validTransactionRefs: newRefs });
               
               if (saveSuccess) {
-                  return { success: true, amount: coupon.amount };
+                  return { success: true, amount: amountToAdd };
               }
           }
 
-          return { success: false, message: "Code invalide ou erreur serveur." };
+          return { success: false, message: "Code invalide ou déjà utilisé." };
 
       } catch (e: any) {
           return { success: false, message: e.message };
@@ -308,13 +314,21 @@ export const storageService = {
   },
 
   resolveRequest: async (reqId: string, status: 'approved' | 'rejected') => {
-      const { error } = await supabase.from('admin_requests').update({ status }).eq('id', reqId);
-      if (!error && status === 'approved') {
+      // 1. If approved, verify it's a credit request and add credits FIRST
+      if (status === 'approved') {
           const { data: req } = await supabase.from('admin_requests').select('*').eq('id', reqId).single();
           if (req && req.type === 'credit' && req.amount) {
-              await storageService.addCredits(req.user_id, req.amount);
+              const creditSuccess = await storageService.addCredits(req.user_id, req.amount);
+              if (!creditSuccess) {
+                  console.error("Failed to add credits during request approval");
+                  return; // Stop execution if credit add failed
+              }
           }
       }
+
+      // 2. Update status in DB
+      const { error } = await supabase.from('admin_requests').update({ status }).eq('id', reqId);
+      if (error) console.error("Resolve Request Error", error);
   },
 
   // --- SETTINGS (Supabase Sync) ---
@@ -324,14 +338,23 @@ export const storageService = {
           const { data, error } = await supabase.from('system_settings').select('*').single();
           
           if (!error && data) {
+              // Normalize validTransactionRefs to allow legacy string[] or new CouponCode[]
+              let normalizedCoupons: CouponCode[] = [];
+              if (Array.isArray(data.valid_transaction_refs)) {
+                  normalizedCoupons = data.valid_transaction_refs.map((r: any) => {
+                      if (typeof r === 'string') {
+                          return { code: r, amount: 0, createdAt: new Date().toISOString() };
+                      }
+                      return r;
+                  });
+              }
+
               const settings: SystemSettings = {
                   apiKeys: data.api_keys || [],
                   activeModel: data.active_model || 'gemini-3-flash-preview',
                   creditPrice: data.credit_price || 50,
                   customLanguages: data.custom_languages || [],
-                  validTransactionRefs: Array.isArray(data.valid_transaction_refs) 
-                    ? data.valid_transaction_refs.map((r: any) => typeof r === 'string' ? {code: r, amount: 0, createdAt: new Date().toISOString()} : r)
-                    : [],
+                  validTransactionRefs: normalizedCoupons,
                   adminContact: data.admin_contact || { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
               };
               localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
