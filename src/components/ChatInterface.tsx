@@ -4,7 +4,7 @@ import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import MarkdownRenderer from './MarkdownRenderer';
-import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
+import VoiceCall from './VoiceCall';
 
 interface Props {
   user: UserProfile;
@@ -30,58 +30,6 @@ function pcmToAudioBuffer(data: Uint8Array, ctx: AudioContext, sampleRate: numbe
     return buffer;
 }
 
-// Helper for Base64 decode
-function base64ToUint8Array(base64: string) {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-// Helper for Audio Input (Microphone to PCM) for Live API
-function createBlob(data: Float32Array): { data: string, mimeType: string } {
-  const l = data.length;
-  const int16 = new Int16Array(l);
-  for (let i = 0; i < l; i++) {
-    int16[i] = data[i] * 32768;
-  }
-  const bytes = new Uint8Array(int16.buffer);
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return {
-    data: btoa(binary),
-    mimeType: 'audio/pcm;rate=16000',
-  };
-}
-
-// Tone Generator for Ringing
-const playRingingTone = (ctx: AudioContext) => {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    
-    // Classic phone ring frequencies
-    osc.frequency.value = 440; 
-    osc.type = 'sine';
-    
-    // Modulation to sound like a ring (brrr-brrr)
-    const now = ctx.currentTime;
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.5, now + 0.1);
-    gain.gain.linearRampToValueAtTime(0.5, now + 2);
-    gain.gain.linearRampToValueAtTime(0, now + 2.1);
-    
-    osc.start(now);
-    osc.stop(now + 2.5); // 2.5s loop
-};
-
 const ChatInterface: React.FC<Props> = ({ 
   user, 
   session, 
@@ -97,6 +45,8 @@ const ChatInterface: React.FC<Props> = ({
   const [messages, setMessages] = useState<ChatMessage[]>(session.messages);
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  
+  const [showVoiceCall, setShowVoiceCall] = useState(false);
   
   // Initialize Lesson Title from User Stats or Default
   const [currentLessonTitle, setCurrentLessonTitle] = useState(() => {
@@ -118,31 +68,6 @@ const ChatInterface: React.FC<Props> = ({
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [currentSource, setCurrentSource] = useState<AudioBufferSourceNode | null>(null);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
-
-  // --- LIVE CALL STATE ---
-  const [isVoiceMode, setIsVoiceMode] = useState(false);
-  const [callStatus, setCallStatus] = useState<'idle' | 'ringing' | 'connecting' | 'connected' | 'reconnecting'>('idle');
-  const [callDuration, setCallDuration] = useState(0);
-  const [aiSpeaking, setAiSpeaking] = useState(false);
-  const [showVoiceInput, setShowVoiceInput] = useState(false);
-  const [voiceInput, setVoiceInput] = useState('');
-  
-  // Refs for Live API
-  const liveSessionRef = useRef<any>(null);
-  const liveAudioContextRef = useRef<AudioContext | null>(null);
-  const liveInputSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const liveProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const liveNextStartTimeRef = useRef<number>(0);
-  const liveSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-  const ringIntervalRef = useRef<any>(null);
-
-  // Invisible Tracking Metrics
-  const callMetrics = useRef({
-      userSpeakingTime: 0,
-      aiSpeakingTime: 0,
-      hesitationCount: 0,
-      vocabularyScore: 0
-  });
 
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
   const MIN_LESSONS_FOR_CALL = 0;
@@ -166,21 +91,6 @@ const ChatInterface: React.FC<Props> = ({
       return () => window.removeEventListener('click', initAudio);
   }, [audioContext]);
 
-  // Voice Call Timer
-  useEffect(() => {
-    let interval: any;
-    if (callStatus === 'connected') {
-      interval = setInterval(() => {
-          setCallDuration(p => p + 1);
-          // Invisible metric tracking
-          if (!aiSpeaking) callMetrics.current.userSpeakingTime += 1;
-      }, 1000);
-    } else {
-      setCallDuration(0);
-    }
-    return () => clearInterval(interval);
-  }, [callStatus, aiSpeaking]);
-
   // Lesson Title Update
   useEffect(() => {
       const lastAiMessage = [...messages].reverse().find(m => m.role === 'model');
@@ -192,12 +102,6 @@ const ChatInterface: React.FC<Props> = ({
           }
       }
   }, [messages, currentLessonTitle]);
-
-  const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
-  };
 
   // --- TTS PLAYBACK ---
   const stopSpeaking = () => {
@@ -248,253 +152,18 @@ const ChatInterface: React.FC<Props> = ({
       }
   };
 
-  // --- LIVE CALL SIMULATION ---
-
-  const handleVoiceModeClick = async () => {
-      // 1. Check Condition
+  const handleVoiceCallClick = async () => {
       if ((user.stats.lessonsCompleted || 0) < MIN_LESSONS_FOR_CALL) {
           notify(`Complétez ${MIN_LESSONS_FOR_CALL - (user.stats.lessonsCompleted || 0)} leçon(s) de plus pour débloquer l'appel !`, "error");
           return;
       }
-
-      // 2. Check Credits
-      const canReq = await storageService.canRequest(user.id);
-      if (!canReq) {
+      if (!(await storageService.canRequest(user.id))) {
           notify("Crédits insuffisants pour l'appel.", "error");
           onShowPayment();
           return;
       }
-
-      // 3. Initialize Audio Context (User Gesture - Essential for mobile)
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
-      if (ctx.state === 'suspended') await ctx.resume();
-      liveAudioContextRef.current = ctx;
-      liveNextStartTimeRef.current = ctx.currentTime;
-
-      // 4. Start Ringing Phase
-      setIsVoiceMode(true);
-      setShowVoiceInput(false);
-      setCallStatus('ringing');
-      
-      // Simulate Ringing Sound
-      playRingingTone(ctx);
-      ringIntervalRef.current = setInterval(() => playRingingTone(ctx), 3000);
-
-      // 5. Connect after delay (Simulate pick up)
-      setTimeout(() => {
-          clearInterval(ringIntervalRef.current);
-          startLiveSession();
-      }, 4500); // 4.5s ringing
+      setShowVoiceCall(true);
   };
-
-  const sendLiveTextMessage = (text: string) => {
-      if (!liveSessionRef.current) return;
-      
-      liveSessionRef.current.then((session: any) => {
-          try {
-              // Safety check for method existence
-              if (typeof session.send === 'function') {
-                  session.send({
-                      clientContent: {
-                          turns: [{ role: "user", parts: [{ text: text }] }],
-                          turnComplete: true
-                      }
-                  });
-                  setVoiceInput('');
-                  setShowVoiceInput(false); 
-              } else {
-                  console.warn("LiveSession.send is not available on this client version.");
-                  notify("Impossible d'envoyer le message texte (Erreur API)", "error");
-              }
-          } catch(e) {
-              console.error("Failed to send text in live session", e);
-              notify("Erreur d'envoi du message", "error");
-          }
-      });
-  };
-
-  const startLiveSession = async () => {
-      try {
-          const apiKey = process.env.API_KEY || '';
-          setCallStatus('connecting');
-          const ai = new GoogleGenAI({ apiKey });
-          
-          let ctx = liveAudioContextRef.current;
-          if (!ctx) {
-              ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
-              liveAudioContextRef.current = ctx;
-          }
-          if (ctx.state === 'suspended') await ctx.resume();
-
-          const sessionPromise = ai.live.connect({
-              model: 'gemini-2.5-flash-native-audio-preview-12-2025',
-              config: {
-                  responseModalities: [Modality.AUDIO],
-                  speechConfig: {
-                      voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
-                  },
-                  systemInstruction: {
-                      parts: [{ text: `
-                      IDENTITY: You are "TeacherMada", a warm, human teacher located in Antananarivo, Madagascar. The administrator is Tsanta Fiderana.
-                      
-                      USER CONTEXT:
-                      - Name: ${user.username}
-                      - Target Language: ${user.preferences?.targetLanguage}
-                      - Level: ${user.preferences?.level}
-                      
-                      GOAL: Simulate a REAL phone call to practice speaking fluency.
-                      
-                      BEHAVIOR RULES (IMPORTANT):
-                      1. **SPEAK FIRST**: When the user picks up, IMMEDIATELY say "Allô !" and introduce yourself warmly.
-                      2. **ACT HUMAN**: Use filler words ("umm", "euh...", "alors"), laugh naturally ("haha"). Do NOT sound robotic.
-                      3. **PEDAGOGY**: Briefly review a concept from recent lessons, then ask a question.
-                      4. **ACCENT**: Speak with a native accent for the target language.
-                      ` }]
-                  }
-              },
-              callbacks: {
-                  onopen: async () => {
-                      setCallStatus('connected');
-                      
-                      // DUAL TRIGGER SYSTEM: Ensure AI speaks first
-                      sessionPromise.then(session => {
-                          setTimeout(() => {
-                              // Trigger 1: Silent Audio Burst (Wakes up VAD/Session)
-                              try {
-                                  const silentData = new Float32Array(1600); // 100ms silence
-                                  const pcmBlob = createBlob(silentData);
-                                  session.sendRealtimeInput({ media: pcmBlob });
-                              } catch(e) { console.error("Audio trigger failed", e); }
-
-                              // Trigger 2: Hidden Text Command
-                              try {
-                                  if (typeof (session as any).send === 'function') {
-                                      (session as any).send({
-                                        clientContent: {
-                                          turns: [{ role: "user", parts: [{ text: "SYSTEM: User connected. Say 'Allô' and introduce yourself now." }] }],
-                                          turnComplete: true
-                                        }
-                                      });
-                                  }
-                              } catch(e) { console.error("Text trigger failed", e); }
-                          }, 500); 
-                      });
-
-                      // Microphone Setup
-                      try {
-                          const stream = await navigator.mediaDevices.getUserMedia({ audio: {
-                              sampleRate: 16000,
-                              channelCount: 1,
-                              echoCancellation: true,
-                              noiseSuppression: true,
-                              autoGainControl: true
-                          }});
-                          
-                          const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 16000});
-                          const source = inputCtx.createMediaStreamSource(stream);
-                          const processor = inputCtx.createScriptProcessor(4096, 1, 1);
-                          
-                          processor.onaudioprocess = (e) => {
-                              const inputData = e.inputBuffer.getChannelData(0);
-                              const pcmBlob = createBlob(inputData);
-                              sessionPromise.then(session => {
-                                  session.sendRealtimeInput({ media: pcmBlob });
-                              }).catch(err => {});
-                          };
-                          
-                          source.connect(processor);
-                          processor.connect(inputCtx.destination);
-                          liveInputSourceRef.current = source;
-                          liveProcessorRef.current = processor;
-                      } catch (micErr) {
-                          notify("Microphone inaccessible.", "error");
-                          stopLiveSession();
-                      }
-                  },
-                  onmessage: async (msg: LiveServerMessage) => {
-                      if (msg.serverContent?.turnComplete) {
-                          // Credit deduction logic
-                          const currentUser = await storageService.getUserById(user.id);
-                          if (currentUser && await storageService.canRequest(currentUser.id)) {
-                              await storageService.consumeCredit(currentUser.id);
-                              const updatedUser = await storageService.getUserById(currentUser.id);
-                              if (updatedUser) onUpdateUser(updatedUser);
-                          } else {
-                              stopLiveSession();
-                              notify("Crédits épuisés.", "error");
-                              onShowPayment();
-                          }
-                      }
-
-                      const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-                      if (audioData) {
-                          setAiSpeaking(true);
-                          callMetrics.current.aiSpeakingTime += 1; // Metric
-                          
-                          const bytes = base64ToUint8Array(audioData);
-                          const buffer = pcmToAudioBuffer(bytes, ctx, 24000);
-                          const source = ctx.createBufferSource();
-                          source.buffer = buffer;
-                          source.connect(ctx.destination);
-                          
-                          const now = ctx.currentTime;
-                          if (liveNextStartTimeRef.current < now) liveNextStartTimeRef.current = now;
-                          
-                          const startAt = liveNextStartTimeRef.current;
-                          source.start(startAt);
-                          liveNextStartTimeRef.current = startAt + buffer.duration;
-                          
-                          liveSourcesRef.current.add(source);
-                          source.onended = () => {
-                              liveSourcesRef.current.delete(source);
-                              if (liveSourcesRef.current.size === 0) setAiSpeaking(false);
-                          };
-                      }
-                  },
-                  onclose: () => { if (isVoiceMode) setCallStatus('idle'); },
-                  onerror: (e) => {
-                      console.error("Live Error", e);
-                      // Don't close immediately on minor errors, but log
-                  }
-              }
-          });
-          liveSessionRef.current = sessionPromise;
-      } catch (e) {
-          notify("Echec de l'appel.", "error");
-          setIsVoiceMode(false);
-      }
-  };
-
-  const stopLiveSession = async () => {
-      clearInterval(ringIntervalRef.current);
-      if (liveInputSourceRef.current) {
-          liveInputSourceRef.current.disconnect();
-          liveInputSourceRef.current = null;
-      }
-      if (liveProcessorRef.current) {
-          liveProcessorRef.current.disconnect();
-          liveProcessorRef.current = null;
-      }
-      liveSourcesRef.current.forEach(s => s.stop());
-      liveSourcesRef.current.clear();
-      
-      if (liveAudioContextRef.current && liveAudioContextRef.current.state !== 'closed') {
-          try { await liveAudioContextRef.current.close(); } catch(e) {}
-      }
-      liveAudioContextRef.current = null;
-      
-      if (liveSessionRef.current) {
-          try { (await liveSessionRef.current).close(); } catch(e) {}
-          liveSessionRef.current = null;
-      }
-      setCallStatus('idle');
-      setAiSpeaking(false);
-      setShowVoiceInput(false);
-  };
-
-  useEffect(() => {
-      return () => { if (isVoiceMode) stopLiveSession(); };
-  }, [isVoiceMode]);
 
   // --- PROGRESS ---
   const progressData = useMemo(() => {
@@ -559,129 +228,20 @@ const ChatInterface: React.FC<Props> = ({
   const handleSend = () => { if (input.trim()) processMessage(input); };
   useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming]);
 
-  // --- LIVE CALL UI ---
-  if (isVoiceMode) {
-      const isRinging = callStatus === 'ringing';
-      return (
-          <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col font-sans overflow-hidden">
-              {/* Background Image/Blur */}
-              <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1555445054-d166d149d751?q=80&w=2000')] bg-cover bg-center opacity-20 blur-xl scale-110"></div>
-              
-              <div className="relative z-10 flex flex-col h-full items-center justify-between p-8 safe-top safe-bottom">
-                  {/* Top Info */}
-                  <div className="text-center pt-8 space-y-2">
-                      <div className="inline-flex items-center gap-2 bg-white/10 px-3 py-1 rounded-full backdrop-blur-md">
-                          <Lock className="w-3 h-3 text-white/70" />
-                          <span className="text-[10px] text-white/70 font-bold uppercase tracking-wider">Sécurisé</span>
-                      </div>
-                      <h2 className="text-3xl font-black text-white tracking-tight">TeacherMada</h2>
-                      <p className="text-indigo-200 text-sm font-medium animate-pulse">
-                          {isRinging ? "Appel entrant..." : formatTime(callDuration)}
-                      </p>
-                  </div>
-
-                  {/* Avatar / Visualizer */}
-                  <div className="relative">
-                      {isRinging && (
-                          <>
-                            <div className="absolute inset-0 bg-white/10 rounded-full animate-ping blur-2xl delay-100"></div>
-                            <div className="absolute inset-0 bg-white/5 rounded-full animate-ping blur-3xl delay-300 scale-150"></div>
-                          </>
-                      )}
-                      
-                      {/* Active Speaking Indicator */}
-                      {!isRinging && aiSpeaking && (
-                          <div className="absolute inset-0 border-4 border-emerald-400/50 rounded-full animate-pulse scale-110"></div>
-                      )}
-
-                      <div className="w-48 h-48 rounded-full bg-gradient-to-br from-slate-800 to-slate-900 border-4 border-white/10 shadow-2xl flex items-center justify-center relative overflow-hidden">
-                          <img src={TEACHER_AVATAR} className={`w-full h-full object-cover p-6 ${isRinging ? 'animate-bounce-slight' : ''}`} alt="Teacher" />
-                      </div>
-                  </div>
-
-                  {/* Text Input Overlay */}
-                  {showVoiceInput && !isRinging && (
-                      <div className="absolute bottom-36 left-6 right-6 z-20 animate-slide-up">
-                          <div className="bg-slate-800/80 backdrop-blur-md p-3 rounded-2xl border border-white/10 shadow-xl flex gap-2">
-                              <input 
-                                  value={voiceInput}
-                                  onChange={(e) => setVoiceInput(e.target.value)}
-                                  onKeyDown={(e) => e.key === 'Enter' && sendLiveTextMessage(voiceInput)}
-                                  placeholder="Écrire un message..."
-                                  autoFocus
-                                  className="flex-1 bg-transparent border-none outline-none text-white text-sm placeholder:text-slate-400 px-2"
-                              />
-                              <button 
-                                  onClick={() => sendLiveTextMessage(voiceInput)}
-                                  disabled={!voiceInput.trim()}
-                                  className="p-2 bg-indigo-600 rounded-xl text-white disabled:opacity-50"
-                              >
-                                  <Send className="w-4 h-4" />
-                              </button>
-                          </div>
-                      </div>
-                  )}
-
-                  {/* Context Info */}
-                  {!isRinging && !showVoiceInput && (
-                      <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 w-full max-w-xs border border-white/5 text-center">
-                          <p className="text-white text-sm font-medium leading-relaxed">
-                              "Je suis ton prof à Tana. On discute du cours ?"
-                          </p>
-                          <div className="mt-2 flex justify-center gap-1">
-                              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce"></span>
-                              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce delay-100"></span>
-                              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce delay-200"></span>
-                          </div>
-                      </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="grid grid-cols-3 gap-8 w-full max-w-xs items-center mb-8 relative z-10">
-                      {!isRinging && (
-                          <>
-                            <button className="flex flex-col items-center gap-2 group">
-                                <div className="w-14 h-14 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center backdrop-blur-md transition-all">
-                                    <MicOff className="w-6 h-6 text-white" />
-                                </div>
-                                <span className="text-[10px] text-white/50 font-bold uppercase">Mute</span>
-                            </button>
-                            <button onClick={() => { setIsVoiceMode(false); stopLiveSession(); }} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform">
-                                <div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-white/10">
-                                    <Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" />
-                                </div>
-                            </button>
-                            <button 
-                                onClick={() => setShowVoiceInput(!showVoiceInput)}
-                                className={`flex flex-col items-center gap-2 group transition-all ${showVoiceInput ? 'scale-110' : ''}`}
-                            >
-                                <div className={`w-14 h-14 rounded-full flex items-center justify-center backdrop-blur-md transition-all ${showVoiceInput ? 'bg-indigo-600 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}>
-                                    <Keyboard className="w-6 h-6" />
-                                </div>
-                                <span className="text-[10px] text-white/50 font-bold uppercase">Clavier</span>
-                            </button>
-                          </>
-                      )}
-                      
-                      {isRinging && (
-                          <div className="col-span-3 flex justify-center">
-                              <button onClick={() => { setIsVoiceMode(false); stopLiveSession(); }} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform">
-                                <div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-white/10">
-                                    <Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" />
-                                </div>
-                                <span className="text-xs text-white font-bold">Refuser</span>
-                            </button>
-                          </div>
-                      )}
-                  </div>
-              </div>
-          </div>
-      );
-  }
-
   return (
     <div className="flex flex-col h-[100dvh] bg-[#F0F2F5] dark:bg-[#0B0F19] font-sans transition-colors duration-300 overflow-hidden" onClick={() => setShowTopMenu(false)}>
       
+      {/* Voice Call Overlay */}
+      {showVoiceCall && (
+          <VoiceCall 
+              user={user} 
+              onClose={() => setShowVoiceCall(false)} 
+              onUpdateUser={onUpdateUser} 
+              notify={notify}
+              onShowPayment={onShowPayment}
+          />
+      )}
+
       {/* --- FIXED HEADER --- */}
       <header className="fixed top-0 left-0 w-full z-30 bg-white/80 dark:bg-[#131825]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm safe-top transition-colors">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -706,7 +266,7 @@ const ChatInterface: React.FC<Props> = ({
                             
                             {/* LOCKED VOICE CALL BUTTON */}
                             <button 
-                                onClick={handleVoiceModeClick} 
+                                onClick={handleVoiceCallClick} 
                                 className={`w-full text-left px-4 py-3 flex items-center gap-2 text-sm font-bold transition-colors ${
                                     (user.stats.lessonsCompleted || 0) >= MIN_LESSONS_FOR_CALL 
                                     ? 'hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200' 
@@ -838,7 +398,7 @@ const ChatInterface: React.FC<Props> = ({
             <div className="flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border border-transparent focus-within:border-indigo-500/30 focus-within:bg-white dark:focus-within:bg-slate-900 transition-all shadow-inner">
                 {/* LOCKED PHONE BUTTON */}
                 <button 
-                    onClick={handleVoiceModeClick}
+                    onClick={handleVoiceCallClick}
                     className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-all ${
                         (user.stats.lessonsCompleted || 0) >= MIN_LESSONS_FOR_CALL 
                         ? 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-900/30' 
