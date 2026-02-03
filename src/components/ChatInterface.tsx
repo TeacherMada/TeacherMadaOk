@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff, Lock } from 'lucide-react';
+import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff, Lock, Keyboard } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -124,6 +124,8 @@ const ChatInterface: React.FC<Props> = ({
   const [callStatus, setCallStatus] = useState<'idle' | 'ringing' | 'connecting' | 'connected' | 'reconnecting'>('idle');
   const [callDuration, setCallDuration] = useState(0);
   const [aiSpeaking, setAiSpeaking] = useState(false);
+  const [showVoiceInput, setShowVoiceInput] = useState(false);
+  const [voiceInput, setVoiceInput] = useState('');
   
   // Refs for Live API
   const liveSessionRef = useRef<any>(null);
@@ -271,6 +273,7 @@ const ChatInterface: React.FC<Props> = ({
 
       // 4. Start Ringing Phase
       setIsVoiceMode(true);
+      setShowVoiceInput(false);
       setCallStatus('ringing');
       
       // Simulate Ringing Sound
@@ -282,6 +285,25 @@ const ChatInterface: React.FC<Props> = ({
           clearInterval(ringIntervalRef.current);
           startLiveSession();
       }, 4500); // 4.5s ringing
+  };
+
+  const sendLiveTextMessage = (text: string) => {
+      if (!liveSessionRef.current) return;
+      liveSessionRef.current.then((session: any) => {
+          try {
+              session.send({
+                  clientContent: {
+                      turns: [{ role: "user", parts: [{ text: text }] }],
+                      turnComplete: true
+                  }
+              });
+              setVoiceInput('');
+              setShowVoiceInput(false); // Hide input after sending
+          } catch(e) {
+              console.error("Failed to send text in live session", e);
+              notify("Erreur d'envoi du message", "error");
+          }
+      });
   };
 
   const startLiveSession = async () => {
@@ -331,13 +353,15 @@ const ChatInterface: React.FC<Props> = ({
                       // We send a hidden text message as if the user said "Hello" to force a reply
                       sessionPromise.then(session => {
                           try {
-                              // Type assertion for 'any' to bypass TS check if method definition is missing in type
-                              (session as any).send({
-                                clientContent: {
-                                  turns: [{ role: "user", parts: [{ text: "Hello, who is this?" }] }],
-                                  turnComplete: true
-                                }
-                              });
+                              setTimeout(() => {
+                                  // Type assertion for 'any' to bypass TS check if method definition is missing in type
+                                  (session as any).send({
+                                    clientContent: {
+                                      turns: [{ role: "user", parts: [{ text: "I have connected to the call. Please say 'Allô' and answer me now!" }] }],
+                                      turnComplete: true
+                                    }
+                                  });
+                              }, 500); // Small delay to ensure session is fully ready
                           } catch(e) {
                               console.error("Failed to kickstart AI speech", e);
                           }
@@ -452,6 +476,7 @@ const ChatInterface: React.FC<Props> = ({
       }
       setCallStatus('idle');
       setAiSpeaking(false);
+      setShowVoiceInput(false);
   };
 
   useEffect(() => {
@@ -561,8 +586,31 @@ const ChatInterface: React.FC<Props> = ({
                       </div>
                   </div>
 
+                  {/* Text Input Overlay */}
+                  {showVoiceInput && !isRinging && (
+                      <div className="absolute bottom-36 left-6 right-6 z-20 animate-slide-up">
+                          <div className="bg-slate-800/80 backdrop-blur-md p-3 rounded-2xl border border-white/10 shadow-xl flex gap-2">
+                              <input 
+                                  value={voiceInput}
+                                  onChange={(e) => setVoiceInput(e.target.value)}
+                                  onKeyDown={(e) => e.key === 'Enter' && sendLiveTextMessage(voiceInput)}
+                                  placeholder="Écrire un message..."
+                                  autoFocus
+                                  className="flex-1 bg-transparent border-none outline-none text-white text-sm placeholder:text-slate-400 px-2"
+                              />
+                              <button 
+                                  onClick={() => sendLiveTextMessage(voiceInput)}
+                                  disabled={!voiceInput.trim()}
+                                  className="p-2 bg-indigo-600 rounded-xl text-white disabled:opacity-50"
+                              >
+                                  <Send className="w-4 h-4" />
+                              </button>
+                          </div>
+                      </div>
+                  )}
+
                   {/* Context Info */}
-                  {!isRinging && (
+                  {!isRinging && !showVoiceInput && (
                       <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 w-full max-w-xs border border-white/5 text-center">
                           <p className="text-white text-sm font-medium leading-relaxed">
                               "Je suis ton prof à Tana. On discute du cours ?"
@@ -576,7 +624,7 @@ const ChatInterface: React.FC<Props> = ({
                   )}
 
                   {/* Actions */}
-                  <div className="grid grid-cols-3 gap-8 w-full max-w-xs items-center mb-8">
+                  <div className="grid grid-cols-3 gap-8 w-full max-w-xs items-center mb-8 relative z-10">
                       {!isRinging && (
                           <>
                             <button className="flex flex-col items-center gap-2 group">
@@ -590,11 +638,14 @@ const ChatInterface: React.FC<Props> = ({
                                     <Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" />
                                 </div>
                             </button>
-                            <button className="flex flex-col items-center gap-2 group">
-                                <div className="w-14 h-14 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center backdrop-blur-md transition-all">
-                                    <Volume2 className="w-6 h-6 text-white" />
+                            <button 
+                                onClick={() => setShowVoiceInput(!showVoiceInput)}
+                                className={`flex flex-col items-center gap-2 group transition-all ${showVoiceInput ? 'scale-110' : ''}`}
+                            >
+                                <div className={`w-14 h-14 rounded-full flex items-center justify-center backdrop-blur-md transition-all ${showVoiceInput ? 'bg-indigo-600 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}>
+                                    <Keyboard className="w-6 h-6" />
                                 </div>
-                                <span className="text-[10px] text-white/50 font-bold uppercase">Speaker</span>
+                                <span className="text-[10px] text-white/50 font-bold uppercase">Clavier</span>
                             </button>
                           </>
                       )}
