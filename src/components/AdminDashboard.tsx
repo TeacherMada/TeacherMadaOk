@@ -37,7 +37,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   const refreshData = async () => {
     setIsLoading(true);
     try {
-        // Fetch users and requests in parallel (ASYNC NOW)
+        // Fetch users and requests in parallel
         const [fetchedUsers, fetchedRequests, fetchedSettings] = await Promise.all([
             storageService.getAllUsers(),
             storageService.getAdminRequests(),
@@ -62,11 +62,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       const val = parseInt(manualCreditInputs[userId] || '0');
       if (!isNaN(val) && val !== 0) {
           const finalAmt = val * multiplier;
-          await storageService.addCredits(userId, finalAmt);
+          const success = await storageService.addCredits(userId, finalAmt);
           
-          setManualCreditInputs(prev => ({ ...prev, [userId]: '' })); 
-          await refreshData();
-          notify(`Crédits modifiés: ${finalAmt > 0 ? '+' : ''}${finalAmt}`, 'success');
+          if (success) {
+              setManualCreditInputs(prev => ({ ...prev, [userId]: '' })); 
+              await refreshData();
+              notify(`Crédits modifiés: ${finalAmt > 0 ? '+' : ''}${finalAmt}`, 'success');
+          } else {
+              notify("Échec de la mise à jour des crédits.", 'error');
+          }
       }
   };
 
@@ -93,13 +97,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
 
   const handleResolveRequest = async (reqId: string, status: 'approved' | 'rejected') => {
       await storageService.resolveRequest(reqId, status);
-      await refreshData(); // Refresh list to see updated status
+      await refreshData();
       notify(`Demande ${status === 'approved' ? 'approuvée (Crédits ajoutés)' : 'rejetée'}.`, 'success');
   };
 
   const saveSettings = async () => {
-      await storageService.updateSystemSettings(settings);
-      notify("Paramètres sauvegardés dans le Cloud.", 'success');
+      const success = await storageService.updateSystemSettings(settings);
+      if (success) {
+          notify("Paramètres sauvegardés dans le Cloud.", 'success');
+      } else {
+          notify("Erreur lors de la sauvegarde. Vérifiez les permissions DB.", 'error');
+      }
   };
 
   const handleAddLanguage = async () => {
@@ -110,9 +118,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       const updatedSettings = { ...settings, customLanguages: [...(settings.customLanguages || []), newLang] };
       setSettings(updatedSettings);
       
-      await storageService.updateSystemSettings(updatedSettings);
-      setNewLangName(''); setNewLangFlag('');
-      notify(`Langue ajoutée : ${newLangName}`, 'success');
+      const success = await storageService.updateSystemSettings(updatedSettings);
+      if (success) {
+          setNewLangName(''); setNewLangFlag('');
+          notify(`Langue ajoutée : ${newLangName}`, 'success');
+      } else {
+          notify("Erreur serveur : Langue non sauvegardée.", 'error');
+      }
   };
 
   const removeLanguage = async (code: string) => {
@@ -127,6 +139,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       // 1. Sanitize Input: Prevent users from pasting JSON or weird characters
       let rawCode = newTransactionRef.trim();
       
+      // Basic sanitization
+      if (rawCode.startsWith('{') || rawCode.includes('"') || rawCode.length > 30) {
+          notify("Format invalide. Entrez un code simple (ex: PROMO10).", 'error');
+          return;
+      }
+
       if (!rawCode || couponAmount <= 0) {
           notify("Code et montant requis.", 'error');
           return;
@@ -153,9 +171,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       };
       
       setSettings(updatedSettings);
-      await storageService.updateSystemSettings(updatedSettings);
-      setNewTransactionRef('');
-      notify(`Coupon créé : ${newCoupon.code} (${newCoupon.amount} CRD)`, 'success');
+      const success = await storageService.updateSystemSettings(updatedSettings);
+      if (success) {
+          setNewTransactionRef('');
+          notify(`Coupon créé : ${newCoupon.code} (${newCoupon.amount} CRD)`, 'success');
+      } else {
+          notify("Erreur serveur : Coupon non sauvegardé.", 'error');
+      }
   };
 
   const removeCoupon = async (codeToRemove: string) => {
@@ -371,6 +393,41 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
                         </div>
                     ))}
                  </div>
+            </div>
+        )}
+
+        {/* LANGUAGES TAB */}
+        {activeTab === 'languages' && (
+            <div className="bg-white dark:bg-slate-900 p-8 rounded-[2rem] shadow-sm border border-slate-200 dark:border-white/5">
+                <h3 className="text-xl font-black mb-8">Gestion des Langues (Synchronisé Supabase)</h3>
+                <div className="flex flex-col md:flex-row gap-4 mb-10 bg-slate-50 dark:bg-slate-800 p-6 rounded-3xl">
+                    <div className="flex-1 space-y-1">
+                        <label className="text-[10px] font-bold uppercase text-slate-400 pl-2">Nom de la langue</label>
+                        <input type="text" placeholder="ex: Italien" value={newLangName} onChange={e => setNewLangName(e.target.value)} className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                    <div className="w-full md:w-32 space-y-1">
+                        <label className="text-[10px] font-bold uppercase text-slate-400 pl-2">Drapeau</label>
+                        <input type="text" placeholder="ex: 🇮🇹" value={newLangFlag} onChange={e => setNewLangFlag(e.target.value)} className="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-center text-2xl outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                    <div className="flex items-end">
+                        <button onClick={handleAddLanguage} className="w-full md:w-auto px-10 py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-600/20 hover:scale-105 transition-transform">Ajouter</button>
+                    </div>
+                </div>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {settings.customLanguages?.map(lang => (
+                        <div key={lang.code} className="p-5 bg-white dark:bg-slate-900 rounded-[1.5rem] flex justify-between items-center border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:border-indigo-500/30">
+                            <div className="flex items-center gap-4">
+                                <span className="text-4xl shadow-sm p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">{lang.flag}</span>
+                                <div>
+                                    <span className="font-black text-lg text-slate-800 dark:text-white block">{lang.baseName}</span>
+                                    <span className="text-[10px] text-slate-400 uppercase tracking-wider">Custom</span>
+                                </div>
+                            </div>
+                            <button onClick={() => removeLanguage(lang.code)} className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 rounded-xl"><X className="w-5 h-5"/></button>
+                        </div>
+                    ))}
+                </div>
             </div>
         )}
 

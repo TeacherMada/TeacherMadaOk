@@ -74,7 +74,6 @@ export interface UserProfile {
   stats: UserStats;
   vocabulary: VocabularyItem[];
   credits: number;
-  xp: number;
   freeUsage: {
     lastResetWeek: string;
     count: number;
