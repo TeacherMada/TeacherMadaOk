@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, SystemSettings, AdminRequest } from '../types';
 import { storageService } from '../services/storageService';
-import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle, AlertTriangle, Globe, Banknote, Flag, Info, Shield } from 'lucide-react';
+import { Users, CreditCard, Settings, Search, Save, Key, UserCheck, UserX, LogOut, ArrowLeft, MessageSquare, Check, X, Plus, Minus, Lock, CheckCircle, RefreshCw, MessageCircle, AlertTriangle, Globe, Banknote, Flag, Info, Shield, Loader2 } from 'lucide-react';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
@@ -18,6 +18,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   const [requests, setRequests] = useState<AdminRequest[]>([]);
   const [search, setSearch] = useState('');
   const [settings, setSettings] = useState<SystemSettings>(storageService.getSystemSettings());
+  const [isLoading, setIsLoading] = useState(false);
   
   const [newLangName, setNewLangName] = useState('');
   const [newLangFlag, setNewLangFlag] = useState('');
@@ -34,6 +35,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   }, []);
 
   const refreshData = async () => {
+    setIsLoading(true);
     try {
         const fetchedUsers = await storageService.getAllUsers();
         const fetchedRequests = await storageService.getAdminRequests();
@@ -42,7 +44,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
         setRequests(fetchedRequests);
         setSettings(fetchedSettings);
     } catch (e) {
-        notify("Erreur lors du chargement des données.", 'error');
+        notify("Erreur lors du chargement des données. Vérifiez la connexion.", 'error');
+    } finally {
+        setIsLoading(false);
     }
   };
 
@@ -54,10 +58,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       const val = parseInt(manualCreditInputs[userId] || '0');
       if (!isNaN(val) && val !== 0) {
           const finalAmt = val * multiplier;
-          await storageService.addCredits(userId, finalAmt);
-          setManualCreditInputs(prev => ({ ...prev, [userId]: '' })); 
-          await refreshData();
-          notify(`Crédits modifiés: ${finalAmt > 0 ? '+' : ''}${finalAmt}`, 'success');
+          const success = await storageService.addCredits(userId, finalAmt);
+          
+          if (success) {
+              setManualCreditInputs(prev => ({ ...prev, [userId]: '' })); 
+              await refreshData();
+              notify(`Crédits modifiés: ${finalAmt > 0 ? '+' : ''}${finalAmt}`, 'success');
+          } else {
+              notify("Échec de la mise à jour des crédits.", 'error');
+          }
       }
   };
 
@@ -89,8 +98,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
   };
 
   const saveSettings = async () => {
-      await storageService.updateSystemSettings(settings);
-      notify("Paramètres sauvegardés dans le Cloud.", 'success');
+      const success = await storageService.updateSystemSettings(settings);
+      if (success) {
+          notify("Paramètres sauvegardés dans le Cloud.", 'success');
+      } else {
+          notify("Erreur lors de la sauvegarde. Vérifiez les permissions DB.", 'error');
+      }
   };
 
   const handleAddLanguage = async () => {
@@ -100,10 +113,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       
       const updatedSettings = { ...settings, customLanguages: [...(settings.customLanguages || []), newLang] };
       setSettings(updatedSettings);
-      await storageService.updateSystemSettings(updatedSettings);
       
-      setNewLangName(''); setNewLangFlag('');
-      notify(`Langue ajoutée : ${newLangName}`, 'success');
+      const success = await storageService.updateSystemSettings(updatedSettings);
+      if (success) {
+          setNewLangName(''); setNewLangFlag('');
+          notify(`Langue ajoutée : ${newLangName}`, 'success');
+      } else {
+          notify("Erreur serveur : Langue non sauvegardée.", 'error');
+      }
   };
 
   const removeLanguage = async (code: string) => {
@@ -128,9 +145,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       };
       
       setSettings(updatedSettings);
-      await storageService.updateSystemSettings(updatedSettings);
-      setNewTransactionRef('');
-      notify(`Coupon créé : ${newCoupon.code} (${newCoupon.amount} CRD)`, 'success');
+      const success = await storageService.updateSystemSettings(updatedSettings);
+      if (success) {
+          setNewTransactionRef('');
+          notify(`Coupon créé : ${newCoupon.code} (${newCoupon.amount} CRD)`, 'success');
+      } else {
+          notify("Erreur serveur : Coupon non sauvegardé.", 'error');
+      }
   };
 
   const removeCoupon = async (codeToRemove: string) => {
@@ -162,7 +183,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
             </div>
             <div className="flex gap-2 w-full md:w-auto">
                 <button onClick={refreshData} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-slate-100">
-                    <RefreshCw className="w-5 h-5 text-indigo-500"/>
+                    {isLoading ? <Loader2 className="w-5 h-5 text-indigo-500 animate-spin"/> : <RefreshCw className="w-5 h-5 text-indigo-500"/>}
                 </button>
                 <button onClick={onBack} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-slate-100 dark:bg-slate-800 rounded-xl font-bold transition-all hover:bg-slate-200">
                     Mode Chat
