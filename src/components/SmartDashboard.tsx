@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { UserProfile, ChatMessage, ExplanationLanguage, UserPreferences } from '../types';
-import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck, Upload, Library } from 'lucide-react';
+import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck, Upload, Library, TrendingUp, Star } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { extractVocabulary } from '../services/geminiService';
 import { toast } from './Toaster';
@@ -25,6 +25,25 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
   // Edit Profile State
   const [editName, setEditName] = useState(user.username);
   const [editPass, setEditPass] = useState(user.password || '');
+
+  // --- SMART PROGRESS CALCULATION ---
+  const progressData = useMemo(() => {
+      const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
+      const currentLevel = user.preferences?.level || 'A1';
+      const currentIndex = levels.indexOf(currentLevel);
+      const nextLevel = currentIndex < levels.length - 1 ? levels[currentIndex + 1] : 'Expert';
+      
+      // Weight: Lesson=10, Exercise=5, Dialogue=8
+      // Arbitrary threshold to level up: 500 points per level
+      const points = (user.stats.lessonsCompleted * 10) + (user.stats.exercisesCompleted * 5) + (user.stats.dialoguesCompleted * 8);
+      const threshold = 500;
+      
+      // Calculate progress within current level (looping every 500 points)
+      const currentPoints = points % threshold;
+      const percentage = Math.min(Math.round((currentPoints / threshold) * 100), 100);
+      
+      return { percentage, nextLevel, currentLevel };
+  }, [user.stats, user.preferences?.level]);
 
   const handleExtract = async () => {
     if (messages.length < 2) {
@@ -165,17 +184,46 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
             {activeTab === 'menu' && (
                 <div className="space-y-6 animate-fade-in">
                     
+                    {/* SMART PROGRESS BAR */}
+                    <div className="bg-indigo-600 dark:bg-indigo-900/40 p-5 rounded-2xl text-white shadow-lg shadow-indigo-500/20 relative overflow-hidden">
+                        {/* Background Deco */}
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+                        
+                        <div className="flex justify-between items-center mb-3 relative z-10">
+                            <div className="flex flex-col">
+                                <span className="text-[10px] font-bold opacity-80 uppercase tracking-widest">Niveau Actuel</span>
+                                <span className="text-2xl font-black">{progressData.currentLevel}</span>
+                            </div>
+                            <div className="flex flex-col items-end">
+                                <span className="text-[10px] font-bold opacity-80 uppercase tracking-widest">Prochain</span>
+                                <span className="text-lg font-bold opacity-90">{progressData.nextLevel}</span>
+                            </div>
+                        </div>
+                        
+                        <div className="relative h-3 bg-black/20 rounded-full overflow-hidden mb-2">
+                            <div 
+                                className="absolute top-0 left-0 h-full bg-gradient-to-r from-emerald-400 to-teal-300 transition-all duration-1000 ease-out"
+                                style={{ width: `${progressData.percentage}%` }}
+                            ></div>
+                        </div>
+                        
+                        <div className="flex justify-between items-center text-xs font-bold relative z-10">
+                            <span>{progressData.percentage}% Complété</span>
+                            <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
+                        </div>
+                    </div>
+
                     {/* Stats Grid - Updated Metrics */}
                     <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-indigo-50 dark:bg-indigo-900/10 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 flex flex-col items-center justify-center gap-1">
+                        <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center gap-1">
                             <Library className="w-5 h-5 text-indigo-500" />
                             <div className="text-lg font-black text-slate-800 dark:text-white">{user.vocabulary.length}</div>
-                            <div className="text-[10px] font-bold text-indigo-600/70 uppercase">Mots Appris</div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase">Mots Appris</div>
                         </div>
-                        <div className="bg-emerald-50 dark:bg-emerald-900/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/30 flex flex-col items-center justify-center gap-1">
+                        <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center gap-1">
                             <Book className="w-5 h-5 text-emerald-500" />
                             <div className="text-lg font-black text-slate-800 dark:text-white">{user.stats.lessonsCompleted}</div>
-                            <div className="text-[10px] font-bold text-emerald-600/70 uppercase">Leçons Finies</div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase">Leçons Finies</div>
                         </div>
                     </div>
 

@@ -13,7 +13,9 @@ const mapProfile = (data: any): UserProfile => ({
     role: data.role,
     credits: data.credits,
     stats: {
-        lessonsCompleted: data.lessons_completed || 0
+        lessonsCompleted: data.lessons_completed || 0,
+        exercisesCompleted: data.exercises_completed || 0,
+        dialoguesCompleted: data.dialogues_completed || 0
     },
     preferences: data.preferences,
     vocabulary: data.vocabulary || [],
@@ -121,6 +123,8 @@ export const storageService = {
   saveUserProfile: async (user: UserProfile) => {
       const updates = {
           lessons_completed: user.stats.lessonsCompleted,
+          exercises_completed: user.stats.exercisesCompleted,
+          dialogues_completed: user.stats.dialoguesCompleted,
           vocabulary: user.vocabulary,
           preferences: user.preferences,
           free_usage: user.freeUsage

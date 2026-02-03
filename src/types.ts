@@ -56,6 +56,12 @@ export interface LearningSession {
   score: number;
 }
 
+export interface UserStats {
+  lessonsCompleted: number;
+  exercisesCompleted: number;
+  dialoguesCompleted: number;
+}
+
 export interface UserProfile {
   id: string;
   username: string;
@@ -65,10 +71,7 @@ export interface UserProfile {
   role: UserRole;
   createdAt: number;
   preferences: UserPreferences | null;
-  stats: {
-    lessonsCompleted: number;
-    // XP and Streak removed
-  };
+  stats: UserStats;
   vocabulary: VocabularyItem[];
   credits: number;
   freeUsage: {

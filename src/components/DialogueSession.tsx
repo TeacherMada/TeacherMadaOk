@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, ChatMessage } from '../types';
 import { generateRoleplayResponse } from '../services/geminiService';
@@ -46,7 +47,6 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                 const newVal = prev + 1;
                 // Every 60 seconds, deduct 1 credit
                 if (newVal > 0 && newVal % 60 === 0) {
-                   // This logic is tricky inside interval (async), better to call a wrapper or just check credits
                    storageService.checkAndConsumeCredit(user.id).then(allowed => {
                         if (allowed) {
                             storageService.getUserById(user.id).then(u => u && onUpdateUser(u));
@@ -109,13 +109,6 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
   const handleSend = async () => {
       if (!input.trim() || !scenario) return;
       
-      // Credit check on EVERY message? No, Roleplay is time-based mostly, but let's stick to time-based for now.
-      // However, if the user starts spamming, maybe we should gate it. 
-      // The requirement says "1 request IA = 1 crd" for generic, but for Roleplay the prompt said "1 min = 1 credit".
-      // Let's stick to the time-based logic implemented in the interval, OR consume per message if that's safer.
-      // Given the new "1 request = 1 crd" rule in the latest prompt, we should probably switch to per-message deduction.
-      // BUT, existing feature says "1 min = 1 credit" in UI. Let's keep Time-based for Roleplay as it's a "Session".
-      
       const userText = input;
       const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: userText, timestamp: Date.now() };
       
@@ -155,6 +148,16 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
               score: result.score || 0,
               feedback: result.feedback || "Bravo pour ta participation !"
           });
+          
+          // Update Stats
+          const newStats = { 
+              ...user.stats, 
+              dialoguesCompleted: (user.stats.dialoguesCompleted || 0) + 1 
+          };
+          const updatedUser = { ...user, stats: newStats };
+          await storageService.saveUserProfile(updatedUser);
+          onUpdateUser(updatedUser);
+
       } catch (e) {
           setFinalScore({ score: 0, feedback: "Erreur lors de l'évaluation." });
       } finally {

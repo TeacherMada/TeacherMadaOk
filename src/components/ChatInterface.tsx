@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic, StopCircle, ArrowLeft, Sun, Moon, User, Play, Loader2, Library, ChevronDown, Repeat } from 'lucide-react';
+import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic, StopCircle, ArrowLeft, Sun, Moon, User, Play, Loader2, Library, ChevronDown, Repeat, VolumeX } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -144,7 +144,7 @@ const ChatInterface: React.FC<Props> = ({
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
+    return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   // --- GEMINI HIGH QUALITY TTS PLAYBACK (MESSAGE CLICK) ---
@@ -223,7 +223,16 @@ const ChatInterface: React.FC<Props> = ({
                       voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
                   },
                   systemInstruction: {
-                      parts: [{ text: `Tu es TeacherMada. Parle avec ${user.username} en ${user.preferences?.targetLanguage}. Sois bref et encourageant.` }]
+                      parts: [{ text: `
+                      ACT AS: A friendly language teacher on a phone call with your student ${user.username}.
+                      TARGET LANGUAGE: ${user.preferences?.targetLanguage}.
+                      LEVEL: ${user.preferences?.level}.
+                      GOAL: Practice speaking naturally. Correct pronunciation or grammar gently without interrupting the flow too much.
+                      IMPORTANT: 
+                      - Do NOT act like a robot. Be human, warm, and engaging.
+                      - Keep responses concise (like a real phone chat).
+                      - Ask follow-up questions to keep the student talking.
+                      ` }]
                   }
               },
               callbacks: {
@@ -420,64 +429,75 @@ const ChatInterface: React.FC<Props> = ({
   // Render Live Call Overlay
   if (isVoiceMode) {
       return (
-          <div className="fixed inset-0 z-[100] bg-[#0B0F19] text-white flex flex-col items-center justify-between p-8 animate-fade-in font-sans overflow-hidden">
-              {/* Background FX */}
-              <div className="absolute inset-0 z-0">
-                  <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-600/20 rounded-full blur-[100px] transition-all duration-1000 ${voiceStatus === 'listening' ? 'scale-125 opacity-30' : 'scale-100 opacity-20'}`}></div>
-              </div>
-
-              {/* Header */}
-              <div className="w-full flex justify-between items-start opacity-90 z-10">
+          <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-3xl text-white flex flex-col items-center justify-between p-6 animate-fade-in font-sans overflow-hidden">
+              {/* Top Controls */}
+              <div className="w-full flex justify-between items-center z-10 pt-4 px-2">
                   <button onClick={() => setIsVoiceMode(false)} className="p-3 bg-white/10 rounded-full hover:bg-white/20 backdrop-blur-md transition-all">
-                      <X className="w-6 h-6" />
+                      <ChevronDown className="w-6 h-6" />
                   </button>
                   <div className="flex flex-col items-center">
-                      <div className="flex items-center gap-2 mb-1">
-                          <span className={`w-2 h-2 rounded-full ${voiceStatus === 'idle' ? 'bg-slate-500' : 'bg-green-500 animate-pulse'}`}></span>
-                          <span className="text-xs font-bold uppercase tracking-widest text-indigo-200">Appel Live</span>
-                      </div>
-                      <span className="font-mono text-xl text-white font-medium">{formatTime(callDuration)}</span>
+                      <span className="text-xs font-bold uppercase tracking-widest text-slate-300">TeacherMada</span>
+                      <span className="font-mono text-sm opacity-70">{formatTime(callDuration)}</span>
                   </div>
-                  <div className="w-12"></div>
+                  <div className="w-12"></div> {/* Spacer */}
               </div>
 
-              {/* Center Visualization */}
-              <div className="flex flex-col items-center justify-center gap-10 w-full z-10 flex-1 relative">
-                  <div className="h-8 flex items-center justify-center">
-                      {voiceStatus === 'listening' && <p className="text-indigo-300 font-medium animate-pulse flex items-center gap-2"><Mic className="w-4 h-4"/> Je vous écoute...</p>}
-                      {voiceStatus === 'speaking' && <p className="text-emerald-300 font-medium flex items-center gap-2"><Volume2 className="w-4 h-4"/> Je parle...</p>}
-                      {voiceStatus === 'idle' && <p className="text-slate-400 font-medium text-sm">Connexion...</p>}
+              {/* Center Avatar & Status */}
+              <div className="flex flex-col items-center justify-center gap-8 w-full z-10 flex-1 relative">
+                  
+                  {/* Status Indicator */}
+                  <div className="h-6">
+                      {voiceStatus === 'listening' && <p className="text-indigo-300 text-sm font-bold animate-pulse tracking-wide">J'écoute...</p>}
+                      {voiceStatus === 'speaking' && <p className="text-emerald-300 text-sm font-bold tracking-wide">Teacher parle...</p>}
+                      {voiceStatus === 'idle' && <p className="text-slate-400 text-sm font-medium">Connexion...</p>}
                   </div>
 
+                  {/* Pulsing Avatar Container */}
                   <div className="relative">
                       {voiceStatus === 'speaking' && (
-                          <div className="absolute inset-0 bg-emerald-500/20 rounded-full animate-ping blur-md"></div>
+                          <>
+                            <div className="absolute inset-0 bg-emerald-500/20 rounded-full animate-ping blur-xl"></div>
+                            <div className="absolute inset-0 bg-emerald-500/10 rounded-full animate-pulse delay-100 scale-125"></div>
+                          </>
                       )}
                       {voiceStatus === 'listening' && (
-                          <div className="absolute inset-0 bg-indigo-500/20 rounded-full animate-pulse scale-110 blur-md"></div>
+                          <div className="absolute inset-0 bg-indigo-500/20 rounded-full animate-pulse scale-110 blur-xl"></div>
                       )}
 
-                      <div className="relative w-48 h-48 rounded-full bg-gradient-to-b from-[#1E293B] to-[#0F172A] p-1 shadow-[0_0_60px_rgba(79,70,229,0.3)] flex items-center justify-center z-20 border border-white/10">
-                          <div className="w-full h-full rounded-full overflow-hidden bg-[#0B0F19] flex items-center justify-center relative p-8">
-                              <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-contain z-10 drop-shadow-2xl" alt="Teacher AI" />
-                          </div>
+                      <div className="relative w-40 h-40 md:w-56 md:h-56 rounded-full p-2 bg-gradient-to-b from-slate-700 to-slate-900 shadow-2xl flex items-center justify-center border-4 border-slate-700/50">
+                          <img src="https://api.dicebear.com/9.x/bottts-neutral/svg?seed=Teacher" className="w-full h-full object-cover rounded-full" alt="Teacher AI" />
                       </div>
                   </div>
 
                   <div className="text-center space-y-1">
-                      <h2 className="text-3xl font-bold text-white tracking-tight">TeacherMada</h2>
-                      <p className="text-indigo-200/60 font-medium text-sm">{user.preferences?.targetLanguage} • {user.preferences?.level}</p>
+                      <h2 className="text-2xl font-bold text-white tracking-tight">Appel en cours</h2>
+                      <p className="text-slate-400 font-medium text-sm">{user.preferences?.targetLanguage} • {user.preferences?.level}</p>
                   </div>
               </div>
 
-              {/* Controls */}
-              <div className="w-full max-w-sm flex justify-center mb-8 z-10">
-                  <button onClick={() => setIsVoiceMode(false)} className="flex flex-col items-center gap-3 group transform hover:scale-105 transition-transform">
-                      <div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-[#0B0F19]">
-                          <Phone className="w-10 h-10 text-white fill-white rotate-[135deg]" />
+              {/* Bottom Controls */}
+              <div className="w-full max-w-sm grid grid-cols-3 gap-6 mb-8 z-10 items-center justify-items-center">
+                  
+                  <button className="flex flex-col items-center gap-2 group opacity-50 hover:opacity-100 transition-opacity">
+                      <div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-white">
+                          <Volume2 className="w-6 h-6" />
                       </div>
-                      <span className="text-xs font-bold text-red-400 group-hover:text-red-300 transition-colors uppercase tracking-wider">Raccrocher</span>
+                      <span className="text-[10px] uppercase font-bold tracking-wider">Speaker</span>
                   </button>
+
+                  <button onClick={() => setIsVoiceMode(false)} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform">
+                      <div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-slate-900">
+                          <Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" />
+                      </div>
+                  </button>
+
+                  <button className="flex flex-col items-center gap-2 group opacity-50 hover:opacity-100 transition-opacity">
+                      <div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-white">
+                          <MicOff className="w-6 h-6" />
+                      </div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider">Mute</span>
+                  </button>
+
               </div>
           </div>
       );
