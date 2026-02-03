@@ -105,7 +105,9 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
     };
     init();
 
-    return () => cleanup();
+    return () => {
+        cleanup();
+    };
   }, []);
 
   // Timer
