@@ -59,7 +59,7 @@ export async function* sendMessageStream(
       config: {
         systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences),
         temperature: 0.7,
-        maxOutputTokens: 1000,
+        maxOutputTokens: 2000, // Increased to ensure full lesson generation
       }
     });
 
@@ -276,5 +276,8 @@ export const generateRoleplayResponse = async (
 
 export const generateNextLessonPrompt = (user: UserProfile): string => {
   const nextLessonNum = (user.stats.lessonsCompleted || 0) + 1;
-  return `Continue le cours. Génère le contenu complet pour la Leçon ${nextLessonNum} en respectant strictement le format "Leçon [N] : [Titre]" et la structure Markdown définie.`;
+  return `IMPÉRATIF: Génère IMMÉDIATEMENT le contenu de la Leçon ${nextLessonNum}.
+  NE FAIS AUCUN COMMENTAIRE. NE POSE PAS DE QUESTIONS. NE VALIDE PAS.
+  Commence ta réponse STRICTEMENT par : "Leçon ${nextLessonNum} : [Titre]"
+  Suis la structure Markdown définie dans le prompt système.`;
 };
