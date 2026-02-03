@@ -64,7 +64,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
               }, 3000);
           } else {
               // Standard Manual Request
-              const result = await storageService.sendAdminRequest(
+              await storageService.sendAdminRequest(
                   user.id,
                   user.username,
                   'credit',

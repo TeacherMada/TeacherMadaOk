@@ -128,10 +128,7 @@ export const storageService = {
           dialogues_completed: user.stats.dialoguesCompleted,
           vocabulary: user.vocabulary,
           preferences: user.preferences,
-          free_usage: user.freeUsage,
-          // Only update credits if passed in user object explicitly differs? 
-          // Usually better to handle credits via separate atomic ops, but here we sync full profile
-          // credits: user.credits 
+          free_usage: user.freeUsage
       };
 
       const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
@@ -282,9 +279,10 @@ export const storageService = {
   
   loadSystemSettings: async (): Promise<SystemSettings> => {
       try {
-          const { data, error } = await supabase.from('system_settings').select('*').eq('id', 1).single();
+          const { data, error } = await supabase.from('system_settings').select('*').single();
           
           if (!error && data) {
+              // Convert DB columns to SystemSettings object
               const settings: SystemSettings = {
                   apiKeys: data.api_keys || [],
                   activeModel: data.active_model || 'gemini-3-flash-preview',
@@ -293,13 +291,15 @@ export const storageService = {
                   validTransactionRefs: data.valid_transaction_refs || [],
                   adminContact: data.admin_contact || { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
               };
+              // Cache locally
               localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
               return settings;
           }
       } catch (e) {
-          console.warn("Using local settings fallback", e);
+          console.warn("Using local settings fallback");
       }
-      return storageService.getSystemSettings();
+      
+      return storageService.getSystemSettings(); // Fallback to local
   },
 
   getSystemSettings: (): SystemSettings => {
@@ -329,7 +329,7 @@ export const storageService = {
           admin_contact: settings.adminContact
       };
 
-      const { error } = await supabase.from('system_settings').upsert(payload, { onConflict: 'id' });
+      const { error } = await supabase.from('system_settings').upsert(payload);
       if (error) console.error("Failed to sync settings", error);
   },
   
@@ -370,13 +370,17 @@ export const storageService = {
               try {
                   const data = JSON.parse(e.target?.result as string);
                   if (data.userProfile && data.sessions) {
-                      const profileToSync = { ...data.userProfile, id: currentUserId };
+                      // Update User Profile via Supabase
+                      const profileToSync = { ...data.userProfile, id: currentUserId }; // Force ID to current user
                       await storageService.saveUserProfile(profileToSync);
                       
+                      // Restore Sessions to LocalStorage
                       data.sessions.forEach((session: any) => {
+                          // Remap session ID to current user if needed
                           const newId = session.id.replace(data.userProfile.id, currentUserId);
                           localStorage.setItem(newId, JSON.stringify({ ...session, id: newId }));
                       });
+                      
                       resolve(true);
                   } else {
                       resolve(false);
