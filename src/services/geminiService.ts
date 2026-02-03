@@ -159,9 +159,16 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
 
     const ai = getClient();
     const context = history.slice(-10).map(m => m.text).join("\n");
+    const lessonInfo = `Leçon ${(user.stats.lessonsCompleted || 0) + 1}`;
     
-    const prompt = `Génère 3 exercices rapides (QCM ou Vrai/Faux) basés sur la conversation récente pour tester la compréhension de l'élève (${user.preferences?.level}).
-    Format JSON Array.`;
+    const prompt = `Génère 3 exercices (QCM ou Vrai/Faux) pour un élève de niveau ${user.preferences?.level} apprenant le ${user.preferences?.targetLanguage}.
+    CONTEXTE : L'élève est à la ${lessonInfo}.
+    INSTRUCTION : Les exercices doivent porter sur les concepts vus dans la conversation récente ou être adaptés au niveau actuel si le contexte est court. Sois bienveillant et instructif dans l'explication.
+    
+    Conversation récente :
+    ${context}
+    
+    Format JSON Array attendu.`;
 
     try {
         const response = await ai.models.generateContent({

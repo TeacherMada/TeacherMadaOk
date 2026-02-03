@@ -98,11 +98,10 @@ const App: React.FC = () => {
 
   const finishExercise = async (score: number, total: number) => {
       if (user) {
-          const bonusXp = score * 10;
-          const updatedUser = { ...user, stats: { ...user.stats, xp: user.stats.xp + bonusXp } };
-          setUser(updatedUser);
-          await storageService.saveUserProfile(updatedUser);
-          toast.success(`Exercice terminé ! +${bonusXp} XP`);
+          // No more XP, just save generic progress if needed
+          // We can assume finishing an exercise set counts as activity
+          await storageService.saveUserProfile(user);
+          toast.success(`Exercice terminé ! Score : ${score}/${total}`);
       }
       setActiveMode('chat');
   };

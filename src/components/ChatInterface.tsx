@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic, StopCircle, ArrowLeft, Sun, Moon, User, Play, Loader2, Library } from 'lucide-react';
+import { Send, Menu, ArrowRight, Phone, Dumbbell, Brain, Sparkles, X, MicOff, Volume2, Lightbulb, Zap, BookOpen, MessageCircle, Mic, StopCircle, ArrowLeft, Sun, Moon, User, Play, Loader2, Library, ChevronDown, Repeat } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -77,6 +77,7 @@ const ChatInterface: React.FC<Props> = ({
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [currentLessonTitle, setCurrentLessonTitle] = useState(`Leçon ${(user.stats.lessonsCompleted || 0) + 1}`);
+  const [showTopMenu, setShowTopMenu] = useState(false);
   
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
   
@@ -483,7 +484,7 @@ const ChatInterface: React.FC<Props> = ({
   }
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-[#F0F2F5] dark:bg-[#0B0F19] font-sans transition-colors duration-300 overflow-hidden">
+    <div className="flex flex-col h-[100dvh] bg-[#F0F2F5] dark:bg-[#0B0F19] font-sans transition-colors duration-300 overflow-hidden" onClick={() => setShowTopMenu(false)}>
       
       {/* --- FIXED HEADER --- */}
       <header className="fixed top-0 left-0 w-full z-30 bg-white/80 dark:bg-[#131825]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm safe-top transition-colors">
@@ -494,10 +495,36 @@ const ChatInterface: React.FC<Props> = ({
                     <ArrowLeft className="w-6 h-6" />
                 </button>
                 
-                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">
-                    <span className="text-xl leading-none">{user.preferences?.targetLanguage?.split(' ')[1] || '🇨🇵'}</span>
-                    <div className="h-4 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
-                    <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase">{user.preferences?.level}</span>
+                {/* Clickable Badge for Menu */}
+                <div className="relative">
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); setShowTopMenu(!showTopMenu); }}
+                        className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    >
+                        <span className="text-xl leading-none">{user.preferences?.targetLanguage?.split(' ')[1] || '🇨🇵'}</span>
+                        <div className="h-4 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
+                        <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase">{user.preferences?.level}</span>
+                        <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${showTopMenu ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {showTopMenu && (
+                        <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden z-50 animate-fade-in-up">
+                            <button onClick={onStartPractice} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
+                                <MessageCircle className="w-4 h-4 text-indigo-500" /> Dialogue
+                            </button>
+                            <button onClick={onStartExercise} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
+                                <Brain className="w-4 h-4 text-emerald-500" /> Exercices
+                            </button>
+                            <button onClick={() => setIsVoiceMode(true)} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
+                                <Phone className="w-4 h-4 text-purple-500" /> Appel Vocal
+                            </button>
+                            <div className="h-px bg-slate-100 dark:bg-slate-700 mx-2 my-1"></div>
+                            <button onClick={onExit} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs font-bold text-red-500">
+                                <Repeat className="w-3.5 h-3.5" /> Changer Cours
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
 
