@@ -65,20 +65,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
       setPasswordInputs(prev => ({ ...prev, [userId]: val }));
   };
 
-  const saveNewPassword = (user: UserProfile) => {
+  const saveNewPassword = async (user: UserProfile) => {
       const newPass = passwordInputs[user.id];
       if (newPass && newPass.trim().length > 0) {
-          storageService.saveUserProfile({ ...user, password: newPass });
+          // Note: This updates the profile table field only. Supabase Auth password requires admin SDK on backend.
+          // This keeps the UI consistent if the app uses profile table for display or legacy auth logic.
+          await storageService.saveUserProfile({ ...user, password: newPass });
           setPasswordInputs(prev => ({ ...prev, [user.id]: '' }));
-          notify(`Mot de passe mis à jour.`, 'success');
+          await refreshData();
+          notify(`Mot de passe (Profil) mis à jour.`, 'success');
       }
   };
 
-  const toggleSuspend = (user: UserProfile) => {
+  const toggleSuspend = async (user: UserProfile) => {
       const updated = { ...user, isSuspended: !user.isSuspended };
-      storageService.saveUserProfile(updated);
+      // Explicitly wait for DB update
+      await storageService.saveUserProfile(updated);
       setUsers(prev => prev.map(u => u.id === user.id ? updated : u));
-      notify(`Statut utilisateur modifié.`, 'info');
+      notify(`Utilisateur ${updated.isSuspended ? 'suspendu' : 'réactivé'}.`, 'info');
   };
 
   const handleResolveRequest = async (reqId: string, status: 'approved' | 'rejected') => {

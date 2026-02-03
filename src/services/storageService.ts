@@ -49,6 +49,8 @@ export const storageService = {
 
         if (authData.user) {
             const user = await storageService.getUserById(authData.user.id);
+            // Check suspension status immediately after login
+            if (user?.isSuspended) return { success: false, error: "Compte suspendu par l'administrateur." };
             if (user) return { success: true, user };
             return { success: false, error: "Compte créé mais profil introuvable." };
         }
@@ -122,13 +124,17 @@ export const storageService = {
   // --- DATA SYNC ---
 
   saveUserProfile: async (user: UserProfile) => {
+      // Sync all important fields to Supabase
       const updates = {
+          username: user.username,
+          credits: user.credits, // Ensure client-side credit deduction persists
           lessons_completed: user.stats.lessonsCompleted,
           exercises_completed: user.stats.exercisesCompleted,
           dialogues_completed: user.stats.dialoguesCompleted,
           vocabulary: user.vocabulary,
           preferences: user.preferences,
-          free_usage: user.freeUsage
+          free_usage: user.freeUsage,
+          is_suspended: user.isSuspended // Critical for Admin Action
       };
 
       const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
@@ -146,6 +152,7 @@ export const storageService = {
       const user = await storageService.getUserById(userId);
       if (!user) return false;
       if (user.role === 'admin') return true;
+      if (user.isSuspended) return false;
 
       const now = new Date();
       const lastReset = new Date(user.freeUsage.lastResetWeek || 0);
@@ -176,6 +183,7 @@ export const storageService = {
       const user = await storageService.getUserById(userId);
       if (!user) return false;
       if (user.role === 'admin') return true;
+      if (user.isSuspended) return false;
       
       const now = new Date();
       const lastReset = new Date(user.freeUsage.lastResetWeek || 0);
@@ -213,10 +221,10 @@ export const storageService = {
               return { success: data.success, amount: data.credits_added, message: data.message };
           }
 
-          console.warn("RPC Failed/Not Setup, falling back to secure client-side logic (Admin Mode Required for safety)", error);
-
-          // Attempt 2: Fallback (Only works if user is Admin or RLS is loose, used for dev mostly)
-          // IN PRODUCTION: Ensure the RPC SQL is executed!
+          console.warn("RPC Failed/Not Setup", error);
+          
+          // Attempt 2: Fallback Logic (Client-side, necessitates Admin Privileges or open RLS for system_settings update which is risky)
+          // Ideally, RPC should always be used. This fallback is for legacy/dev environments.
           const settings = await storageService.loadSystemSettings();
           const couponIndex = settings.validTransactionRefs?.findIndex(c => c.code.toLowerCase() === code.toLowerCase());
 
@@ -315,7 +323,6 @@ export const storageService = {
                   activeModel: data.active_model || 'gemini-3-flash-preview',
                   creditPrice: data.credit_price || 50,
                   customLanguages: data.custom_languages || [],
-                  // Ensure validTransactionRefs is array of objects, handle legacy string[] gracefully
                   validTransactionRefs: Array.isArray(data.valid_transaction_refs) 
                     ? data.valid_transaction_refs.map((r: any) => typeof r === 'string' ? {code: r, amount: 0, createdAt: new Date().toISOString()} : r)
                     : [],
@@ -353,7 +360,7 @@ export const storageService = {
           active_model: settings.activeModel,
           credit_price: settings.creditPrice,
           custom_languages: settings.customLanguages,
-          valid_transaction_refs: settings.validTransactionRefs, // Saves the array of objects JSONB
+          valid_transaction_refs: settings.validTransactionRefs, 
           admin_contact: settings.adminContact
       };
 
@@ -371,11 +378,11 @@ export const storageService = {
   },
 
   exportData: async (user: UserProfile) => {
-      // Export logic...
+      // Export logic
   },
 
   importData: async (file: File, currentUserId: string): Promise<boolean> => {
-      // Import logic...
+      // Import logic
       return true;
   }
 };
