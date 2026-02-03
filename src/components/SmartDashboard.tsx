@@ -37,10 +37,11 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
       const points = (user.stats.lessonsCompleted * 10) + (user.stats.exercisesCompleted * 5) + (user.stats.dialoguesCompleted * 8);
       const threshold = 500;
       
-      const currentPoints = points % threshold;
-      const percentage = Math.min(Math.round((currentPoints / threshold) * 100), 100);
+      // Calculate real progress based on assumption that 1 lesson = 2% (from ChatInterface logic)
+      // or use the stored stats directly. Here we mirror the ChatInterface logic for consistency.
+      const lessonBasedPercentage = Math.min((user.stats.lessonsCompleted + 1) * 2, 100);
       
-      return { percentage, nextLevel, currentLevel };
+      return { percentage: lessonBasedPercentage, nextLevel, currentLevel };
   }, [user.stats, user.preferences?.level]);
 
   const handleExtract = async () => {

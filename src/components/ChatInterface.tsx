@@ -234,14 +234,22 @@ const ChatInterface: React.FC<Props> = ({
   };
 
   // --- LIVE API (VOICE CALL) LOGIC ---
-  const startLiveSession = async () => {
-      if (!(await storageService.canRequest(user.id))) {
+  
+  // Handler to open voice mode with pre-check
+  const handleVoiceModeClick = async () => {
+      const canReq = await storageService.canRequest(user.id);
+      if (canReq) {
+          setIsVoiceMode(true);
+      } else {
           notify("Crédits insuffisants pour l'appel.", "error");
-          setIsVoiceMode(false);
           onShowPayment();
-          return;
       }
+  };
 
+  const startLiveSession = async () => {
+      // Logic moved to click handler to avoid open/close flicker
+      // But we double check here just in case
+      
       try {
           const apiKey = process.env.API_KEY || '';
           if (!apiKey) {
@@ -304,7 +312,7 @@ const ChatInterface: React.FC<Props> = ({
                               sessionPromise.then(session => {
                                   session.sendRealtimeInput({ media: pcmBlob });
                               }).catch(err => {
-                                  console.error("Failed to send audio chunk", err);
+                                  // Quiet fail for stream chunks
                               });
                           };
                           
@@ -323,6 +331,7 @@ const ChatInterface: React.FC<Props> = ({
                       // Credit Consumption: Turn Complete
                       if (msg.serverContent?.turnComplete) {
                           const currentUser = await storageService.getUserById(user.id);
+                          // Re-check credits on turn complete to handle mid-call depletion
                           if (currentUser && await storageService.canRequest(currentUser.id)) {
                               await storageService.consumeCredit(currentUser.id);
                               const updatedUser = await storageService.getUserById(currentUser.id);
@@ -370,17 +379,14 @@ const ChatInterface: React.FC<Props> = ({
                       }
                   },
                   onclose: () => {
-                      setVoiceStatus('idle');
+                      // Only set state if component is still mounted/voice mode is active
                       if (isVoiceMode) {
-                          // Only notify if we didn't close it intentionally
-                          notify("Appel terminé.", "info");
-                          setIsVoiceMode(false);
+                          setVoiceStatus('idle');
                       }
                   },
                   onerror: (e) => {
                       console.error("Live Error", e);
-                      // Don't kill immediately on minor errors, but notify
-                      notify("Instabilité réseau...", "error");
+                      // Don't kill immediately on minor errors
                   }
               }
           });
@@ -396,16 +402,23 @@ const ChatInterface: React.FC<Props> = ({
 
   const stopLiveSession = async () => {
       // Stop Mic
-      if (liveInputSourceRef.current) liveInputSourceRef.current.disconnect();
-      if (liveProcessorRef.current) liveProcessorRef.current.disconnect();
+      if (liveInputSourceRef.current) {
+          liveInputSourceRef.current.disconnect();
+          liveInputSourceRef.current = null;
+      }
+      if (liveProcessorRef.current) {
+          liveProcessorRef.current.disconnect();
+          liveProcessorRef.current = null;
+      }
       
       // Stop Playback
       liveSourcesRef.current.forEach(s => s.stop());
       liveSourcesRef.current.clear();
       
-      if (liveAudioContextRef.current) {
+      if (liveAudioContextRef.current && liveAudioContextRef.current.state !== 'closed') {
           try { await liveAudioContextRef.current.close(); } catch(e) {}
       }
+      liveAudioContextRef.current = null;
       
       // Close Session
       if (liveSessionRef.current) {
@@ -413,22 +426,31 @@ const ChatInterface: React.FC<Props> = ({
               const session = await liveSessionRef.current;
               session.close();
           } catch(e) {}
+          liveSessionRef.current = null;
       }
       
-      setIsVoiceMode(false);
       setVoiceStatus('idle');
   };
 
   // Toggle Voice Mode
   useEffect(() => {
+      let isMounted = true;
+
       if (isVoiceMode) {
           startLiveSession();
       } else {
           stopLiveSession();
       }
-      // Cleanup on unmount
+      
+      // Cleanup on unmount or when mode changes
       return () => {
-          if (isVoiceMode) stopLiveSession();
+          isMounted = false;
+          // Only stop if we are actually exiting voice mode completely
+          // In React Strict Mode, this might fire immediately. 
+          // We check if we are unmounting or if voice mode was turned off.
+          if (!isVoiceMode) {
+              stopLiveSession();
+          }
       };
   }, [isVoiceMode]);
 
@@ -456,7 +478,7 @@ const ChatInterface: React.FC<Props> = ({
       // 50 lessons per level assumption => 1 lesson = 2%
       const percentage = Math.min(lessonNum * 2, 100);
       
-      return { percentage, nextLevel };
+      return { percentage, nextLevel, currentLevel };
   }, [currentLessonTitle, user.preferences?.level, user.stats.lessonsCompleted]);
 
   // -------------------
@@ -643,7 +665,7 @@ const ChatInterface: React.FC<Props> = ({
                         <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden z-50 animate-fade-in-up">
                             <button onClick={onStartPractice} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><MessageCircle className="w-4 h-4 text-indigo-500" /> Dialogue</button>
                             <button onClick={onStartExercise} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><Brain className="w-4 h-4 text-emerald-500" /> Exercices</button>
-                            <button onClick={() => setIsVoiceMode(true)} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><Phone className="w-4 h-4 text-purple-500" /> Appel Vocal</button>
+                            <button onClick={handleVoiceModeClick} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><Phone className="w-4 h-4 text-purple-500" /> Appel Vocal</button>
                             <div className="h-px bg-slate-100 dark:bg-slate-700 mx-2 my-1"></div>
                             <button onClick={onExit} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs font-bold text-red-500"><Repeat className="w-3.5 h-3.5" /> Changer Cours</button>
                         </div>
@@ -748,7 +770,7 @@ const ChatInterface: React.FC<Props> = ({
                         <div className="flex items-center gap-1.5">
                             <Target className="w-3.5 h-3.5 text-indigo-500" />
                             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                Progression vers {progressData.nextLevel}
+                                {progressData.currentLevel} — {progressData.percentage}% —&gt; {progressData.nextLevel}
                             </span>
                         </div>
                         <div className="flex items-center gap-1">
@@ -767,7 +789,7 @@ const ChatInterface: React.FC<Props> = ({
 
             <div className="flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border border-transparent focus-within:border-indigo-500/30 focus-within:bg-white dark:focus-within:bg-slate-900 transition-all shadow-inner">
                 <button 
-                    onClick={() => setIsVoiceMode(true)}
+                    onClick={handleVoiceModeClick}
                     className="h-10 w-10 shrink-0 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 flex items-center justify-center transition-all"
                 >
                     <Phone className="w-5 h-5" />
