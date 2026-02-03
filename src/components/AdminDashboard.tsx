@@ -38,15 +38,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
     setIsLoading(true);
     try {
         const fetchedUsers = await storageService.getAllUsers();
-        // Wait for fresh data from DB
         const fetchedRequests = await storageService.getAdminRequests();
-        const fetchedSettings = await storageService.loadSystemSettings();
-        
+        const fetchedSettings = await storageService.loadSystemSettings(); // Explicit load from Supabase
         setUsers(fetchedUsers);
         setRequests(fetchedRequests);
         setSettings(fetchedSettings);
     } catch (e) {
-        notify("Erreur lors du chargement des données. Vérifiez la connexion.", 'error');
+        notify("Erreur lors du chargement des données.", 'error');
     } finally {
         setIsLoading(false);
     }
@@ -134,10 +132,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
 
   // --- COUPON MANAGEMENT ---
   const handleAddCoupon = async () => {
-      // 1. Sanitize Input: Prevent users from pasting JSON or weird characters
+      // Sanitize Input: Prevent users from pasting JSON or weird characters
       let rawCode = newTransactionRef.trim();
       
-      // Basic sanitization
+      // Basic sanitization to avoid the "JSON String" issue in display
       if (rawCode.startsWith('{') || rawCode.includes('"') || rawCode.length > 30) {
           notify("Format invalide. Entrez un code simple (ex: PROMO10).", 'error');
           return;
@@ -154,7 +152,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
           createdAt: new Date().toISOString()
       };
 
-      // Handle fallback if validTransactionRefs is undefined
       const currentRefs = settings.validTransactionRefs || [];
 
       // Prevent duplicate codes
@@ -325,8 +322,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBack, notif
                                 {settings.validTransactionRefs?.map((ref, i) => (
                                     <div key={i} className="px-4 py-2 bg-white dark:bg-slate-800 rounded-xl flex items-center gap-3 text-sm font-bold shadow-sm border border-slate-100 dark:border-slate-700 group hover:border-emerald-200 transition-colors">
                                         <span className="font-mono text-slate-700 dark:text-slate-300">
-                                            {/* Protect against long/bad data strings */}
-                                            {ref.code.length > 20 ? ref.code.substring(0, 15) + '...' : ref.code}
+                                            {/* Safe Render for potential bad data */}
+                                            {(ref.code && typeof ref.code === 'string' && ref.code.length > 20) 
+                                                ? ref.code.substring(0, 15) + '...' 
+                                                : (ref.code || '???')}
                                         </span>
                                         <span className="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded text-xs">{ref.amount} CRD</span>
                                         <button onClick={() => removeCoupon(ref.code)} className="text-slate-300 hover:text-red-500 transition-colors p-1 bg-slate-50 dark:bg-slate-700 rounded"><Trash2 className="w-3.5 h-3.5"/></button>

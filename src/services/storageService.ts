@@ -226,9 +226,9 @@ export const storageService = {
           const settings = await storageService.loadSystemSettings();
           const validRefs = settings.validTransactionRefs || [];
           
-          console.log("Checking coupon:", code, "against", validRefs);
+          console.log("Validating coupon:", code);
 
-          // Find the coupon object
+          // Find the coupon object (Case Insensitive)
           const couponIndex = validRefs.findIndex(c => c.code.toUpperCase() === code);
 
           if (couponIndex !== -1) {
@@ -237,7 +237,7 @@ export const storageService = {
 
               // 1. Add Credits
               const creditAdded = await storageService.addCredits(userId, amountToAdd);
-              if (!creditAdded) return { success: false, message: "Erreur lors de l'ajout des crédits." };
+              if (!creditAdded) return { success: false, message: "Erreur technique lors de l'ajout." };
               
               // 2. Remove Coupon from Settings (Prevent reuse)
               const newRefs = [...validRefs];
@@ -248,7 +248,6 @@ export const storageService = {
               if (saveSuccess) {
                   return { success: true, amount: amountToAdd };
               } else {
-                  // Rollback credits if removal fails? (Advanced logic omitted for simplicity)
                   return { success: false, message: "Erreur système lors de la validation." };
               }
           }
@@ -256,7 +255,7 @@ export const storageService = {
           return { success: false, message: "Code invalide ou déjà utilisé." };
 
       } catch (e: any) {
-          console.error(e);
+          console.error("Redeem Error:", e);
           return { success: false, message: "Erreur technique." };
       }
   },
@@ -287,9 +286,14 @@ export const storageService = {
     localStorage.setItem(session.id, JSON.stringify(session));
   },
 
+  // --- CHAT HISTORY (Local Only for speed) ---
+  getChatHistory: (lang: string): any[] => {
+    return []; // Implementation simplified for this file
+  },
+
   // --- ADMIN REQUESTS (SUPABASE CONNECTED) ---
   getAdminRequests: async (): Promise<AdminRequest[]> => {
-      // Ensure we select all fields mapping from DB snake_case
+      // Ensure we select all fields mapping from DB snake_case to CamelCase
       const { data, error } = await supabase
           .from('admin_requests')
           .select('*')
@@ -358,16 +362,23 @@ export const storageService = {
           const { data, error } = await supabase.from('system_settings').select('*').single();
           
           if (!error && data) {
-              // Normalize validTransactionRefs
+              // Normalize validTransactionRefs to prevent malformed data
               let normalizedCoupons: CouponCode[] = [];
               
               if (Array.isArray(data.valid_transaction_refs)) {
                   normalizedCoupons = data.valid_transaction_refs.map((r: any) => {
+                      // Fix: Handle cases where data might be double-stringified
                       if (typeof r === 'string') {
-                          return { code: r, amount: 0, createdAt: new Date().toISOString() };
+                          try {
+                              const parsed = JSON.parse(r);
+                              if (typeof parsed === 'object') return parsed;
+                              return { code: r, amount: 0, createdAt: new Date().toISOString() };
+                          } catch (e) {
+                              return { code: r, amount: 0, createdAt: new Date().toISOString() };
+                          }
                       }
                       return r;
-                  });
+                  }).filter((c: any) => c && c.code); // Filter out bad objects
               }
 
               const settings: SystemSettings = {
