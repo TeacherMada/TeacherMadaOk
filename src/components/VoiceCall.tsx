@@ -47,27 +47,37 @@ const getApiKeys = () => {
     return rawKey.split(',').map(k => k.trim()).filter(k => k.length >= 10);
 };
 
-// Robust Retry Logic for API Calls
-const generateWithRetry = async (model: string, params: any) => {
+// Robust Retry Logic with Model Fallback
+const generateWithFallback = async (primaryModel: string, params: any, fallbackModel: string = 'gemini-2.0-flash') => {
     const keys = getApiKeys();
     if (keys.length === 0) throw new Error("Clé API manquante.");
     
-    const shuffledKeys = [...keys].sort(() => 0.5 - Math.random());
-    const maxAttempts = Math.min(3, keys.length);
-    
-    let lastError;
-    
-    for (let i = 0; i < maxAttempts; i++) {
-        try {
-            const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
-            return await ai.models.generateContent({ model, ...params });
-        } catch (e: any) {
-            console.warn(`API Attempt ${i+1} failed:`, e.message);
-            lastError = e;
-            await new Promise(r => setTimeout(r, 800)); // Backoff
+    // Helper to try a specific model with key rotation
+    const tryModel = async (modelName: string) => {
+        const shuffledKeys = [...keys].sort(() => 0.5 - Math.random());
+        const attempts = Math.min(2, keys.length); // Try 2 keys per model
+        
+        for (let i = 0; i < attempts; i++) {
+            try {
+                const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
+                const result = await ai.models.generateContent({ model: modelName, ...params });
+                return result;
+            } catch (e: any) {
+                console.warn(`Attempt failed with ${modelName}:`, e.message);
+                // Continue to next key
+            }
         }
+        throw new Error(`All keys failed for ${modelName}`);
+    };
+
+    try {
+        // 1. Try Primary (e.g., Gemini 3)
+        return await tryModel(primaryModel);
+    } catch (e) {
+        console.log("Primary model failed, switching to fallback...");
+        // 2. Try Fallback (e.g., Gemini 2.0)
+        return await tryModel(fallbackModel);
     }
-    throw lastError;
 };
 
 const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
@@ -139,7 +149,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           osc.frequency.value = 440; 
           gain.gain.value = 0.05;
           osc.start();
-          // Beep-beep pattern
           osc.stop(ctx.currentTime + 0.4);
           setTimeout(() => {
              if(mountedRef.current && status === 'ringing') {
@@ -166,9 +175,11 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       setStatus('ringing');
       
+      // Initialize AudioContext immediately on user gesture
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
       if (ctx.state === 'suspended') await ctx.resume();
       audioCtxRef.current = ctx;
+      
       playRingingTone(ctx);
 
       // Force a slight delay for realism, then connect
@@ -177,12 +188,12 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               setStatus('connecting');
               initializeConversation();
           }
-      }, 2000);
+      }, 2500);
   };
 
   const getSystemPrompt = () => `
     RÔLE: Tu es TeacherMada, un professeur de langue natif (${selectedLang}).
-    CONTEXTE: Appel vocal avec ${user.username}.
+    CONTEXTE: Appel téléphonique avec ${user.username}.
     TON: Chaleureux, encourageant, très naturel.
     RÈGLES:
     1. Fais des phrases COURTES (15 mots max). C'est de l'oral.
@@ -193,11 +204,11 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
   const initializeConversation = async () => {
       try {
-          // Generate the FIRST greeting dynamically
-          const response = await generateWithRetry('gemini-3-flash-preview', {
-              contents: [{ role: 'user', parts: [{ text: "L'appel commence. Dis bonjour chaleureusement et demande comment ça va." }] }],
+          // Try Gemini 3, fallback to Gemini 2.0
+          const response = await generateWithFallback('gemini-3-flash-preview', {
+              contents: [{ role: 'user', parts: [{ text: "L'appel commence. Dis bonjour chaleureusement (max 10 mots) et demande comment ça va." }] }],
               config: { systemInstruction: getSystemPrompt() }
-          });
+          }, 'gemini-2.0-flash');
 
           const greeting = response.text || "Bonjour ! Comment vas-tu ?";
           
@@ -208,8 +219,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       } catch (e) {
           console.error("Init failed", e);
-          // Fallback greeting if AI fails initially
-          const fallback = "Bonjour ! Je t'écoute.";
+          // Hard fallback if everything fails
+          const fallback = "Bonjour ! Je suis prêt.";
           historyRef.current = [{ role: 'model', parts: [{ text: fallback }] }];
           await speakText(fallback);
       }
@@ -224,8 +235,12 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       try {
           const currentVoice = LANGUAGES.find(l => l.code === selectedLang)?.voice || 'Zephyr';
           
-          // Use High Quality Gemini TTS
-          const response = await generateWithRetry('gemini-2.5-flash-preview-tts', {
+          // Audio generation (No fallback needed usually, but logic kept simple)
+          const keys = getApiKeys();
+          const ai = new GoogleGenAI({ apiKey: keys[Math.floor(Math.random() * keys.length)] });
+          
+          const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash-preview-tts',
               contents: [{ parts: [{ text }] }],
               config: {
                   responseModalities: [Modality.AUDIO],
@@ -257,9 +272,11 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       } catch (e) {
           console.error("TTS Error", e);
-          notify("Erreur audio. Vérifiez la connexion.", "error");
+          notify("Erreur audio. Je passe en écoute.", "error");
           // If audio fails, we still want to let the user reply to the text
-          startListening(); 
+          setTimeout(() => {
+              if(mountedRef.current) startListening(); 
+          }, 1000);
       }
   };
 
@@ -342,9 +359,11 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       mediaRecorderRef.current.onstop = async () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
-          // Ignore tiny empty files
-          if (audioBlob.size < 1000) {
-              startListening();
+          
+          // CRITICAL FIX: Don't send empty/short noise to API
+          if (audioBlob.size < 2000) {
+              console.log("Audio too short, ignoring...");
+              startListening(); // Just restart listening
               return;
           }
           await processTurn(audioBlob);
@@ -382,18 +401,18 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       }
 
       // 2. Build Request (Existing History + New Input)
-      // Note: We DO NOT push to historyRef yet. We wait for success.
       const requestContents = [
           ...historyRef.current.slice(-8), 
           { role: 'user', parts: [userPart] }
       ];
 
       try {
-          // 3. Call AI
-          const result = await generateWithRetry('gemini-3-flash-preview', {
+          // 3. Call AI with Fallback
+          // Try Gemini 3, fallback to Gemini 2.0 to avoid "Connection Error"
+          const result = await generateWithFallback('gemini-3-flash-preview', {
               contents: requestContents,
               config: { systemInstruction: getSystemPrompt() }
-          });
+          }, 'gemini-2.0-flash');
 
           const replyText = result.text;
           if (!replyText) throw new Error("Empty response");
@@ -419,9 +438,12 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       } catch (e: any) {
           console.error("Turn failed", e);
-          notify("Je n'ai pas bien entendu...", "warning");
+          // Don't show "I didn't hear well" alert excessively, just restart listening quietly or show subtle hint
+          notify("Je n'ai pas compris, réessayez.", "warning");
           // DO NOT save to history. Just restart listening.
-          startListening();
+          setTimeout(() => {
+              if (mountedRef.current) startListening();
+          }, 1500);
       }
   };
 
@@ -443,9 +465,9 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           setIsTranslating(true);
           try {
               const prompt = `Traduire en Malagasy simple: "${currentTeacherText}"`;
-              const response = await generateWithRetry('gemini-3-flash-preview', {
+              const response = await generateWithFallback('gemini-3-flash-preview', {
                   contents: [{ role: 'user', parts: [{ text: prompt }] }]
-              });
+              }, 'gemini-2.0-flash');
               setTranslation(response.text || "Traduction indisponible");
           } catch (e) {
               setTranslation("Erreur de traduction.");
