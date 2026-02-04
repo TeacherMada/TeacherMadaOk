@@ -46,6 +46,7 @@ function base64ToAudioBuffer(base64: string, ctx: AudioContext): Promise<AudioBu
 // Robust API Key Management
 const getApiKeys = () => {
     const rawKey = process.env.API_KEY || "";
+    // Handle comma-separated keys for rotation
     return rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
 };
 
@@ -66,10 +67,11 @@ const generateWithRetry = async (model: string, params: any) => {
             const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
             return await ai.models.generateContent({ model, ...params });
         } catch (e: any) {
-            console.warn(`API Call failed with key ending in ...${shuffledKeys[i].slice(-4)} (Attempt ${i+1}/${maxAttempts})`);
+            console.warn(`API Call failed with key ...${shuffledKeys[i].slice(-4)} (Attempt ${i+1}/${maxAttempts})`, e.message);
             lastError = e;
-            // If it's not a quota error (429) or server error (5xx), maybe don't retry? 
-            // For now, we retry on all errors to be safe.
+            
+            // If it's a 429 (Quota) or 503 (Overloaded), we retry. 
+            // If it's 400 (Bad Request), it might be history corruption, but we retry anyway with a fresh key just in case.
         }
     }
     throw lastError;
@@ -358,23 +360,23 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   };
 
   const processUserResponse = async (input: Blob | string) => {
+      // 1. Optimistically add user part to history
+      let userPart: any;
+      if (typeof input === 'string') {
+          userPart = { text: input };
+          historyRef.current.push({ role: 'user', parts: [{ text: input }] });
+      } else {
+          const reader = new FileReader();
+          const base64Promise = new Promise<string>((resolve) => {
+              reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+              reader.readAsDataURL(input);
+          });
+          const base64data = await base64Promise;
+          userPart = { inlineData: { mimeType: input.type, data: base64data } };
+          historyRef.current.push({ role: 'user', parts: [{ text: "(audio)" }] });
+      }
+
       try {
-          let userPart: any;
-
-          if (typeof input === 'string') {
-              userPart = { text: input };
-              historyRef.current.push({ role: 'user', parts: [{ text: input }] });
-          } else {
-              const reader = new FileReader();
-              const base64Promise = new Promise<string>((resolve) => {
-                  reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-                  reader.readAsDataURL(input);
-              });
-              const base64data = await base64Promise;
-              userPart = { inlineData: { mimeType: input.type, data: base64data } };
-              historyRef.current.push({ role: 'user', parts: [{ text: "(audio)" }] });
-          }
-
           // Generate Content with Retry Mechanism
           const result = await generateWithRetry('gemini-3-flash-preview', {
               contents: [
@@ -410,6 +412,11 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       } catch (e) {
           console.error("Processing Error", e);
           notify("Erreur. Je réécoute.", "error");
+          
+          // CRITICAL FIX: Remove the failed user message from history to keep the conversation clean 
+          // (avoids User-User sequences which might confuse the model or cause context issues)
+          historyRef.current.pop();
+          
           startListening(); 
       }
   };
@@ -669,8 +676,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
                     {/* KEYBOARD BUTTON WITH PERMANENT TOOLTIP */}
                     <div className="relative flex flex-col items-center gap-2 group transition-transform active:scale-95">
-                        {/* Permanent Tooltip */}
-                        <div className="absolute -top-8 bg-slate-800 text-white text-[8px] font-bold px-2 py-1 rounded-lg opacity-100 whitespace-nowrap border border-slate-600 pointer-events-none shadow-sm">
+                        {/* Permanent Tooltip - text-[7px] as requested */}
+                        <div className="absolute -top-8 bg-slate-800 text-white text-[7px] font-bold px-2 py-1 rounded-lg opacity-100 whitespace-nowrap border border-slate-600 pointer-events-none shadow-sm">
                             Vous pouvez écrire
                             <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
                         </div>

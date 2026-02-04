@@ -1,24 +1,66 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { UserProfile, ChatMessage, VocabularyItem, ExerciseItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
 import { storageService } from "./storageService";
 
 // --- API KEY ROTATION & CLIENT MANAGEMENT ---
-const getClient = () => {
-  // Get keys from env, supporting comma-separated list
+const getApiKeys = () => {
   const rawKey = process.env.API_KEY || "";
-  const keys = rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
+  return rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
+};
 
-  if (keys.length === 0) {
-    console.warn("API Key is missing.");
-    return new GoogleGenAI({ apiKey: "" });
-  }
+// Internal retry helper for stream requests
+const streamWithRetry = async function* (model: string, params: any) {
+    const keys = getApiKeys();
+    if (keys.length === 0) {
+        yield "⚠️ Erreur: Clé API manquante.";
+        return;
+    }
 
-  // Random rotation to distribute load (Simple Round-Robin/Random)
-  const selectedKey = keys[Math.floor(Math.random() * keys.length)];
-  
-  return new GoogleGenAI({ apiKey: selectedKey });
+    const shuffledKeys = [...keys].sort(() => 0.5 - Math.random());
+    const maxAttempts = Math.min(3, keys.length);
+
+    for (let i = 0; i < maxAttempts; i++) {
+        try {
+            const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
+            const responseStream = await ai.models.generateContentStream({ model, ...params });
+            
+            // If we successfully get the stream iterator, we yield chunks.
+            // If the stream fails mid-way, that's harder to retry without repeating content,
+            // but usually connection errors happen at start.
+            for await (const chunk of responseStream) {
+                yield chunk;
+            }
+            return; // Success, exit retry loop
+        } catch (e: any) {
+            console.warn(`Stream attempt ${i+1} failed with key ...${shuffledKeys[i].slice(-4)}`, e.message);
+            if (i === maxAttempts - 1) {
+                // Last attempt failed
+                yield `⚠️ Erreur de connexion (${e.status || 'Reseau'}). Veuillez réessayer.`;
+            }
+        }
+    }
+};
+
+// Internal retry helper for standard requests
+const generateWithRetry = async (model: string, params: any) => {
+    const keys = getApiKeys();
+    if (keys.length === 0) throw new Error("No API keys");
+
+    const shuffledKeys = [...keys].sort(() => 0.5 - Math.random());
+    const maxAttempts = Math.min(3, keys.length);
+    let lastError;
+
+    for (let i = 0; i < maxAttempts; i++) {
+        try {
+            const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
+            return await ai.models.generateContent({ model, ...params });
+        } catch (e: any) {
+            console.warn(`API attempt ${i+1} failed`, e.message);
+            lastError = e;
+        }
+    }
+    throw lastError;
 };
 
 // Models Configuration
@@ -33,56 +75,51 @@ export async function* sendMessageStream(
 ) {
   if (!user.preferences) throw new Error("Profil incomplet");
   
-  // Note: canRequest is async
   if (!(await storageService.canRequest(user.id))) {
     yield "⚠️ Crédits insuffisants. Veuillez recharger votre compte.";
     return;
   }
 
-  const ai = getClient();
-
-  // Sanitize history: remove empty messages and ensure structure
+  // Sanitize history
   const contents = history
-    .filter(msg => msg.text && msg.text.trim().length > 0) // Filter empty messages
+    .filter(msg => msg.text && msg.text.trim().length > 0)
     .map(msg => ({
-      role: msg.role === 'user' ? 'user' : 'model', // Explicitly map role
+      role: msg.role === 'user' ? 'user' : 'model',
       parts: [{ text: msg.text }]
     }));
   
-  // Add current user message
   contents.push({ role: 'user', parts: [{ text: message }] });
 
-  try {
-    const responseStream = await ai.models.generateContentStream({
-      model: TEXT_MODEL,
+  const stream = streamWithRetry(TEXT_MODEL, {
       contents: contents,
       config: {
         systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences),
         temperature: 0.7,
-        maxOutputTokens: 2000, // Increased to ensure full lesson generation
+        maxOutputTokens: 2000,
       }
-    });
+  });
 
-    let hasYielded = false;
-    for await (const chunk of responseStream) {
-       const text = chunk.text;
-       if (text) {
-           yield text;
-           hasYielded = true;
-       }
-    }
+  let hasYielded = false;
+  for await (const chunk of stream) {
+      // streamWithRetry yields raw chunks (which have .text) or error strings?
+      // Wait, streamWithRetry yields `GenerateContentResponse` chunks typically.
+      // But my error handling yields strings.
+      
+      if (typeof chunk === 'string') {
+          // This is my error message
+          yield chunk;
+      } else {
+          // It's a Gemini chunk
+          const text = chunk.text;
+          if (text) {
+              yield text;
+              hasYielded = true;
+          }
+      }
+  }
 
-    if (hasYielded) {
-        await storageService.consumeCredit(user.id);
-    }
-
-  } catch (error: any) {
-    console.error("Gemini Stream Error:", error);
-    if (error.message && error.message.includes("API key")) {
-        yield "Erreur de configuration API Key. Contactez l'admin.";
-    } else {
-        yield `Désolé, une erreur de connexion est survenue (${error.status || 'Reseau'}).`;
-    }
+  if (hasYielded) {
+      await storageService.consumeCredit(user.id);
   }
 }
 
@@ -91,10 +128,8 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
     const user = await storageService.getCurrentUser();
     if (!user || !(await storageService.canRequest(user.id))) return null;
 
-    const ai = getClient();
     try {
-        const response = await ai.models.generateContent({
-            model: AUDIO_MODEL,
+        const response = await generateWithRetry(AUDIO_MODEL, {
             contents: [{ parts: [{ text: text }] }],
             config: {
                 responseModalities: [Modality.AUDIO],
@@ -106,13 +141,11 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
             }
         });
 
-        // Extract base64 audio
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (!base64Audio) return null;
 
         await storageService.consumeCredit(user.id);
 
-        // Convert Base64 to ArrayBuffer
         const binaryString = atob(base64Audio);
         const len = binaryString.length;
         const bytes = new Uint8Array(len);
@@ -132,7 +165,6 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
     const user = await storageService.getCurrentUser();
     if (!user || !(await storageService.canRequest(user.id))) return [];
 
-    const ai = getClient();
     const context = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
     
     const prompt = `Based on the following conversation, extract 3 to 5 key vocabulary words that are useful for the learner.
@@ -141,9 +173,8 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
     ${context}`;
 
     try {
-        const response = await ai.models.generateContent({
-            model: TEXT_MODEL,
-            contents: prompt,
+        const response = await generateWithRetry(TEXT_MODEL, {
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
@@ -161,7 +192,6 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
         });
 
         const rawData = JSON.parse(response.text || "[]");
-        
         await storageService.consumeCredit(user.id);
 
         return rawData.map((item: any) => ({
@@ -182,23 +212,19 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
 export const generateExerciseFromHistory = async (history: ChatMessage[], user: UserProfile): Promise<ExerciseItem[]> => {
     if (!(await storageService.canRequest(user.id))) return [];
 
-    const ai = getClient();
     const context = history.slice(-10).map(m => m.text).join("\n");
     const lessonInfo = `Leçon ${(user.stats.lessonsCompleted || 0) + 1}`;
     
     const prompt = `Génère 3 exercices (QCM ou Vrai/Faux) pour un élève de niveau ${user.preferences?.level} apprenant le ${user.preferences?.targetLanguage}.
     CONTEXTE : L'élève est à la ${lessonInfo}.
     INSTRUCTION : Les exercices doivent porter sur les concepts vus dans la conversation récente ou être adaptés au niveau actuel si le contexte est court. Sois bienveillant et instructif dans l'explication.
-    
     Conversation récente :
     ${context}
-    
     Format JSON Array attendu.`;
 
     try {
-        const response = await ai.models.generateContent({
-            model: TEXT_MODEL,
-            contents: prompt,
+        const response = await generateWithRetry(TEXT_MODEL, {
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
@@ -237,7 +263,6 @@ export const generateRoleplayResponse = async (
     
     if (!(await storageService.canRequest(user.id))) return { aiReply: "⚠️ Crédits insuffisants." };
 
-    const ai = getClient();
     const sysInstruct = `Tu es un partenaire de jeu de rôle linguistique. SCENARIO: ${scenarioPrompt}. LANGUE: ${user.preferences?.targetLanguage}. NIVEAU: ${user.preferences?.level}.`;
 
     const contents = history
@@ -247,8 +272,7 @@ export const generateRoleplayResponse = async (
     if (isClosing) contents.push({ role: 'user', parts: [{ text: "Evaluation finale" }] });
 
     try {
-        const response = await ai.models.generateContent({
-            model: TEXT_MODEL,
+        const response = await generateWithRetry(TEXT_MODEL, {
             contents: contents.length ? contents : [{role:'user', parts:[{text:'Start'}]}],
             config: {
                 systemInstruction: sysInstruct,
