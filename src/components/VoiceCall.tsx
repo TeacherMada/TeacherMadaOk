@@ -220,36 +220,38 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                       if (!mountedRef.current) return;
                       setStatus('connected');
                       
-                      // Capabilities Check & Trigger
-                      sessionPromise.then(session => {
-                          if (!mountedRef.current) return;
-                          
-                          // Check if we can send text
-                          if (typeof (session as any).send === 'function') {
-                              setCanSendText(true);
-                              try {
-                                  (session as any).send({
-                                      clientContent: {
-                                          turns: [{ role: "user", parts: [{ text: "SYSTEM: Call connected. Please say 'Allô' now." }] }],
-                                          turnComplete: true
-                                      }
-                                  });
-                              } catch (e) {}
+                      const session = await sessionPromise;
+                      
+                      // 1. Force Teacher to Speak (Send Text Trigger)
+                      if (typeof (session as any).send === 'function') {
+                          setCanSendText(true);
+                          try {
+                              (session as any).send({
+                                  clientContent: {
+                                      turns: [{ 
+                                          role: "user", 
+                                          parts: [{ text: "Bonjour Teacher. Appelle-moi maintenant." }] 
+                                      }],
+                                      turnComplete: true
+                                  }
+                              });
+                          } catch (e) {
+                              console.warn("Trigger text failed", e);
                           }
+                      }
 
-                          // Audio Trigger (Silent Burst) - Essential for VAD wakeup
-                          setTimeout(() => {
-                              if (mountedRef.current) {
-                                  try {
-                                      const silentData = new Float32Array(4800); // 300ms silence
-                                      const pcmBlob = createBlob(silentData);
-                                      session.sendRealtimeInput({ media: pcmBlob });
-                                  } catch(e) { console.error("Audio trigger failed", e); }
-                              }
-                          }, 500);
-                      });
+                      // 2. Audio Trigger (Silent Burst) - Essential for VAD wakeup
+                      setTimeout(() => {
+                          if (mountedRef.current) {
+                              try {
+                                  const silentData = new Float32Array(4800); // 300ms silence
+                                  const pcmBlob = createBlob(silentData);
+                                  session.sendRealtimeInput({ media: pcmBlob });
+                              } catch(e) { console.error("Audio trigger failed", e); }
+                          }
+                      }, 500);
 
-                      // Microphone
+                      // 3. Microphone Setup
                       try {
                           const stream = await navigator.mediaDevices.getUserMedia({ 
                               audio: { sampleRate: 16000, echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
@@ -322,13 +324,11 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                       }
                   },
                   onclose: () => {
-                      // Only close if intended or error, not just connection close (which shouldn't happen unless done)
                       console.log("Live Session Closed");
                       if (mountedRef.current) onClose();
                   },
                   onerror: (e) => {
                       console.error("Live API Error:", e);
-                      // Don't close immediately on minor errors, but log
                   }
               }
           });
