@@ -208,10 +208,17 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                   },
                   systemInstruction: {
                       parts: [{ text: `
-                      IDENTITY: You are "TeacherMada", a warm teacher. 
-                      USER: ${user.username}, Learning: ${user.preferences?.targetLanguage}, Level: ${user.preferences?.level}.
-                      TASK: Simulate a phone call. 
-                      CRITICAL: SPEAK FIRST IMMEDIATELY. Say "Allô !" and introduce yourself in ${user.preferences?.explanationLanguage || 'French'}.
+                      IDENTITY: You are "TeacherMada", a patient and encouraging language teacher. 
+                      USER: ${user.username}.
+                      TARGET LANGUAGE: ${user.preferences?.targetLanguage}.
+                      LEVEL: ${user.preferences?.level}.
+                      
+                      TASK: Simulate a phone call practice session.
+                      
+                      CRITICAL INSTRUCTIONS:
+                      1. YOU MUST SPEAK FIRST.
+                      2. START IMMEDIATELY by greeting the user in the TARGET LANGUAGE (${user.preferences?.targetLanguage}).
+                      3. Ask a simple question to start the conversation appropriate for their level (${user.preferences?.level}).
                       ` }]
                   }
               },
@@ -230,7 +237,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                                   clientContent: {
                                       turns: [{ 
                                           role: "user", 
-                                          parts: [{ text: "Bonjour Teacher. Appelle-moi maintenant." }] 
+                                          parts: [{ text: `SYSTEM: The call has connected. Start speaking to the user in ${user.preferences?.targetLanguage} immediately.` }] 
                                       }],
                                       turnComplete: true
                                   }
