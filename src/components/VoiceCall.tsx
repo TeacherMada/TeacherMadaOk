@@ -3,6 +3,7 @@ import { X, Phone, Keyboard, Send, Lock, Loader2, ChevronDown, Settings2, Globe,
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
+import Tooltip from './Tooltip';
 
 interface VoiceCallProps {
   user: UserProfile;
@@ -184,8 +185,9 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       } catch (e) {
           console.error(e);
-          notify("Erreur de connexion.", "error");
-          onClose();
+          // Retry or Fallback instead of closing immediately
+          historyRef.current.push({ role: 'model', parts: [{ text: "Bonjour ! Prêt ?" }] });
+          await speakText("Bonjour ! Allô ? Tu m'entends ?");
       }
   };
 
@@ -232,14 +234,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       } catch (e) {
           console.error("TTS Error", e);
           notify("Mode texte activé (Audio HS)", "info");
-          // Force open hint if it's closed
-          if (!showHint) toggleHint(); 
-          // Note: toggleHint will pause listening if we open it, but since we want to proceed with conversation in text mode:
-          // We should manually trigger what we want.
-          // Actually toggleHint stops listening. 
-          // If we want text mode flow, we should allow user to read then they can click mic or type.
-          // But 'startListening' here will start the mic.
-          // Let's just start listening so they can reply.
+          // Fallback: Do NOT force open hint, just start listening to keep flow
           startListening();
       }
   };
@@ -423,9 +418,23 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           setIsTranslating(true);
           try {
               const ai = getClient();
+              const prompt = `
+                Traduisez le texte suivant en Malagasy simple et naturel pour un apprenant. Si nécessaire, utilisez des puces pour clarifier.
+                Ajoutez ensuite 2 suggestions courtes de réponse (en ${selectedLang}, avec traduction Malagasy entre parenthèses).
+                
+                Texte: "${currentTeacherText}"
+                
+                Format de sortie:
+                [Traduction Malagasy]
+                
+                💡 Valiny azo atao:
+                1. [Réponse ${selectedLang}] ([Sens Malagasy])
+                2. [Réponse ${selectedLang}] ([Sens Malagasy])
+              `;
+              
               const response = await ai.models.generateContent({
                   model: 'gemini-3-flash-preview',
-                  contents: [{ role: 'user', parts: [{ text: `Translate the following text to Malagasy naturally and simply: "${currentTeacherText}"` }] }]
+                  contents: [{ role: 'user', parts: [{ text: prompt }] }]
               });
               setTranslation(response.text || "Traduction indisponible");
           } catch (e) {
@@ -514,7 +523,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                 <Lock className="w-3 h-3 text-emerald-400" />
                 <span className="text-[10px] text-white/60 font-bold uppercase tracking-wider">Secure Channel</span>
             </div>
-            <h2 className="text-3xl font-black text-white tracking-tight mb-1">{selectedLang} Practice</h2>
+            <h2 className="text-3xl font-black text-white tracking-tight mb-1">Pratique {selectedLang}</h2>
             <p className="text-indigo-300 text-sm font-medium font-mono tracking-widest">
                 {status === 'ringing' ? "Appel entrant..." : status === 'connecting' ? "Connexion..." : formatDuration(duration)}
             </p>
@@ -593,9 +602,9 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                         {isTranslating ? (
                             <div className="flex items-center gap-2 text-slate-400 text-sm"><Loader2 className="w-4 h-4 animate-spin"/> Traduction en cours...</div>
                         ) : (
-                            <p className="text-slate-300 text-sm italic leading-relaxed">
+                            <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
                                 {translation || "..."}
-                            </p>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -640,12 +649,14 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                         </div>
                     </button>
 
-                    <button onClick={() => setShowKeyboard(!showKeyboard)} className={`flex flex-col items-center gap-2 group transition-transform active:scale-95 ${showKeyboard ? 'opacity-100' : 'opacity-100'}`}>
-                        <div className={`w-14 h-14 rounded-full flex items-center justify-center backdrop-blur-md transition-colors border border-white/10 ${showKeyboard ? 'bg-indigo-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}>
-                            <Keyboard className="w-6 h-6" />
-                        </div>
-                        <span className="text-[10px] text-white/50 font-bold uppercase tracking-widest">Clavier</span>
-                    </button>
+                    <Tooltip text="Vous pouvez écrire" position="top">
+                        <button onClick={() => setShowKeyboard(!showKeyboard)} className={`flex flex-col items-center gap-2 group transition-transform active:scale-95 ${showKeyboard ? 'opacity-100' : 'opacity-100'}`}>
+                            <div className={`w-14 h-14 rounded-full flex items-center justify-center backdrop-blur-md transition-colors border border-white/10 ${showKeyboard ? 'bg-indigo-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}>
+                                <Keyboard className="w-6 h-6" />
+                            </div>
+                            <span className="text-[10px] text-white/50 font-bold uppercase tracking-widest">Clavier</span>
+                        </button>
+                    </Tooltip>
                 </>
             ) : (
                 <div className="col-span-3 flex justify-center">
