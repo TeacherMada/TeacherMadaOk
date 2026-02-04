@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Mic, MicOff, Phone, Keyboard, Send, Lock, Loader2, Volume2, ChevronDown, Settings2, Globe, BarChart } from 'lucide-react';
+import { X, Mic, MicOff, Phone, Keyboard, Send, Lock, Loader2, Volume2, ChevronDown, Settings2, Globe, BarChart, Sparkles } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -120,6 +120,12 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
   // --- 1. Start Sequence ---
   const handleStartCall = async () => {
+      if (!(await storageService.canRequest(user.id))) {
+          notify("Crédits insuffisants. Rechargez votre compte.", "error");
+          onShowPayment();
+          return;
+      }
+
       setStatus('ringing');
       
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
@@ -147,6 +153,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
     2. Fais des réponses COURTES (1-2 phrases max) pour un échange fluide.
     3. Corrige subtilement si nécessaire, mais privilégie la fluidité.
     4. Relance toujours la conversation.
+    
+    IMPORTANT: Ne dis JAMAIS "Je suis une IA". Tu es un professeur humain au téléphone.
   `;
 
   const initializeCall = async () => {
@@ -154,11 +162,13 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           const ai = getClient();
           const response = await ai.models.generateContent({
               model: 'gemini-3-flash-preview',
-              contents: [{ role: 'user', parts: [{ text: "L'appel commence. Salue-moi chaleureusement." }] }],
+              contents: [{ role: 'user', parts: [{ text: "L'appel commence. Salue-moi chaleureusement en 1 phrase courte." }] }],
               config: { systemInstruction: getDynamicSystemPrompt() }
           });
 
+          // FIX: Access .text directly
           const greetingText = response.text;
+          
           if (!greetingText) throw new Error("No greeting generated");
 
           historyRef.current.push({ role: 'model', parts: [{ text: greetingText }] });
@@ -327,6 +337,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               historyRef.current.push({ role: 'user', parts: [{ text: "(audio)" }] });
           }
 
+          // Generate Response
           const result = await ai.models.generateContent({
               model: 'gemini-3-flash-preview',
               contents: [
@@ -338,13 +349,15 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               }
           });
 
+          // FIX: Access .text directly
           const replyText = result.text;
           
           // CRITICAL: Consume 1 Credit per AI Turn
-          const u = await storageService.getUserById(user.id);
-          if (u && await storageService.canRequest(u.id)) {
-              await storageService.consumeCredit(u.id);
-              if(mountedRef.current) onUpdateUser(await storageService.getUserById(u.id) as UserProfile);
+          if (await storageService.canRequest(user.id)) {
+              await storageService.consumeCredit(user.id);
+              // Fetch latest user state to reflect credit change
+              const updatedUser = await storageService.getUserById(user.id);
+              if(updatedUser && mountedRef.current) onUpdateUser(updatedUser);
           } else {
               notify("Crédits épuisés.", "error");
               onShowPayment();
