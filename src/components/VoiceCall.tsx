@@ -15,11 +15,11 @@ interface VoiceCallProps {
 
 // --- Constants ---
 const LANGUAGES = [
-    { code: 'Anglais', label: 'Anglais 🇬🇧', voice: 'Fenrir' },
-    { code: 'Français', label: 'Français 🇫🇷', voice: 'Zephyr' },
-    { code: 'Chinois', label: 'Chinois 🇨🇳', voice: 'Puck' },
-    { code: 'Espagnol', label: 'Espagnol 🇪🇸', voice: 'Kore' },
-    { code: 'Allemand', label: 'Allemand 🇩🇪', voice: 'Fenrir' },
+    { code: 'Anglais', label: 'Anglais 🇬🇧', voice: 'Fenrir', bcp47: 'en-GB' },
+    { code: 'Français', label: 'Français 🇫🇷', voice: 'Zephyr', bcp47: 'fr-FR' },
+    { code: 'Chinois', label: 'Chinois 🇨🇳', voice: 'Puck', bcp47: 'zh-CN' },
+    { code: 'Espagnol', label: 'Espagnol 🇪🇸', voice: 'Kore', bcp47: 'es-ES' },
+    { code: 'Allemand', label: 'Allemand 🇩🇪', voice: 'Fenrir', bcp47: 'de-DE' },
 ];
 
 const LEVELS = ['Débutant (A1)', 'Élémentaire (A2)', 'Intermédiaire (B1)', 'Avancé (B2)', 'Expert (C1)'];
@@ -46,39 +46,53 @@ function base64ToAudioBuffer(base64: string, ctx: AudioContext): Promise<AudioBu
 // Robust API Key Management
 const getApiKeys = () => {
     const rawKey = process.env.API_KEY || "";
-    // Handle comma-separated keys for rotation
-    return rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    const keys = rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    if (keys.length === 0) console.warn("No API Keys found in environment!");
+    return keys;
 };
 
 // Retry wrapper for AI calls
-const generateWithRetry = async (model: string, params: any) => {
+const generateWithRetry = async (model: string, params: any, fallbackModel: string = 'gemini-2.0-flash') => {
     const keys = getApiKeys();
-    if (keys.length === 0) throw new Error("No API keys configuration found.");
+    if (keys.length === 0) throw new Error("Clé API manquante. Veuillez vérifier la configuration.");
     
-    // Shuffle keys to distribute load and try different ones on retry
+    // Shuffle keys to distribute load
     const shuffledKeys = [...keys].sort(() => 0.5 - Math.random());
-    // Try up to 3 keys or all available if fewer
-    const maxAttempts = Math.min(3, keys.length);
+    const maxAttempts = Math.min(3, keys.length); // Try up to 3 different keys
     
     let lastError;
     
+    // 1. Try Primary Model with Key Rotation
     for (let i = 0; i < maxAttempts; i++) {
         try {
             const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
             return await ai.models.generateContent({ model, ...params });
         } catch (e: any) {
-            console.warn(`API Call failed with key ...${shuffledKeys[i].slice(-4)} (Attempt ${i+1}/${maxAttempts})`, e.message);
+            console.warn(`API Error (Key ${i+1}/${maxAttempts}): ${e.message}`);
             lastError = e;
-            
-            // If it's a 429 (Quota) or 503 (Overloaded), we retry. 
-            // If it's 400 (Bad Request), it might be history corruption, but we retry anyway with a fresh key just in case.
+            // If it's a 4xx error (Bad Request) that is NOT quota (429), maybe don't retry? 
+            // But we retry just in case it's a transient issue.
         }
     }
+
+    // 2. Try Fallback Model (if different) with a fresh key (random from list)
+    if (fallbackModel && model !== fallbackModel) {
+        console.log(`Switching to fallback model: ${fallbackModel}`);
+        try {
+            const fallbackKey = shuffledKeys[Math.floor(Math.random() * shuffledKeys.length)];
+            const ai = new GoogleGenAI({ apiKey: fallbackKey });
+            return await ai.models.generateContent({ model: fallbackModel, ...params });
+        } catch (e: any) {
+            console.error("Fallback Model Error:", e.message);
+            lastError = e;
+        }
+    }
+
     throw lastError;
 };
 
 const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
-  // States: 'setup' -> 'ringing' -> 'connecting' -> 'speaking' -> 'listening' -> 'processing'
+  // States
   const [status, setStatus] = useState<'setup' | 'ringing' | 'connecting' | 'speaking' | 'listening' | 'processing'>('setup');
   const [duration, setDuration] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -136,6 +150,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (sourceNodeRef.current) sourceNodeRef.current.stop();
+      window.speechSynthesis.cancel(); // Stop browser TTS
   };
 
   const playRingingTone = (ctx: AudioContext) => {
@@ -161,7 +176,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       setStatus('ringing');
       
-      // Initialize AudioContext on user gesture to prevent "suspended" state
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
       if (ctx.state === 'suspended') {
           try { await ctx.resume(); } catch (e) { console.warn("AudioContext resume failed", e); }
@@ -210,10 +224,30 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       } catch (e) {
           console.error(e);
-          // Retry or Fallback instead of closing immediately
           historyRef.current.push({ role: 'model', parts: [{ text: "Bonjour ! Prêt ?" }] });
           await speakText("Bonjour ! Allô ? Tu m'entends ?");
       }
+  };
+
+  // --- BROWSER TTS FALLBACK ---
+  const speakWithBrowser = (text: string) => {
+      if (!mountedRef.current) return;
+      window.speechSynthesis.cancel();
+
+      const langInfo = LANGUAGES.find(l => l.code === selectedLang);
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = langInfo?.bcp47 || 'en-US';
+      utterance.rate = 0.9;
+
+      utterance.onend = () => {
+          if (mountedRef.current) startListening();
+      };
+      utterance.onerror = () => {
+          // If even browser TTS fails, we just listen (silent teacher)
+          if (mountedRef.current) startListening();
+      };
+
+      window.speechSynthesis.speak(utterance);
   };
 
   const speakText = async (text: string) => {
@@ -224,6 +258,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       try {
           const currentVoice = LANGUAGES.find(l => l.code === selectedLang)?.voice || 'Zephyr';
+          // Use generateWithRetry for TTS as well
           const response = await generateWithRetry('gemini-2.5-flash-preview-tts', {
               contents: [{ parts: [{ text }] }],
               config: {
@@ -232,7 +267,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                       voiceConfig: { prebuiltVoiceConfig: { voiceName: currentVoice } }
                   }
               }
-          });
+          }, ''); // No fallback model for TTS, we use browser fallback in catch
 
           const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
           if (!audioData) throw new Error("No audio data");
@@ -255,18 +290,15 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           source.start();
 
       } catch (e) {
-          console.error("TTS Error", e);
-          notify("Mode texte activé (Audio HS)", "info");
-          // Fallback: Do NOT force open hint, just start listening to keep flow
-          startListening();
+          console.error("Gemini TTS Error, using browser fallback", e);
+          notify("Mode audio secours activé", "info");
+          speakWithBrowser(text);
       }
   };
 
   const startListening = async () => {
       if (!mountedRef.current) return;
-      // If hint is open, we generally pause mic to let user read, BUT if we are in fallback mode (Audio HS),
-      // we might want to allow mic immediately? Let's stick to standard behavior: if hint open, mic off.
-      if (showHint) return;
+      if (showHint) return; // Pause if user is reading hint
 
       setStatus('listening');
       audioChunksRef.current = [];
@@ -377,7 +409,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       }
 
       try {
-          // Generate Content with Retry Mechanism
+          // Generate Content with Retry Mechanism and Fallback
           const result = await generateWithRetry('gemini-3-flash-preview', {
               contents: [
                   ...historyRef.current.slice(-8), 
@@ -386,7 +418,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               config: { 
                   systemInstruction: getDynamicSystemPrompt()
               }
-          });
+          }, 'gemini-2.0-flash'); // Fallback model
 
           const replyText = result.text;
           
@@ -409,15 +441,17 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               await speakText("Je n'ai pas compris.");
           }
 
-      } catch (e) {
+      } catch (e: any) {
           console.error("Processing Error", e);
-          notify("Erreur. Je réécoute.", "error");
+          notify("Erreur de connexion. Je réessaie...", "error");
           
-          // CRITICAL FIX: Remove the failed user message from history to keep the conversation clean 
-          // (avoids User-User sequences which might confuse the model or cause context issues)
+          // Fix history corruption
           historyRef.current.pop();
           
-          startListening(); 
+          // Simple retry by restarting listening after a short delay
+          setTimeout(() => {
+              if (mountedRef.current) startListening();
+          }, 1000);
       }
   };
 
@@ -458,12 +492,13 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                 2. [Réponse ${selectedLang}] ([Sens Malagasy])
               `;
               
+              // Use fallback here as well
               const response = await generateWithRetry('gemini-3-flash-preview', {
                   contents: [{ role: 'user', parts: [{ text: prompt }] }]
-              });
+              }, 'gemini-2.0-flash');
               setTranslation(response.text || "Traduction indisponible");
           } catch (e) {
-              setTranslation("Erreur de traduction");
+              setTranslation("Erreur de traduction. Réessayez.");
           } finally {
               setIsTranslating(false);
           }
