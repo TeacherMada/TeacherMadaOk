@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Mic, MicOff, Phone, Keyboard, Send, Lock, Loader2, Volume2, ChevronDown, Settings2, Globe, BarChart, Sparkles } from 'lucide-react';
+import { X, Phone, Keyboard, Send, Lock, Loader2, ChevronDown, Settings2, Globe, BarChart, Lightbulb, Languages, RefreshCw, Sparkles } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -59,10 +59,15 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const [selectedLang, setSelectedLang] = useState(user.preferences?.targetLanguage?.split(' ')[0] || 'Anglais');
   const [selectedLevel, setSelectedLevel] = useState(user.preferences?.level || 'Débutant (A1)');
 
-  // Controls
-  const [isMuted, setIsMuted] = useState(false);
+  // Controls & Hint
   const [showKeyboard, setShowKeyboard] = useState(false);
   const [textInput, setTextInput] = useState('');
+  const [currentTeacherText, setCurrentTeacherText] = useState('');
+  
+  // Hint / Translation State
+  const [showHint, setShowHint] = useState(false);
+  const [translation, setTranslation] = useState<string | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
 
   // Refs
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -128,7 +133,11 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       setStatus('ringing');
       
+      // Initialize AudioContext on user gesture to prevent "suspended" state
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+      if (ctx.state === 'suspended') {
+          await ctx.resume();
+      }
       audioCtxRef.current = ctx;
       playRingingTone(ctx);
 
@@ -166,7 +175,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               config: { systemInstruction: getDynamicSystemPrompt() }
           });
 
-          // FIX: Access .text directly
           const greetingText = response.text;
           
           if (!greetingText) throw new Error("No greeting generated");
@@ -183,6 +191,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
   const speakText = async (text: string) => {
       if (!mountedRef.current) return;
+      
+      setCurrentTeacherText(text); // Store for hint
       setStatus('speaking');
 
       try {
@@ -203,6 +213,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           if (!audioData) throw new Error("No audio data");
 
           const ctx = audioCtxRef.current!;
+          if (ctx.state === 'suspended') await ctx.resume();
+
           const buffer = await base64ToAudioBuffer(audioData, ctx);
           
           const source = ctx.createBufferSource();
@@ -219,17 +231,19 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       } catch (e) {
           console.error("TTS Error", e);
-          notify("Erreur audio.", "error");
+          notify("Audio indisponible. Mode texte.", "info");
+          // Fallback: Open hint immediately so user can read
+          toggleHint();
           startListening();
       }
   };
 
   const startListening = async () => {
       if (!mountedRef.current) return;
+      if (showHint) return; // Don't listen if hint is open (reading mode)
+
       setStatus('listening');
       audioChunksRef.current = [];
-
-      if (isMuted) return;
 
       try {
           if (!streamRef.current) {
@@ -258,13 +272,14 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           monitorAudioLevel();
 
       } catch (e) {
+          console.warn("Mic error", e);
           notify("Microphone inaccessible.", "info");
           setShowKeyboard(true);
       }
   };
 
   const monitorAudioLevel = () => {
-      if (!analyserRef.current || status !== 'listening' || isMuted) return;
+      if (!analyserRef.current || status !== 'listening' || showHint) return;
 
       const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
       analyserRef.current.getByteFrequencyData(dataArray);
@@ -337,7 +352,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               historyRef.current.push({ role: 'user', parts: [{ text: "(audio)" }] });
           }
 
-          // Generate Response
           const result = await ai.models.generateContent({
               model: 'gemini-3-flash-preview',
               contents: [
@@ -349,13 +363,10 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               }
           });
 
-          // FIX: Access .text directly
           const replyText = result.text;
           
-          // CRITICAL: Consume 1 Credit per AI Turn
           if (await storageService.canRequest(user.id)) {
               await storageService.consumeCredit(user.id);
-              // Fetch latest user state to reflect credit change
               const updatedUser = await storageService.getUserById(user.id);
               if(updatedUser && mountedRef.current) onUpdateUser(updatedUser);
           } else {
@@ -380,23 +391,49 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       }
   };
 
+  // --- Translation Hint Logic ---
+  
+  const toggleHint = async () => {
+      if (showHint) {
+          setShowHint(false);
+          // Resume listening if we were in the middle of a session
+          if (status === 'listening' || status === 'speaking') {
+              startListening();
+          }
+      } else {
+          // Pause listening loop
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+              mediaRecorderRef.current.stop();
+          }
+          if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          
+          setShowHint(true);
+          
+          if (!currentTeacherText) return;
+          
+          setIsTranslating(true);
+          try {
+              const ai = getClient();
+              const response = await ai.models.generateContent({
+                  model: 'gemini-3-flash-preview',
+                  contents: [{ role: 'user', parts: [{ text: `Translate the following text to Malagasy naturally and simply: "${currentTeacherText}"` }] }]
+              });
+              setTranslation(response.text || "Traduction indisponible");
+          } catch (e) {
+              setTranslation("Erreur de traduction");
+          } finally {
+              setIsTranslating(false);
+          }
+      }
+  };
+
   // --- Render Helpers ---
 
   const formatDuration = (s: number) => {
       const m = Math.floor(s / 60);
       const sec = s % 60;
       return `${m}:${sec < 10 ? '0' : ''}${sec}`;
-  };
-
-  const toggleMute = () => {
-      const newState = !isMuted;
-      setIsMuted(newState);
-      if (newState && streamRef.current) {
-          streamRef.current.getAudioTracks().forEach(track => track.enabled = false);
-      } else if (streamRef.current) {
-          streamRef.current.getAudioTracks().forEach(track => track.enabled = true);
-          if (status === 'listening') monitorAudioLevel();
-      }
   };
 
   // --- RENDER ---
@@ -480,7 +517,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
             
             {/* 1. TEACHER PULSE (Avatar) */}
             <div className="relative z-20">
-                {/* Status Glow Rings */}
                 {status === 'speaking' && (
                     <>
                         <div className="absolute inset-0 border-2 border-emerald-500/50 rounded-full animate-[ping_2s_linear_infinite]"></div>
@@ -497,10 +533,9 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                 </div>
             </div>
 
-            {/* 2. USER AUDIO WAVEFORM (CSS ONLY) */}
+            {/* 2. USER AUDIO WAVEFORM */}
             <div className="h-24 flex items-center justify-center gap-1.5 mt-8 w-full max-w-xs">
-                {status === 'listening' ? (
-                    // Dynamic Bars based on audioLevel
+                {status === 'listening' && !showHint ? (
                     [...Array(7)].map((_, i) => (
                         <div 
                             key={i} 
@@ -512,7 +547,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                         ></div>
                     ))
                 ) : status === 'speaking' ? (
-                    // Teacher Speaking Indicator
                     <div className="flex items-center gap-2">
                         <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce"></span>
                         <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce delay-100"></span>
@@ -523,17 +557,45 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                 )}
             </div>
 
-            {/* 3. STATUS TEXT (Replaces Subtitles) */}
+            {/* 3. STATUS TEXT */}
             <div className="mt-4 h-8 flex items-center justify-center">
-                {status === 'speaking' && <span className="text-emerald-400 font-bold tracking-widest text-sm uppercase animate-pulse">Teacher Speaking...</span>}
-                {status === 'listening' && <span className="text-indigo-400 font-bold tracking-widest text-sm uppercase animate-pulse">Listening...</span>}
-                {status === 'processing' && <span className="text-amber-400 font-bold tracking-widest text-sm uppercase flex items-center gap-2"><Loader2 className="w-3 h-3 animate-spin"/> Thinking...</span>}
+                {showHint && <span className="text-yellow-400 font-bold tracking-widest text-sm uppercase flex items-center gap-2 animate-pulse">Lecture / Pause...</span>}
+                {!showHint && status === 'speaking' && <span className="text-emerald-400 font-bold tracking-widest text-sm uppercase animate-pulse">Teacher Speaking...</span>}
+                {!showHint && status === 'listening' && <span className="text-indigo-400 font-bold tracking-widest text-sm uppercase animate-pulse">Listening...</span>}
+                {!showHint && status === 'processing' && <span className="text-amber-400 font-bold tracking-widest text-sm uppercase flex items-center gap-2"><Loader2 className="w-3 h-3 animate-spin"/> Thinking...</span>}
             </div>
 
         </div>
 
+        {/* HINT OVERLAY (Transcription + Translation) */}
+        {showHint && (
+            <div className="absolute bottom-32 left-4 right-4 z-50 animate-slide-up">
+                <div className="bg-slate-900/90 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl relative overflow-hidden">
+                    <button onClick={toggleHint} className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"><ChevronDown className="w-4 h-4 text-white"/></button>
+                    
+                    <div className="mb-4">
+                        <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Languages className="w-3 h-3"/> Professeur a dit :</h4>
+                        <p className="text-white text-lg font-medium leading-relaxed">
+                            {currentTeacherText || "Attendez que le professeur parle..."}
+                        </p>
+                    </div>
+
+                    <div className="pt-4 border-t border-white/10">
+                        <h4 className="text-xs font-bold text-yellow-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Sparkles className="w-3 h-3"/> En Malagasy :</h4>
+                        {isTranslating ? (
+                            <div className="flex items-center gap-2 text-slate-400 text-sm"><Loader2 className="w-4 h-4 animate-spin"/> Traduction en cours...</div>
+                        ) : (
+                            <p className="text-slate-300 text-sm italic leading-relaxed">
+                                {translation || "..."}
+                            </p>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
+
         {/* Input Overlay (Keyboard) */}
-        {showKeyboard && (
+        {showKeyboard && !showHint && (
             <div className="absolute bottom-32 left-4 right-4 z-50 animate-slide-up">
                 <div className="bg-slate-800/95 backdrop-blur-xl p-2 rounded-2xl border border-white/10 shadow-2xl flex gap-2">
                     <input 
@@ -556,11 +618,12 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
         <div className="grid grid-cols-3 gap-8 w-full max-w-xs mx-auto items-center mb-12 relative z-10">
             {status !== 'ringing' ? (
                 <>
-                    <button onClick={toggleMute} className="flex flex-col items-center gap-2 group transition-transform active:scale-95">
-                        <div className={`w-14 h-14 rounded-full flex items-center justify-center backdrop-blur-md transition-colors border border-white/10 ${isMuted ? 'bg-white text-slate-900' : 'bg-white/10 text-white hover:bg-white/20'}`}>
-                            {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+                    {/* HINT BUTTON (Replaces Mute) */}
+                    <button onClick={toggleHint} className="flex flex-col items-center gap-2 group transition-transform active:scale-95">
+                        <div className={`w-14 h-14 rounded-full flex items-center justify-center backdrop-blur-md transition-colors border border-white/10 ${showHint ? 'bg-yellow-400 text-slate-900' : 'bg-white/10 text-white hover:bg-white/20'}`}>
+                            <Lightbulb className="w-6 h-6" />
                         </div>
-                        <span className="text-[10px] text-white/50 font-bold uppercase tracking-widest">{isMuted ? "Unmute" : "Mute"}</span>
+                        <span className="text-[10px] text-white/50 font-bold uppercase tracking-widest">{showHint ? "Fermer" : "Aide"}</span>
                     </button>
                     
                     <button onClick={onClose} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform active:scale-95">
