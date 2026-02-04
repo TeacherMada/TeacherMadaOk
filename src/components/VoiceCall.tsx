@@ -148,7 +148,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               config: { systemInstruction: systemPrompt }
           });
 
-          const greetingText = response.response.text;
+          const greetingText = response.text;
           if (!greetingText) throw new Error("No greeting generated");
 
           // Update History
@@ -319,7 +319,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                   config: { systemInstruction: prompt }
               });
 
-              const replyText = result.response.text;
+              const replyText = result.text;
               
               // Update credits
               const u = await storageService.getUserById(user.id);
@@ -335,10 +335,15 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
               // Update History
               historyRef.current.push({ role: 'user', parts: [{ text: "(User Audio)" }] }); // Placeholder for history
-              historyRef.current.push({ role: 'model', parts: [{ text: replyText }] });
+              historyRef.current.push({ role: 'model', parts: [{ text: replyText || "" }] });
 
-              // 2. TTS the reply
-              await speakText(replyText);
+              if (replyText) {
+                  // 2. TTS the reply
+                  await speakText(replyText);
+              } else {
+                  // Fallback if empty text
+                  await speakText("Je n'ai pas compris.");
+              }
           };
       } catch (e) {
           console.error("Processing Error", e);
