@@ -43,11 +43,36 @@ function base64ToAudioBuffer(base64: string, ctx: AudioContext): Promise<AudioBu
     return Promise.resolve(buffer);
 }
 
-const getClient = () => {
+// Robust API Key Management
+const getApiKeys = () => {
     const rawKey = process.env.API_KEY || "";
-    const keys = rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
-    const selectedKey = keys.length > 0 ? keys[Math.floor(Math.random() * keys.length)] : "";
-    return new GoogleGenAI({ apiKey: selectedKey });
+    return rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
+};
+
+// Retry wrapper for AI calls
+const generateWithRetry = async (model: string, params: any) => {
+    const keys = getApiKeys();
+    if (keys.length === 0) throw new Error("No API keys configuration found.");
+    
+    // Shuffle keys to distribute load and try different ones on retry
+    const shuffledKeys = [...keys].sort(() => 0.5 - Math.random());
+    // Try up to 3 keys or all available if fewer
+    const maxAttempts = Math.min(3, keys.length);
+    
+    let lastError;
+    
+    for (let i = 0; i < maxAttempts; i++) {
+        try {
+            const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
+            return await ai.models.generateContent({ model, ...params });
+        } catch (e: any) {
+            console.warn(`API Call failed with key ending in ...${shuffledKeys[i].slice(-4)} (Attempt ${i+1}/${maxAttempts})`);
+            lastError = e;
+            // If it's not a quota error (429) or server error (5xx), maybe don't retry? 
+            // For now, we retry on all errors to be safe.
+        }
+    }
+    throw lastError;
 };
 
 const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
@@ -169,9 +194,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
   const initializeCall = async () => {
       try {
-          const ai = getClient();
-          const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
+          const response = await generateWithRetry('gemini-3-flash-preview', {
               contents: [{ role: 'user', parts: [{ text: "L'appel commence. Salue-moi chaleureusement en 1 phrase courte." }] }],
               config: { systemInstruction: getDynamicSystemPrompt() }
           });
@@ -199,9 +222,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       try {
           const currentVoice = LANGUAGES.find(l => l.code === selectedLang)?.voice || 'Zephyr';
-          const ai = getClient();
-          const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash-preview-tts',
+          const response = await generateWithRetry('gemini-2.5-flash-preview-tts', {
               contents: [{ parts: [{ text }] }],
               config: {
                   responseModalities: [Modality.AUDIO],
@@ -338,7 +359,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
   const processUserResponse = async (input: Blob | string) => {
       try {
-          const ai = getClient();
           let userPart: any;
 
           if (typeof input === 'string') {
@@ -355,8 +375,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               historyRef.current.push({ role: 'user', parts: [{ text: "(audio)" }] });
           }
 
-          const result = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
+          // Generate Content with Retry Mechanism
+          const result = await generateWithRetry('gemini-3-flash-preview', {
               contents: [
                   ...historyRef.current.slice(-8), 
                   { role: 'user', parts: [userPart] } 
@@ -417,7 +437,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           
           setIsTranslating(true);
           try {
-              const ai = getClient();
               const prompt = `
                 Traduisez le texte suivant en Malagasy simple et naturel pour un apprenant. Si nécessaire, utilisez des puces pour clarifier.
                 Ajoutez ensuite 2 suggestions courtes de réponse (en ${selectedLang}, avec traduction Malagasy entre parenthèses).
@@ -432,8 +451,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                 2. [Réponse ${selectedLang}] ([Sens Malagasy])
               `;
               
-              const response = await ai.models.generateContent({
-                  model: 'gemini-3-flash-preview',
+              const response = await generateWithRetry('gemini-3-flash-preview', {
                   contents: [{ role: 'user', parts: [{ text: prompt }] }]
               });
               setTranslation(response.text || "Traduction indisponible");
@@ -649,14 +667,19 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                         </div>
                     </button>
 
-                    <Tooltip text="Vous pouvez écrire" position="top">
-                        <button onClick={() => setShowKeyboard(!showKeyboard)} className={`flex flex-col items-center gap-2 group transition-transform active:scale-95 ${showKeyboard ? 'opacity-100' : 'opacity-100'}`}>
-                            <div className={`w-14 h-14 rounded-full flex items-center justify-center backdrop-blur-md transition-colors border border-white/10 ${showKeyboard ? 'bg-indigo-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}>
-                                <Keyboard className="w-6 h-6" />
-                            </div>
-                            <span className="text-[10px] text-white/50 font-bold uppercase tracking-widest">Clavier</span>
+                    {/* KEYBOARD BUTTON WITH PERMANENT TOOLTIP */}
+                    <div className="relative flex flex-col items-center gap-2 group transition-transform active:scale-95">
+                        {/* Permanent Tooltip */}
+                        <div className="absolute -top-8 bg-slate-800 text-white text-[8px] font-bold px-2 py-1 rounded-lg opacity-100 whitespace-nowrap border border-slate-600 pointer-events-none shadow-sm">
+                            Vous pouvez écrire
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+                        </div>
+
+                        <button onClick={() => setShowKeyboard(!showKeyboard)} className={`w-14 h-14 rounded-full flex items-center justify-center backdrop-blur-md transition-colors border border-white/10 ${showKeyboard ? 'bg-indigo-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}>
+                            <Keyboard className="w-6 h-6" />
                         </button>
-                    </Tooltip>
+                        <span className="text-[10px] text-white/50 font-bold uppercase tracking-widest">Clavier</span>
+                    </div>
                 </>
             ) : (
                 <div className="col-span-3 flex justify-center">
