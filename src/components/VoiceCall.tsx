@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Mic, MicOff, Phone, Keyboard, Send, Lock, Loader2, Volume2 } from 'lucide-react';
+import { X, Mic, MicOff, Phone, Keyboard, Send, Lock, Loader2, Volume2, ChevronDown } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -21,13 +21,7 @@ function base64ToAudioBuffer(base64: string, ctx: AudioContext): Promise<AudioBu
     for (let i = 0; i < len; i++) {
         bytes[i] = binaryString.charCodeAt(i);
     }
-    // gemini-tts returns raw PCM at 24kHz usually, but let's check header? 
-    // Actually the new SDK output might be raw PCM if no container specified, 
-    // BUT playMessageAudio in ChatInterface used raw PCM logic.
-    // However, here we will use a robust decoding if possible, or Raw PCM fallback.
-    
-    // For 'gemini-2.5-flash-preview-tts', the output is raw PCM 24kHz Mono (usually).
-    // Let's implement the Raw PCM decoder as per SDK examples.
+    // gemini-tts returns raw PCM at 24kHz usually
     const pcm16 = new Int16Array(bytes.buffer);
     const float32 = new Float32Array(pcm16.length);
     for (let i = 0; i < pcm16.length; i++) {
@@ -45,13 +39,36 @@ const getClient = () => {
     return new GoogleGenAI({ apiKey: selectedKey });
 };
 
+// --- SYSTEM PROMPT ---
+const getTeacherPersona = (user: UserProfile) => `
+RÔLE: Tu es TeacherMada, un professeur de langue natif, chaleureux, drôle et très humain.
+CONTEXTE: Tu es au téléphone avec ton élève ${user.username}.
+LANGUE CIBLE: ${user.preferences?.targetLanguage || 'Français'}.
+NIVEAU: ${user.preferences?.level || 'Débutant'}.
+
+RÈGLES D'OR (COMPORTEMENT HUMAIN):
+1. 🚫 INTERDIT: "En tant qu'IA", "Modèle de langage", "Algorithme", "Je vais générer". Tu es HUMAIN.
+2. 🎭 ÉMOTION: Sois expressif ! Utilise des interjections (Ah, Hmm, Super !, Wow). Ris si c'est drôle.
+3. 🗣️ STYLE ORAL: Fais des phrases courtes. Pose une seule question à la fois. Comme une vraie conversation téléphonique.
+4. 👂 ÉCOUTE ACTIVE: Rebondis sur ce que dit l'élève. Ne fais pas de monologue.
+5. 🎓 PÉDAGOGIE INVISIBLE: Corrige les fautes subtilement en reformulant, ne fais pas un cours magistral ennuyeux.
+
+TA MISSION:
+Mettre l'élève à l'aise. Le faire parler. Créer une connexion émotionnelle.
+Si l'élève est silencieux, encourage-le doucement.
+`;
+
 const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
   // States: 'ringing' -> 'connecting' -> 'speaking' (AI) -> 'listening' (User) -> 'processing'
   const [status, setStatus] = useState<'ringing' | 'connecting' | 'speaking' | 'listening' | 'processing'>('ringing');
   const [duration, setDuration] = useState(0);
   const [subtitle, setSubtitle] = useState('');
-  const [userTranscript, setUserTranscript] = useState('');
   const [audioLevel, setAudioLevel] = useState(0);
+  
+  // Controls
+  const [isMuted, setIsMuted] = useState(false);
+  const [showKeyboard, setShowKeyboard] = useState(false);
+  const [textInput, setTextInput] = useState('');
 
   // Refs
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -134,17 +151,11 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       try {
           const ai = getClient();
           
-          const systemPrompt = `You are TeacherMada, a friendly language teacher calling ${user.username}.
-          Target Language: ${user.preferences?.targetLanguage || 'French'}.
-          Level: ${user.preferences?.level || 'Beginner'}.
-          Explanation Language: ${user.preferences?.explanationLanguage || 'French'}.
-          
-          TASK: Start the call with a warm, short greeting in the Target Language, followed by a very brief translation or encouragement in the Explanation Language.
-          Keep it under 2 sentences.`;
+          const systemPrompt = getTeacherPersona(user);
 
           const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview', // Fast text model
-              contents: [{ role: 'user', parts: [{ text: "Start the call now." }] }],
+              model: 'gemini-3-flash-preview',
+              contents: [{ role: 'user', parts: [{ text: "Start the call now. Greet me warmly." }] }],
               config: { systemInstruction: systemPrompt }
           });
 
@@ -211,18 +222,28 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const startListening = async () => {
       if (!mountedRef.current) return;
       setStatus('listening');
-      setSubtitle("À vous de parler...");
-      setUserTranscript('');
+      setSubtitle("Je vous écoute...");
       audioChunksRef.current = [];
+
+      // If muted, we still "listen" state-wise but don't process audio, 
+      // effectively waiting for user to unmute or use keyboard.
+      if (isMuted) return;
 
       try {
           if (!streamRef.current) {
               const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
               streamRef.current = stream;
+          } else if (streamRef.current.active === false) {
+               // Re-acquire if stopped
+               const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+               streamRef.current = stream;
           }
 
           // VAD Setup
           const ctx = audioCtxRef.current!;
+          // Clean up old graph
+          if (analyserRef.current) { try { analyserRef.current.disconnect(); } catch(e){} }
+          
           const source = ctx.createMediaStreamSource(streamRef.current!);
           const analyser = ctx.createAnalyser();
           analyser.fftSize = 256;
@@ -241,12 +262,13 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           monitorAudioLevel();
 
       } catch (e) {
-          notify("Microphone inaccessible.", "error");
+          notify("Microphone inaccessible. Utilisez le clavier.", "info");
+          setShowKeyboard(true); // Fallback to keyboard
       }
   };
 
   const monitorAudioLevel = () => {
-      if (!analyserRef.current || status !== 'listening') return;
+      if (!analyserRef.current || status !== 'listening' || isMuted) return;
 
       const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
       analyserRef.current.getByteFrequencyData(dataArray);
@@ -261,10 +283,10 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               silenceTimerRef.current = null;
           }
       } else { // Silence
-          if (!silenceTimerRef.current && audioChunksRef.current.length > 5) { // Ensure we have some data
+          if (!silenceTimerRef.current && audioChunksRef.current.length > 15) { // Ensure ~1.5s of audio recorded min
               silenceTimerRef.current = setTimeout(() => {
                   stopListeningAndSend();
-              }, 1500); // 1.5s of silence triggers send
+              }, 2000); // 2s of silence triggers send
           }
       }
 
@@ -281,73 +303,95 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
       setStatus('processing');
-      setSubtitle("Réflexion..."); // Feedback loop
+      setSubtitle("Réflexion..."); 
 
       mediaRecorderRef.current.onstop = async () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
-          await processUserAudio(audioBlob);
+          await processUserResponse(audioBlob);
       };
       mediaRecorderRef.current.stop();
   };
 
-  const processUserAudio = async (blob: Blob) => {
+  const handleTextSubmit = async () => {
+      if (!textInput.trim()) return;
+      const text = textInput;
+      setTextInput('');
+      setShowKeyboard(false);
+      
+      // Stop recording if active
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          mediaRecorderRef.current.stop();
+      }
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+
+      setStatus('processing');
+      setSubtitle("Lecture...");
+      await processUserResponse(text);
+  };
+
+  const processUserResponse = async (input: Blob | string) => {
       try {
-          // Convert Blob to Base64
-          const reader = new FileReader();
-          reader.readAsDataURL(blob);
-          reader.onloadend = async () => {
-              const base64data = (reader.result as string).split(',')[1];
-              const mimeType = blob.type;
+          const ai = getClient();
+          let userPart: any;
 
-              const ai = getClient();
-              
-              // 1. Send Audio to Text Model to get reply
-              // Note: We use history to keep context
-              const audioPart = { inlineData: { mimeType, data: base64data } };
-              
-              const prompt = `User just spoke. 
-              1. If the audio is empty or noise, reply with "I didn't hear you."
-              2. Otherwise, reply naturally to the user as the Teacher.
-              3. Keep response concise (1-2 sentences).`;
-
-              const result = await ai.models.generateContent({
-                  model: 'gemini-3-flash-preview',
-                  contents: [
-                      ...historyRef.current,
-                      { role: 'user', parts: [audioPart] } // Send audio directly!
-                  ],
-                  config: { systemInstruction: prompt }
+          if (typeof input === 'string') {
+              userPart = { text: input };
+              historyRef.current.push({ role: 'user', parts: [{ text: input }] });
+          } else {
+              // Convert Blob to Base64
+              const reader = new FileReader();
+              const base64Promise = new Promise<string>((resolve) => {
+                  reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+                  reader.readAsDataURL(input);
               });
-
-              const replyText = result.text;
+              const base64data = await base64Promise;
+              userPart = { inlineData: { mimeType: input.type, data: base64data } };
               
-              // Update credits
-              const u = await storageService.getUserById(user.id);
-              if (u && await storageService.canRequest(u.id)) {
-                  await storageService.consumeCredit(u.id);
-                  if(mountedRef.current) onUpdateUser(await storageService.getUserById(u.id) as UserProfile);
-              } else {
-                  notify("Crédits épuisés.", "error");
-                  onShowPayment();
-                  onClose();
-                  return;
-              }
+              // Note: We push a placeholder text for history because we can't push audio blobs easily to history for next turns in standard API
+              // Ideally we would transcribe it, but for now we rely on the model's immediate context handling or short memory.
+              // A better approach for turn-based audio is to just rely on the text response of the model which implies understanding.
+              historyRef.current.push({ role: 'user', parts: [{ text: "[Audio Message]" }] });
+          }
 
-              // Update History
-              historyRef.current.push({ role: 'user', parts: [{ text: "(User Audio)" }] }); // Placeholder for history
-              historyRef.current.push({ role: 'model', parts: [{ text: replyText || "" }] });
-
-              if (replyText) {
-                  // 2. TTS the reply
-                  await speakText(replyText);
-              } else {
-                  // Fallback if empty text
-                  await speakText("Je n'ai pas compris.");
+          // Generate Response
+          const result = await ai.models.generateContent({
+              model: 'gemini-3-flash-preview',
+              contents: [
+                  ...historyRef.current.slice(-10), // Keep context manageable
+                  { role: 'user', parts: [userPart] } 
+              ],
+              config: { 
+                  systemInstruction: getTeacherPersona(user)
               }
-          };
+          });
+
+          const replyText = result.text;
+          
+          // Update credits
+          const u = await storageService.getUserById(user.id);
+          if (u && await storageService.canRequest(u.id)) {
+              await storageService.consumeCredit(u.id);
+              if(mountedRef.current) onUpdateUser(await storageService.getUserById(u.id) as UserProfile);
+          } else {
+              notify("Crédits épuisés.", "error");
+              onShowPayment();
+              onClose();
+              return;
+          }
+
+          // Update History
+          historyRef.current.push({ role: 'model', parts: [{ text: replyText || "" }] });
+
+          if (replyText) {
+              await speakText(replyText);
+          } else {
+              await speakText("Je n'ai pas bien entendu, peux-tu répéter ?");
+          }
+
       } catch (e) {
           console.error("Processing Error", e);
-          notify("Je n'ai pas compris.", "error");
+          notify("Désolé, je n'ai pas compris.", "error");
           startListening(); // Retry
       }
   };
@@ -358,6 +402,22 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       const m = Math.floor(s / 60);
       const sec = s % 60;
       return `${m}:${sec < 10 ? '0' : ''}${sec}`;
+  };
+
+  const toggleMute = () => {
+      const newState = !isMuted;
+      setIsMuted(newState);
+      if (newState) {
+          if (streamRef.current) {
+              streamRef.current.getAudioTracks().forEach(track => track.enabled = false);
+          }
+      } else {
+          if (streamRef.current) {
+              streamRef.current.getAudioTracks().forEach(track => track.enabled = true);
+          }
+          // Resume listening loop if we were in listening state
+          if (status === 'listening') monitorAudioLevel();
+      }
   };
 
   return (
@@ -386,7 +446,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                 {/* Status Indicator Text */}
                 <div className="mb-8 h-12 flex items-center justify-center">
                     {status === 'speaking' && <span className="text-emerald-400 font-bold animate-pulse flex items-center gap-2"><Volume2 className="w-4 h-4"/> Le professeur parle...</span>}
-                    {status === 'listening' && <span className="text-indigo-400 font-bold animate-pulse flex items-center gap-2"><Mic className="w-4 h-4"/> À vous...</span>}
+                    {status === 'listening' && !isMuted && <span className="text-indigo-400 font-bold animate-pulse flex items-center gap-2"><Mic className="w-4 h-4"/> À vous...</span>}
+                    {status === 'listening' && isMuted && <span className="text-red-400 font-bold flex items-center gap-2"><MicOff className="w-4 h-4"/> Micro coupé</span>}
                     {status === 'processing' && <span className="text-amber-400 font-bold flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin"/> Analyse...</span>}
                 </div>
 
@@ -399,45 +460,65 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                             <div className="absolute inset-0 border-4 border-emerald-500/50 rounded-full animate-pulse delay-75"></div>
                         </>
                     )}
-                    {status === 'listening' && audioLevel > 10 && (
+                    {status === 'listening' && !isMuted && audioLevel > 10 && (
                         <div className="absolute inset-0 bg-indigo-500/20 rounded-full" style={{ transform: `scale(${1 + audioLevel/200})`, transition: 'transform 0.1s' }}></div>
                     )}
 
-                    <div className={`w-48 h-48 rounded-full bg-gradient-to-br from-slate-800 to-slate-900 border-4 ${status === 'speaking' ? 'border-emerald-500' : status === 'listening' ? 'border-indigo-500' : 'border-white/10'} shadow-2xl flex items-center justify-center overflow-hidden transition-colors duration-500`}>
+                    <div className={`w-48 h-48 rounded-full bg-gradient-to-br from-slate-800 to-slate-900 border-4 ${status === 'speaking' ? 'border-emerald-500' : status === 'listening' && !isMuted ? 'border-indigo-500' : 'border-white/10'} shadow-2xl flex items-center justify-center overflow-hidden transition-colors duration-500`}>
                         <img src={TEACHER_AVATAR} className={`w-full h-full object-cover p-6 ${status === 'ringing' ? 'animate-bounce-slight' : ''}`} alt="Teacher" />
                     </div>
                 </div>
 
                 {/* Subtitles */}
-                <div className="mt-8 px-6 py-4 bg-black/40 backdrop-blur-md rounded-2xl max-w-xs text-center border border-white/5 min-h-[80px] flex items-center justify-center">
+                <div className="mt-8 px-6 py-4 bg-black/40 backdrop-blur-md rounded-2xl max-w-xs text-center border border-white/5 min-h-[80px] flex items-center justify-center transition-all">
                     <p className="text-slate-200 text-sm font-medium leading-relaxed">
                         {status === 'ringing' ? "Préparation de votre cours..." : subtitle || "..."}
                     </p>
                 </div>
             </div>
 
+            {/* Input Overlay (Keyboard) */}
+            {showKeyboard && (
+                <div className="absolute bottom-32 left-4 right-4 z-50 animate-slide-up">
+                    <div className="bg-slate-800/95 backdrop-blur-xl p-2 rounded-2xl border border-white/10 shadow-2xl flex gap-2">
+                        <input 
+                            value={textInput}
+                            onChange={(e) => setTextInput(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleTextSubmit()}
+                            placeholder="Écrivez votre réponse..."
+                            autoFocus
+                            className="flex-1 bg-transparent border-none outline-none text-white text-base px-3 py-2 placeholder:text-slate-500"
+                        />
+                        <button onClick={handleTextSubmit} disabled={!textInput.trim()} className="p-3 bg-indigo-600 rounded-xl text-white disabled:opacity-50 font-bold">
+                            <Send className="w-5 h-5" />
+                        </button>
+                    </div>
+                    <button onClick={() => setShowKeyboard(false)} className="absolute -top-10 right-0 p-2 bg-black/50 text-white rounded-full backdrop-blur-md"><ChevronDown className="w-5 h-5"/></button>
+                </div>
+            )}
+
             {/* Controls */}
             <div className="grid grid-cols-3 gap-8 w-full max-w-xs items-center mb-8 relative z-10">
                 {status !== 'ringing' ? (
                     <>
-                        <button className="flex flex-col items-center gap-2 group opacity-50 cursor-not-allowed">
-                            <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center backdrop-blur-md">
-                                <MicOff className="w-6 h-6 text-white" />
+                        <button onClick={toggleMute} className="flex flex-col items-center gap-2 group transition-transform active:scale-95">
+                            <div className={`w-14 h-14 rounded-full flex items-center justify-center backdrop-blur-md transition-colors ${isMuted ? 'bg-white text-slate-900' : 'bg-white/10 text-white hover:bg-white/20'}`}>
+                                {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
                             </div>
-                            <span className="text-[10px] text-white/50 font-bold uppercase">Mute</span>
+                            <span className="text-[10px] text-white/70 font-bold uppercase">{isMuted ? "Unmute" : "Mute"}</span>
                         </button>
                         
-                        <button onClick={onClose} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform">
+                        <button onClick={onClose} className="flex flex-col items-center gap-2 group transform hover:scale-105 transition-transform active:scale-95">
                             <div className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/40 border-4 border-white/10">
                                 <Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" />
                             </div>
                         </button>
 
-                        <button className="flex flex-col items-center gap-2 group opacity-50 cursor-not-allowed">
-                            <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center backdrop-blur-md">
-                                <Keyboard className="w-6 h-6 text-white" />
+                        <button onClick={() => setShowKeyboard(!showKeyboard)} className={`flex flex-col items-center gap-2 group transition-transform active:scale-95 ${showKeyboard ? 'opacity-100' : 'opacity-100'}`}>
+                            <div className={`w-14 h-14 rounded-full flex items-center justify-center backdrop-blur-md transition-colors ${showKeyboard ? 'bg-indigo-600 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}>
+                                <Keyboard className="w-6 h-6" />
                             </div>
-                            <span className="text-[10px] text-white/50 font-bold uppercase">Clavier</span>
+                            <span className="text-[10px] text-white/70 font-bold uppercase">Clavier</span>
                         </button>
                     </>
                 ) : (
