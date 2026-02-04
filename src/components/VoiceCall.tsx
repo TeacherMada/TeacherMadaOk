@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Phone, Keyboard, Send, Lock, Loader2, ChevronDown, Settings2, Globe, BarChart, Lightbulb, Languages, RefreshCw, Sparkles } from 'lucide-react';
+import { X, Phone, Keyboard, Send, Lock, Loader2, ChevronDown, Settings2, Globe, BarChart, Lightbulb, Languages, RefreshCw, Sparkles, Mic, Volume2 } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -46,36 +46,36 @@ function base64ToAudioBuffer(base64: string, ctx: AudioContext): Promise<AudioBu
 // Robust API Key Management
 const getApiKeys = () => {
     const rawKey = process.env.API_KEY || "";
-    const keys = rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
-    if (keys.length === 0) console.warn("No API Keys found in environment!");
+    const keys = rawKey.split(',').map(k => k.trim()).filter(k => k.length >= 20); // Basic validation length
+    if (keys.length === 0) console.warn("Attention: Aucune clé API valide trouvée.");
     return keys;
 };
 
 // Retry wrapper for AI calls
 const generateWithRetry = async (model: string, params: any, fallbackModel: string = 'gemini-2.0-flash') => {
     const keys = getApiKeys();
-    if (keys.length === 0) throw new Error("Clé API manquante. Veuillez vérifier la configuration.");
+    if (keys.length === 0) throw new Error("Clé API manquante.");
     
     // Shuffle keys to distribute load
     const shuffledKeys = [...keys].sort(() => 0.5 - Math.random());
-    const maxAttempts = Math.min(3, keys.length); // Try up to 3 different keys
+    const maxAttempts = Math.min(3, keys.length);
     
     let lastError;
     
-    // 1. Try Primary Model with Key Rotation
+    // 1. Try Primary Model
     for (let i = 0; i < maxAttempts; i++) {
         try {
             const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
             return await ai.models.generateContent({ model, ...params });
         } catch (e: any) {
-            console.warn(`API Error (Key ${i+1}/${maxAttempts}): ${e.message}`);
+            console.warn(`Attempt ${i+1} failed with model ${model}:`, e.message);
             lastError = e;
-            // If it's a 4xx error (Bad Request) that is NOT quota (429), maybe don't retry? 
-            // But we retry just in case it's a transient issue.
+            // Short delay before retry
+            await new Promise(r => setTimeout(r, 500));
         }
     }
 
-    // 2. Try Fallback Model (if different) with a fresh key (random from list)
+    // 2. Try Fallback Model (if specified and different)
     if (fallbackModel && model !== fallbackModel) {
         console.log(`Switching to fallback model: ${fallbackModel}`);
         try {
@@ -83,7 +83,7 @@ const generateWithRetry = async (model: string, params: any, fallbackModel: stri
             const ai = new GoogleGenAI({ apiKey: fallbackKey });
             return await ai.models.generateContent({ model: fallbackModel, ...params });
         } catch (e: any) {
-            console.error("Fallback Model Error:", e.message);
+            console.error("Fallback failed:", e.message);
             lastError = e;
         }
     }
@@ -122,7 +122,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const animationFrameRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   
-  // History for context
+  // History for context - Stores the committed conversation
   const historyRef = useRef<{role: string, parts: {text: string}[]}[]>([]);
 
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
@@ -150,7 +150,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (sourceNodeRef.current) sourceNodeRef.current.stop();
-      window.speechSynthesis.cancel(); // Stop browser TTS
+      window.speechSynthesis.cancel();
   };
 
   const playRingingTone = (ctx: AudioContext) => {
@@ -162,7 +162,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           osc.frequency.value = 440; 
           gain.gain.value = 0.1;
           osc.start();
-          osc.stop(ctx.currentTime + 2);
+          osc.stop(ctx.currentTime + 2.5); // Ring for 2.5s
       } catch(e){}
   };
 
@@ -188,44 +188,45 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               setStatus('connecting');
               initializeCall();
           }
-      }, 2500);
+      }, 3000);
   };
 
   // --- 2. Core Logic ---
 
   const getDynamicSystemPrompt = () => `
     RÔLE: Tu es TeacherMada, un professeur de langue natif (${selectedLang}), chaleureux et humain.
-    CONTEXTE: Appel vocal avec ${user.username}.
+    CONTEXTE: Appel vocal téléphonique avec ${user.username}.
     LANGUE CIBLE: ${selectedLang}.
     NIVEAU ÉLÈVE: ${selectedLevel}.
     
     RÈGLES:
-    1. Sois très expressif et naturel.
-    2. Fais des réponses COURTES (1-2 phrases max) pour un échange fluide.
-    3. Corrige subtilement si nécessaire, mais privilégie la fluidité.
-    4. Relance toujours la conversation.
+    1. Réponses COURTES et NATURELLES (1-2 phrases max). C'est un dialogue oral.
+    2. Pose une question simple pour relancer.
+    3. Si l'élève bloque, encourage-le.
+    4. Corrige seulement les grosses erreurs, privilégie la fluidité.
     
-    IMPORTANT: Ne dis JAMAIS "Je suis une IA". Tu es un professeur humain au téléphone.
+    INTERDICTION: Ne dis jamais "Je suis une IA". Comporte-toi comme un humain au téléphone.
   `;
 
   const initializeCall = async () => {
       try {
+          // Generate first message
           const response = await generateWithRetry('gemini-3-flash-preview', {
-              contents: [{ role: 'user', parts: [{ text: "L'appel commence. Salue-moi chaleureusement en 1 phrase courte." }] }],
+              contents: [{ role: 'user', parts: [{ text: "L'appel vient de commencer. Salue-moi chaleureusement en 1 phrase courte et demande comment je vais." }] }],
               config: { systemInstruction: getDynamicSystemPrompt() }
-          });
+          }, 'gemini-2.0-flash');
 
-          const greetingText = response.text;
+          const greetingText = response.text || "Bonjour ! Comment vas-tu aujourd'hui ?";
           
-          if (!greetingText) throw new Error("No greeting generated");
-
           historyRef.current.push({ role: 'model', parts: [{ text: greetingText }] });
           await speakText(greetingText);
 
       } catch (e) {
-          console.error(e);
-          historyRef.current.push({ role: 'model', parts: [{ text: "Bonjour ! Prêt ?" }] });
-          await speakText("Bonjour ! Allô ? Tu m'entends ?");
+          console.error("Init Error", e);
+          // Fallback greeting
+          const fallback = "Bonjour ! Allô, tu m'entends ?";
+          historyRef.current.push({ role: 'model', parts: [{ text: fallback }] });
+          await speakText(fallback);
       }
   };
 
@@ -237,13 +238,13 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       const langInfo = LANGUAGES.find(l => l.code === selectedLang);
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = langInfo?.bcp47 || 'en-US';
-      utterance.rate = 0.9;
+      utterance.rate = 0.9; // Slightly slower for clarity
 
       utterance.onend = () => {
           if (mountedRef.current) startListening();
       };
       utterance.onerror = () => {
-          // If even browser TTS fails, we just listen (silent teacher)
+          // Absolute fail-safe
           if (mountedRef.current) startListening();
       };
 
@@ -253,12 +254,12 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const speakText = async (text: string) => {
       if (!mountedRef.current) return;
       
-      setCurrentTeacherText(text); // Store for hint
+      setCurrentTeacherText(text);
       setStatus('speaking');
 
       try {
           const currentVoice = LANGUAGES.find(l => l.code === selectedLang)?.voice || 'Zephyr';
-          // Use generateWithRetry for TTS as well
+          
           const response = await generateWithRetry('gemini-2.5-flash-preview-tts', {
               contents: [{ parts: [{ text }] }],
               config: {
@@ -267,10 +268,10 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                       voiceConfig: { prebuiltVoiceConfig: { voiceName: currentVoice } }
                   }
               }
-          }, ''); // No fallback model for TTS, we use browser fallback in catch
+          }, ''); // No fallback model for TTS
 
           const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-          if (!audioData) throw new Error("No audio data");
+          if (!audioData) throw new Error("No audio data received");
 
           const ctx = audioCtxRef.current!;
           if (ctx.state === 'suspended') await ctx.resume();
@@ -290,15 +291,14 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           source.start();
 
       } catch (e) {
-          console.error("Gemini TTS Error, using browser fallback", e);
-          notify("Mode audio secours activé", "info");
+          console.error("TTS Failed, using browser fallback", e);
           speakWithBrowser(text);
       }
   };
 
   const startListening = async () => {
       if (!mountedRef.current) return;
-      if (showHint) return; // Pause if user is reading hint
+      if (showHint) return; // Don't listen if user is reading hints
 
       setStatus('listening');
       audioChunksRef.current = [];
@@ -310,14 +310,15 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           }
 
           const ctx = audioCtxRef.current!;
+          // Setup analyzer
           if (analyserRef.current) { try { analyserRef.current.disconnect(); } catch(e){} }
-          
           const source = ctx.createMediaStreamSource(streamRef.current!);
           const analyser = ctx.createAnalyser();
           analyser.fftSize = 256;
           source.connect(analyser);
           analyserRef.current = analyser;
 
+          // Setup Recorder
           const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
           const recorder = new MediaRecorder(streamRef.current!, { mimeType });
           mediaRecorderRef.current = recorder;
@@ -330,8 +331,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           monitorAudioLevel();
 
       } catch (e) {
-          console.warn("Mic error", e);
-          notify("Microphone inaccessible.", "info");
+          console.warn("Mic Access Error", e);
+          notify("Microphone inaccessible. Utilisez le clavier.", "info");
           setShowKeyboard(true);
       }
   };
@@ -345,16 +346,21 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
       setAudioLevel(average);
 
-      if (average > 30) { 
+      // Silence Detection Logic
+      const THRESHOLD = 30; // Noise threshold
+      
+      if (average > THRESHOLD) { 
+          // User is speaking, clear silence timer
           if (silenceTimerRef.current) {
               clearTimeout(silenceTimerRef.current);
               silenceTimerRef.current = null;
           }
       } else { 
-          if (!silenceTimerRef.current && audioChunksRef.current.length > 10) { 
+          // Silence detected
+          if (!silenceTimerRef.current && audioChunksRef.current.length > 5) { // Ensure minimum duration
               silenceTimerRef.current = setTimeout(() => {
                   stopListeningAndSend();
-              }, 2000); 
+              }, 2000); // 2 seconds of silence = end of turn
           }
       }
 
@@ -373,6 +379,11 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       mediaRecorderRef.current.onstop = async () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
+          if (audioBlob.size < 1000) {
+              // Too short/empty, restart listening
+              startListening();
+              return;
+          }
           await processUserResponse(audioBlob);
       };
       mediaRecorderRef.current.stop();
@@ -392,12 +403,15 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   };
 
   const processUserResponse = async (input: Blob | string) => {
-      // 1. Optimistically add user part to history
+      // Prepare Payload
       let userPart: any;
+      let historyEntry: any;
+
       if (typeof input === 'string') {
           userPart = { text: input };
-          historyRef.current.push({ role: 'user', parts: [{ text: input }] });
+          historyEntry = { role: 'user', parts: [{ text: input }] };
       } else {
+          // Convert Blob to Base64
           const reader = new FileReader();
           const base64Promise = new Promise<string>((resolve) => {
               reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
@@ -405,23 +419,34 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           });
           const base64data = await base64Promise;
           userPart = { inlineData: { mimeType: input.type, data: base64data } };
-          historyRef.current.push({ role: 'user', parts: [{ text: "(audio)" }] });
+          historyEntry = { role: 'user', parts: [{ text: "(audio)" }] }; // Placeholder for history
       }
 
       try {
-          // Generate Content with Retry Mechanism and Fallback
+          // SAFETY CHECK: Do not push to historyRef BEFORE success to avoid corruption loop
+          
+          const requestContents = [
+              ...historyRef.current.slice(-10), // Limit context
+              { role: 'user', parts: [userPart] }
+          ];
+
+          // Generate Content with Retry & Fallback
           const result = await generateWithRetry('gemini-3-flash-preview', {
-              contents: [
-                  ...historyRef.current.slice(-8), 
-                  { role: 'user', parts: [userPart] } 
-              ],
+              contents: requestContents,
               config: { 
                   systemInstruction: getDynamicSystemPrompt()
               }
-          }, 'gemini-2.0-flash'); // Fallback model
+          }, 'gemini-2.0-flash');
 
           const replyText = result.text;
           
+          // --- SUCCESS PATH ---
+          
+          // 1. Update History (Now it's safe)
+          historyRef.current.push(historyEntry);
+          historyRef.current.push({ role: 'model', parts: [{ text: replyText || "" }] });
+
+          // 2. Consume Credits
           if (await storageService.canRequest(user.id)) {
               await storageService.consumeCredit(user.id);
               const updatedUser = await storageService.getUserById(user.id);
@@ -433,8 +458,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               return;
           }
 
-          historyRef.current.push({ role: 'model', parts: [{ text: replyText || "" }] });
-
+          // 3. Speak Reply
           if (replyText) {
               await speakText(replyText);
           } else {
@@ -443,15 +467,12 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       } catch (e: any) {
           console.error("Processing Error", e);
-          notify("Erreur de connexion. Je réessaie...", "error");
-          
-          // Fix history corruption
-          historyRef.current.pop();
-          
-          // Simple retry by restarting listening after a short delay
+          notify("Je n'ai pas bien entendu. Répétez svp ?", "warning");
+          // DO NOT UPDATE HISTORY - Keep it clean
+          // Restart listening after brief pause
           setTimeout(() => {
               if (mountedRef.current) startListening();
-          }, 1000);
+          }, 1500);
       }
   };
 
@@ -460,17 +481,15 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const toggleHint = async () => {
       if (showHint) {
           setShowHint(false);
-          // Resume listening if we were in the middle of a session
           if (status === 'listening' || status === 'speaking') {
-              startListening();
+              startListening(); // Resume loop
           }
       } else {
-          // Pause listening loop
+          // Pause everything
           if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
               mediaRecorderRef.current.stop();
           }
-          if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          if (sourceNodeRef.current) sourceNodeRef.current.stop(); // Stop audio if speaking
           
           setShowHint(true);
           
@@ -478,27 +497,13 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           
           setIsTranslating(true);
           try {
-              const prompt = `
-                Traduisez le texte suivant en Malagasy simple et naturel pour un apprenant. Si nécessaire, utilisez des puces pour clarifier.
-                Ajoutez ensuite 2 suggestions courtes de réponse (en ${selectedLang}, avec traduction Malagasy entre parenthèses).
-                
-                Texte: "${currentTeacherText}"
-                
-                Format de sortie:
-                [Traduction Malagasy]
-                
-                💡 Valiny azo atao:
-                1. [Réponse ${selectedLang}] ([Sens Malagasy])
-                2. [Réponse ${selectedLang}] ([Sens Malagasy])
-              `;
-              
-              // Use fallback here as well
+              const prompt = `Traduire en Malagasy: "${currentTeacherText}".`;
               const response = await generateWithRetry('gemini-3-flash-preview', {
                   contents: [{ role: 'user', parts: [{ text: prompt }] }]
               }, 'gemini-2.0-flash');
               setTranslation(response.text || "Traduction indisponible");
           } catch (e) {
-              setTranslation("Erreur de traduction. Réessayez.");
+              setTranslation("Erreur de traduction.");
           } finally {
               setIsTranslating(false);
           }
