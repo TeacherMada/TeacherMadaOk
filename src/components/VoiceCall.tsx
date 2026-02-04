@@ -136,7 +136,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       // Initialize AudioContext on user gesture to prevent "suspended" state
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
       if (ctx.state === 'suspended') {
-          await ctx.resume();
+          try { await ctx.resume(); } catch (e) { console.warn("AudioContext resume failed", e); }
       }
       audioCtxRef.current = ctx;
       playRingingTone(ctx);
@@ -231,16 +231,24 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       } catch (e) {
           console.error("TTS Error", e);
-          notify("Audio indisponible. Mode texte.", "info");
-          // Fallback: Open hint immediately so user can read
-          toggleHint();
+          notify("Mode texte activé (Audio HS)", "info");
+          // Force open hint if it's closed
+          if (!showHint) toggleHint(); 
+          // Note: toggleHint will pause listening if we open it, but since we want to proceed with conversation in text mode:
+          // We should manually trigger what we want.
+          // Actually toggleHint stops listening. 
+          // If we want text mode flow, we should allow user to read then they can click mic or type.
+          // But 'startListening' here will start the mic.
+          // Let's just start listening so they can reply.
           startListening();
       }
   };
 
   const startListening = async () => {
       if (!mountedRef.current) return;
-      if (showHint) return; // Don't listen if hint is open (reading mode)
+      // If hint is open, we generally pause mic to let user read, BUT if we are in fallback mode (Audio HS),
+      // we might want to allow mic immediately? Let's stick to standard behavior: if hint open, mic off.
+      if (showHint) return;
 
       setStatus('listening');
       audioChunksRef.current = [];
