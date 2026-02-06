@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { UserProfile, ChatMessage, ExplanationLanguage, UserPreferences } from '../types';
 import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck, Upload, Library, TrendingUp, Star, CreditCard, Plus } from 'lucide-react';
@@ -19,8 +18,7 @@ interface Props {
 }
 
 const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, messages, onOpenAdmin, onShowPayment }) => {
-  const [activeTab, setActiveTab] = useState<'menu' | 'vocab' | 'edit'>('menu');
-  const [isExtracting, setIsExtracting] = useState(false);
+  const [activeTab, setActiveTab] = useState<'menu' | 'edit'>('menu');
   const [isImporting, setIsImporting] = useState(false);
   
   // Edit Profile State
@@ -43,49 +41,6 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
       
       return { percentage: lessonBasedPercentage, nextLevel, currentLevel };
   }, [user.stats, user.preferences?.level]);
-
-  const handleExtract = async () => {
-    if (messages.length < 2) {
-      toast.info("Parlez un peu plus avant d'extraire des mots.");
-      return;
-    }
-    
-    setIsExtracting(true);
-    try {
-      // Consumption handled in extractVocabulary service
-      const newWords = await extractVocabulary(messages);
-      
-      // Fetch fresh user data after credit consumption
-      const freshUser = await storageService.getUserById(user.id);
-      
-      const updatedUser = { 
-          ...(freshUser || user), 
-          vocabulary: [...newWords, ...user.vocabulary].slice(0, 50)
-      };
-      
-      await storageService.saveUserProfile(updatedUser);
-      onUpdateUser(updatedUser);
-      toast.success(`${newWords.length} mots ajoutés !`);
-    } catch (e) {
-      toast.error("Erreur lors de l'extraction.");
-    } finally { 
-      setIsExtracting(false); 
-    }
-  };
-
-  const playAudio = (text: string) => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      const langMap: Record<string, string> = { 'Anglais': 'en-US', 'Français': 'fr-FR', 'Chinois': 'zh-CN', 'Espagnol': 'es-ES', 'Allemand': 'de-DE' };
-      const target = user.preferences?.targetLanguage.split(' ')[0] || 'English';
-      utterance.lang = langMap[target] || 'en-US';
-      window.speechSynthesis.speak(utterance);
-  };
-
-  const deleteWord = async (id: string) => {
-      const updated = { ...user, vocabulary: user.vocabulary.filter(w => w.id !== id) };
-      await storageService.saveUserProfile(updated);
-      onUpdateUser(updated);
-  };
 
   const handleSaveProfile = async () => {
       if (!editName.trim()) return;
@@ -179,13 +134,6 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                 >
                     Dashboard
                     {activeTab === 'menu' && <div className="absolute bottom-[-2px] left-0 w-full h-[2px] bg-indigo-600 dark:bg-white rounded-t-full"></div>}
-                </button>
-                <button 
-                    onClick={() => setActiveTab('vocab')} 
-                    className={`flex-1 pb-3 text-sm font-bold transition-all relative ${activeTab === 'vocab' ? 'text-indigo-600 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
-                >
-                    Vocabulaire
-                    {activeTab === 'vocab' && <div className="absolute bottom-[-2px] left-0 w-full h-[2px] bg-indigo-600 dark:bg-white rounded-t-full"></div>}
                 </button>
             </div>
         </div>
@@ -283,52 +231,6 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                             <span className="font-bold text-xs text-slate-600 dark:text-slate-300">Restaurer</span>
                             <input type="file" accept=".json" onChange={handleImport} className="hidden" disabled={isImporting} />
                         </label>
-                    </div>
-                </div>
-            )}
-
-            {/* VOCAB TAB */}
-            {activeTab === 'vocab' && (
-                <div className="space-y-4 animate-fade-in pb-10">
-                    <button 
-                        onClick={handleExtract} 
-                        disabled={isExtracting}
-                        className="w-full py-4 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 disabled:opacity-50 hover:scale-[1.01] transition-all"
-                    >
-                        {isExtracting ? <Loader2 className="animate-spin w-5 h-5"/> : <Sparkles className="w-5 h-5"/>}
-                        Smart Extract (-1 Crédit)
-                    </button>
-
-                    <div className="space-y-3">
-                        {user.vocabulary.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-20 opacity-40 text-center">
-                                <div className="w-20 h-20 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                    <Book className="w-10 h-10 text-slate-400"/>
-                                </div>
-                                <p className="text-base font-bold text-slate-600 dark:text-slate-400">Boîte vide</p>
-                                <p className="text-sm text-slate-400 max-w-[200px]">Discutez avec l'IA puis cliquez sur "Smart Extract" pour remplir votre carnet.</p>
-                            </div>
-                        ) : (
-                            user.vocabulary.map(v => (
-                                <div key={v.id} className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-700 relative group hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors shadow-sm">
-                                    <div className="flex justify-between items-start mb-1">
-                                        <div className="font-black text-lg text-slate-800 dark:text-white">{v.word}</div>
-                                        <button onClick={() => playAudio(v.word)} className="p-2 bg-slate-50 dark:bg-slate-700/50 rounded-xl text-slate-400 hover:text-indigo-500 transition-colors">
-                                            <Volume2 className="w-4 h-4"/>
-                                        </button>
-                                    </div>
-                                    <div className="text-sm font-bold text-indigo-500 mb-2">{v.translation}</div>
-                                    {v.example && (
-                                        <div className="text-xs text-slate-500 dark:text-slate-400 italic bg-slate-50 dark:bg-slate-700/30 p-2 rounded-lg border-l-2 border-slate-200 dark:border-slate-600">
-                                            "{v.example}"
-                                        </div>
-                                    )}
-                                    <button onClick={() => deleteWord(v.id)} className="absolute top-4 right-12 text-slate-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-2">
-                                        <Trash2 className="w-4 h-4"/>
-                                    </button>
-                                </div>
-                            ))
-                        )}
                     </div>
                 </div>
             )}

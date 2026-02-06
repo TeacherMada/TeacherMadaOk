@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff, Lock, Keyboard } from 'lucide-react';
+import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff, Lock, Keyboard, Check } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -68,6 +68,10 @@ const ChatInterface: React.FC<Props> = ({
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [currentSource, setCurrentSource] = useState<AudioBufferSourceNode | null>(null);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+
+  // Lesson Selection State
+  const [showNextInput, setShowNextInput] = useState(false);
+  const [nextLessonInput, setNextLessonInput] = useState('');
 
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
   const MIN_LESSONS_FOR_CALL = 0;
@@ -188,7 +192,11 @@ const ChatInterface: React.FC<Props> = ({
         return;
     }
     const userDisplayMsg = isAuto ? "Suivant" : text;
-    const promptToSend = isAuto ? generateNextLessonPrompt(user) : text;
+    // If it's a manual lesson command (e.g. "Commence la Leçon 5"), send it directly.
+    // If it's auto (from default logic), use generateNextLessonPrompt
+    // If we passed specific text for "isAuto" flow but constructed manually, treat as prompt
+    const promptToSend = text;
+
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: userDisplayMsg, timestamp: Date.now() };
     const newHistory = [...messages, userMsg];
     setMessages(newHistory);
@@ -226,6 +234,19 @@ const ChatInterface: React.FC<Props> = ({
   };
 
   const handleSend = () => { if (input.trim()) processMessage(input); };
+  
+  const handleNextClick = () => {
+      setNextLessonInput(((user.stats.lessonsCompleted || 0) + 1).toString());
+      setShowNextInput(true);
+  };
+
+  const confirmNextLesson = () => {
+      if (nextLessonInput.trim()) {
+          processMessage(`Commence la Leçon ${nextLessonInput}`, true); // Use true to flag as lesson progression
+          setShowNextInput(false);
+      }
+  };
+
   useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming]);
 
   return (
@@ -312,7 +333,7 @@ const ChatInterface: React.FC<Props> = ({
                     <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Bonjour, {user.username} !</h3>
                     <p className="text-slate-500 dark:text-slate-400 text-sm text-center max-w-xs">Prêt pour {currentLessonTitle} en {user.preferences?.targetLanguage} ?</p>
                     <div className="flex flex-wrap justify-center gap-2 mt-6">
-                        <button onClick={() => processMessage("Commence la leçon")} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-xs font-bold shadow-md hover:bg-indigo-700 transition-colors">🚀 Démarrer {currentLessonTitle}</button>
+                        <button onClick={() => processMessage(`Commence la ${currentLessonTitle}`, true)} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-xs font-bold shadow-md hover:bg-indigo-700 transition-colors">🚀 Démarrer {currentLessonTitle}</button>
                     </div>
                 </div>
             )}
@@ -412,13 +433,29 @@ const ChatInterface: React.FC<Props> = ({
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}}
-                    placeholder="Posez une question..."
+                    placeholder="Message..."
                     className="flex-1 bg-transparent border-none outline-none text-slate-800 dark:text-white text-sm px-2 resize-none max-h-32 placeholder:text-slate-400 py-2.5"
                     rows={1}
                     style={{ minHeight: '40px' }}
                 />
                 {input.trim().length === 0 ? (
-                    <button onClick={() => processMessage("", true)} disabled={isStreaming} className="h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full font-bold text-xs shadow-md transition-all active:scale-95 flex items-center gap-1.5 shrink-0">Suivant <ArrowRight className="w-3.5 h-3.5" /></button>
+                    showNextInput ? (
+                        <div className="h-10 flex items-center gap-1 bg-white dark:bg-slate-900 rounded-full px-1 border border-indigo-500/30 animate-fade-in shadow-sm">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase pl-2">Leçon</span>
+                            <input
+                                type="number"
+                                value={nextLessonInput}
+                                onChange={(e) => setNextLessonInput(e.target.value)}
+                                className="w-10 bg-transparent font-black text-indigo-600 dark:text-indigo-400 outline-none text-center text-sm"
+                                autoFocus
+                                onKeyDown={(e) => { if(e.key === 'Enter') confirmNextLesson(); }}
+                            />
+                            <button onClick={confirmNextLesson} className="p-1.5 bg-indigo-600 rounded-full text-white hover:bg-indigo-700 transition-colors"><Check size={14}/></button>
+                            <button onClick={() => setShowNextInput(false)} className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"><X size={14}/></button>
+                        </div>
+                    ) : (
+                        <button onClick={handleNextClick} disabled={isStreaming} className="h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full font-bold text-xs shadow-md transition-all active:scale-95 flex items-center gap-1.5 shrink-0">Suivant <ArrowRight className="w-3.5 h-3.5" /></button>
+                    )
                 ) : (
                     <button onClick={handleSend} disabled={isStreaming} className="h-10 w-10 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-md transition-all active:scale-95 flex items-center justify-center shrink-0"><Send className="w-4 h-4 ml-0.5" /></button>
                 )}
