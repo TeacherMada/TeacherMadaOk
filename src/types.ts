@@ -7,7 +7,15 @@ export enum TargetLanguage {
   French = 'Français 🇫🇷',
   Chinese = 'Chinois 🇨🇳',
   Spanish = 'Espagnol 🇪🇸',
-  German = 'Allemand 🇩🇪'
+  German = 'Allemand 🇩🇪',
+  Italian = 'Italien 🇮🇹',
+  Portuguese = 'Portugais 🇵🇹',
+  Russian = 'Russe 🇷🇺',
+  Japanese = 'Japonais 🇯🇵',
+  Korean = 'Coréen 🇰🇷',
+  Hindi = 'Hindi 🇮🇳',
+  Arabic = 'Arabe 🇸🇦',
+  Swahili = 'Swahili 🇰🇪'
 }
 
 export enum ExplanationLanguage {
