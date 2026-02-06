@@ -19,6 +19,14 @@ const LANGUAGES = [
     { code: 'Chinois', label: 'Chinois 🇨🇳', voice: 'Puck', bcp47: 'zh-CN' },
     { code: 'Espagnol', label: 'Espagnol 🇪🇸', voice: 'Kore', bcp47: 'es-ES' },
     { code: 'Allemand', label: 'Allemand 🇩🇪', voice: 'Fenrir', bcp47: 'de-DE' },
+    { code: 'Italien', label: 'Italien 🇮🇹', voice: 'Zephyr', bcp47: 'it-IT' },
+    { code: 'Portugais', label: 'Portugais 🇵🇹', voice: 'Puck', bcp47: 'pt-PT' },
+    { code: 'Russe', label: 'Russe 🇷🇺', voice: 'Fenrir', bcp47: 'ru-RU' },
+    { code: 'Japonais', label: 'Japonais 🇯🇵', voice: 'Kore', bcp47: 'ja-JP' },
+    { code: 'Coréen', label: 'Coréen 🇰🇷', voice: 'Puck', bcp47: 'ko-KR' },
+    { code: 'Hindi', label: 'Hindi 🇮🇳', voice: 'Charon', bcp47: 'hi-IN' },
+    { code: 'Arabe', label: 'Arabe 🇸🇦', voice: 'Zephyr', bcp47: 'ar-SA' },
+    { code: 'Swahili', label: 'Swahili 🇰🇪', voice: 'Fenrir', bcp47: 'sw-KE' },
 ];
 
 const LEVELS = ['Débutant (A1)', 'Élémentaire (A2)', 'Intermédiaire (B1)', 'Avancé (B2)', 'Expert (C1)'];
