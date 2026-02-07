@@ -169,29 +169,50 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                         </div>
                     </div>
 
-                    {/* Progress Card */}
-                    <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-5 rounded-3xl shadow-sm relative overflow-hidden">
-                        <div className="flex justify-between items-center mb-4">
+                    {/* Progress Card Enhanced */}
+                    <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-6 rounded-3xl shadow-sm relative overflow-hidden">
+                        <div className="flex justify-between items-center mb-6">
                             <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                                <TrendingUp className="w-5 h-5 text-emerald-500" /> Progression
+                                <TrendingUp className="w-5 h-5 text-indigo-500" /> Progression Globale
                             </h3>
-                            <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1 rounded-lg">Level {progressData.currentLevel}</span>
                         </div>
                         
-                        <div className="flex justify-between items-center mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                            <span>{progressData.currentLevel}</span>
-                            <span className="text-indigo-600 dark:text-indigo-400 text-sm">{progressData.percentage}%</span>
-                            <span>{progressData.nextLevel}</span>
+                        <div className="relative pt-2 pb-6">
+                            {/* Path Line */}
+                            <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-100 dark:bg-slate-700 -z-0"></div>
+                            
+                            <div className="flex justify-between items-center relative z-10">
+                                {/* Start Node */}
+                                <div className="flex flex-col items-center gap-2">
+                                    <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-black shadow-lg shadow-indigo-500/30">
+                                        {progressData.currentLevel}
+                                    </div>
+                                </div>
+
+                                {/* Dynamic Center Progress */}
+                                <div className="absolute top-1/2 left-0 h-1 bg-indigo-500 transition-all duration-1000" style={{width: `${progressData.percentage}%`}}></div>
+                                <div 
+                                    className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-4 border-indigo-500 rounded-full shadow-md transition-all duration-1000"
+                                    style={{left: `${progressData.percentage}%`}}
+                                >
+                                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
+                                        {progressData.percentage}%
+                                    </div>
+                                </div>
+
+                                {/* End Node */}
+                                <div className="flex flex-col items-center gap-2">
+                                    <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center text-xs font-bold">
+                                        {progressData.nextLevel}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div className="h-3 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                            <div 
-                                className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 transition-all duration-1000 ease-out"
-                                style={{ width: `${progressData.percentage}%` }}
-                            ></div>
-                        </div>
-                        <div className="mt-4 flex gap-4 text-xs font-medium text-slate-500 dark:text-slate-400">
-                            <div className="flex items-center gap-1"><CheckCircle className="w-3 h-3 text-emerald-500"/> {user.stats.lessonsCompleted} Leçons</div>
-                            <div className="flex items-center gap-1"><CheckCircle className="w-3 h-3 text-emerald-500"/> {user.stats.exercisesCompleted} Exos</div>
+
+                        <div className="mt-2 flex gap-4 text-xs font-medium text-slate-500 dark:text-slate-400 justify-center bg-slate-50 dark:bg-slate-900/50 p-3 rounded-2xl">
+                            <div className="flex items-center gap-1.5"><Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500"/> {user.stats.lessonsCompleted} Leçons</div>
+                            <div className="w-px h-4 bg-slate-200 dark:bg-slate-700"></div>
+                            <div className="flex items-center gap-1.5"><Star className="w-3.5 h-3.5 text-emerald-500 fill-emerald-500"/> {user.stats.exercisesCompleted} Exercices</div>
                         </div>
                     </div>
 
@@ -298,11 +319,6 @@ const SettingsItem = ({ icon, title, value, onClick }: any) => (
         </div>
         <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-colors" />
     </button>
-);
-
-// Helper for Icons
-const CheckCircle = ({className}: {className?: string}) => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="20 6 9 17 4 12" /></svg>
 );
 
 export default SmartDashboard;
