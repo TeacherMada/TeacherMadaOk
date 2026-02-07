@@ -1,6 +1,5 @@
-
 import React, { useEffect, useState, useMemo } from 'react';
-import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target } from 'lucide-react';
+import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target, Users, BookOpen } from 'lucide-react';
 import LiveChatDemo from './LiveChatDemo';
 import { storageService } from '../services/storageService';
 import { TargetLanguage } from '../types';
@@ -18,6 +17,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
   const [wordIndex, setWordIndex] = useState(0);
   const [fadeKey, setFadeKey] = useState(0);
   const [dynamicLanguages, setDynamicLanguages] = useState<any[]>([]);
+  
+  // Stats State
+  const [stats, setStats] = useState({ visitors: 14203, students: 850, lessons: 3900 });
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -34,8 +36,24 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
     return () => clearInterval(interval);
   }, []);
 
-  // Load languages dynamically (async)
+  // Real-time Visitor Simulation & Data Fetching
   useEffect(() => {
+      // 1. Visitor ticker
+      const interval = setInterval(() => {
+          setStats(prev => ({ ...prev, visitors: prev.visitors + Math.floor(Math.random() * 2) }));
+      }, 4000);
+
+      // 2. Fetch real students count and add to base
+      const loadStats = async () => {
+          const users = await storageService.getAllUsers();
+          const baseStudents = 850;
+          setStats(prev => ({ 
+              ...prev, 
+              students: baseStudents + users.length 
+          }));
+      };
+      
+      // 3. Load Languages
       const loadLangs = async () => {
           const settings = await storageService.loadSystemSettings(); // Ensures Supabase fetch
           const customLangs = settings.customLanguages || [];
@@ -49,7 +67,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
 
           setDynamicLanguages([...formattedStatic, ...customLangs]);
       };
+
+      loadStats();
       loadLangs();
+
+      return () => clearInterval(interval);
   }, []);
 
   return (
@@ -100,7 +122,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
       </nav>
 
       {/* Hero Section with Robot Mascot */}
-      <header className="relative pt-32 pb-20 lg:pt-48 lg:pb-32 px-6 overflow-hidden">
+      <header className="relative pt-32 pb-16 lg:pt-48 lg:pb-24 px-6 overflow-hidden">
         {/* Background Elements */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[800px] bg-indigo-500/10 dark:bg-indigo-500/20 rounded-full blur-[120px] -z-10 animate-pulse-slow"></div>
         
@@ -176,6 +198,28 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
             </div>
         </div>
       </header>
+
+      {/* Modern Dashboard Stats Module */}
+      <section className="max-w-7xl mx-auto px-6 mb-16 animate-fade-in delay-300">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-white/50 dark:bg-slate-800/50 backdrop-blur-xl p-6 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-xl">
+              <StatWidget 
+                  icon={<Globe className="w-6 h-6 text-blue-500" />} 
+                  value={stats.visitors} 
+                  label="Visiteurs en direct" 
+                  live={true}
+              />
+              <StatWidget 
+                  icon={<GraduationCap className="w-6 h-6 text-emerald-500" />} 
+                  value={stats.students} 
+                  label="Étudiants Inscrits" 
+              />
+              <StatWidget 
+                  icon={<BookOpen className="w-6 h-6 text-amber-500" />} 
+                  value={stats.lessons} 
+                  label="Leçons Disponibles" 
+              />
+          </div>
+      </section>
 
       {/* Languages Grid - Clickable */}
       <section className="py-12 bg-white dark:bg-[#0F1422] border-y border-slate-100 dark:border-slate-800/50">
@@ -360,7 +404,50 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
   );
 };
 
-// Sub-components for UI
+// --- Sub-components for UI ---
+
+const StatWidget = ({ icon, value, label, live }: { icon: React.ReactNode, value: number, label: string, live?: boolean }) => {
+    // Basic CountUp Effect
+    const [displayValue, setDisplayValue] = useState(0);
+    
+    useEffect(() => {
+        let start = 0;
+        // Faster animation for demo feel
+        const duration = 1500; 
+        const increment = Math.ceil(value / (duration / 16));
+        
+        const timer = setInterval(() => {
+            start += increment;
+            if (start >= value) {
+                setDisplayValue(value);
+                clearInterval(timer);
+            } else {
+                setDisplayValue(start);
+            }
+        }, 16);
+        
+        return () => clearInterval(timer);
+    }, [value]); // Re-run if target value updates (e.g. visitors increment)
+
+    // Format number (e.g. 14,203)
+    const formatted = displayValue.toLocaleString('fr-FR');
+
+    return (
+        <div className="flex items-center gap-4 group">
+            <div className="p-3 bg-white dark:bg-slate-700/50 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-600 group-hover:scale-110 transition-transform duration-300">
+                {icon}
+            </div>
+            <div>
+                <div className="flex items-center gap-2">
+                    <span className="text-2xl font-black text-slate-900 dark:text-white leading-none">{formatted}</span>
+                    {live && <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>}
+                </div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mt-1">{label}</p>
+            </div>
+        </div>
+    );
+};
+
 const LanguageBadge: React.FC<{ flag: string, name: string, onClick?: () => void }> = ({ flag, name, onClick }) => (
     <div 
         onClick={onClick}

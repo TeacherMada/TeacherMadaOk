@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff, Lock, Keyboard, Check, TrendingUp } from 'lucide-react';
+import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff, Lock, Keyboard, Check, TrendingUp, AlertTriangle } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateNextLessonPrompt, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -213,6 +213,9 @@ const ChatInterface: React.FC<Props> = ({
       return lang.includes(' ') ? lang.split(' ').pop() : '🏳️';
   }, [user.preferences?.targetLanguage]);
 
+  // Low Credit Check
+  const isLowCredits = user.credits < 2;
+
   // --- TEXT CHAT ---
   const processMessage = async (text: string, isAuto: boolean = false) => {
     if (isStreaming) return;
@@ -249,7 +252,6 @@ const ChatInterface: React.FC<Props> = ({
       let updatedUser = freshUser || user;
 
       // SAFETY: Ensure we don't overwrite preferences with null/undefined if fetch failed or returned partial data
-      // CRITICAL FIX: Check specifically for targetLanguage, not just existence of object
       if (!updatedUser.preferences || !updatedUser.preferences.targetLanguage) {
           if (user.preferences?.targetLanguage) {
               updatedUser = { ...updatedUser, preferences: user.preferences };
@@ -366,14 +368,21 @@ const ChatInterface: React.FC<Props> = ({
                 </div>
             </div>
 
-            {/* Center: Lesson & Credits (New) */}
+            {/* Center: Lesson & Credits (Updated) */}
             <div className="flex flex-col items-center justify-center shrink-0">
                 <h1 className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-widest leading-tight mb-0.5">
                     {currentLessonTitle}
                 </h1>
-                <div onClick={onShowPayment} className="flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform">
-                    <Zap className="w-3 h-3 text-amber-500 fill-amber-500" />
-                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                <div 
+                    onClick={onShowPayment} 
+                    className={`flex items-center gap-1 cursor-pointer transition-all duration-500 ${
+                        isLowCredits 
+                        ? 'animate-pulse text-red-600 bg-red-100 dark:bg-red-900/30 px-2 rounded-full ring-2 ring-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)] scale-105' 
+                        : 'hover:scale-105'
+                    }`}
+                >
+                    {isLowCredits ? <AlertTriangle className="w-3 h-3" /> : <Zap className="w-3 h-3 text-amber-500 fill-amber-500" />}
+                    <span className={`text-[10px] font-bold ${isLowCredits ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
                         {user.credits} Crédits
                     </span>
                 </div>

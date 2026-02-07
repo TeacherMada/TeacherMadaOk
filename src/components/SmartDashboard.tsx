@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { UserProfile, ChatMessage, ExplanationLanguage, UserPreferences } from '../types';
-import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck, Upload, Library, TrendingUp, Star, CreditCard, Plus } from 'lucide-react';
+import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck, Upload, Library, TrendingUp, Star, CreditCard, Plus, AlertTriangle } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { extractVocabulary } from '../services/geminiService';
 import { toast } from './Toaster';
@@ -24,6 +24,9 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
   // Edit Profile State
   const [editName, setEditName] = useState(user.username);
   const [editPass, setEditPass] = useState(user.password || '');
+
+  // Low Credit Check
+  const isLowCredits = user.credits < 2;
 
   // --- SMART PROGRESS CALCULATION ---
   const progressData = useMemo(() => {
@@ -146,23 +149,31 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                 <div className="space-y-6 animate-fade-in">
                     
                     {/* Wallet Card (New) */}
-                    <div className="bg-gradient-to-br from-slate-900 to-slate-800 dark:from-[#1E293B] dark:to-[#0F172A] p-6 rounded-3xl text-white shadow-xl shadow-slate-500/20 relative overflow-hidden group">
+                    <div className={`p-6 rounded-3xl text-white shadow-xl relative overflow-hidden group transition-all duration-300 ${
+                        isLowCredits 
+                        ? 'bg-red-600 shadow-red-500/30 animate-pulse ring-4 ring-red-400/50' 
+                        : 'bg-gradient-to-br from-slate-900 to-slate-800 dark:from-[#1E293B] dark:to-[#0F172A] shadow-slate-500/20'
+                    }`}>
                         <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -mr-10 -mt-10 blur-3xl group-hover:bg-white/10 transition-colors duration-700"></div>
                         
                         <div className="flex justify-between items-start relative z-10">
                             <div>
-                                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Mon Solde</p>
-                                <div className="text-4xl font-black tracking-tight">{user.credits} <span className="text-lg font-medium text-slate-400">CRD</span></div>
+                                <p className={`text-xs font-bold uppercase tracking-widest mb-1 ${isLowCredits ? 'text-red-100' : 'text-slate-400'}`}>Mon Solde</p>
+                                <div className="text-4xl font-black tracking-tight">{user.credits} <span className={`text-lg font-medium ${isLowCredits ? 'text-red-200' : 'text-slate-400'}`}>CRD</span></div>
                             </div>
                             <div className="p-3 bg-white/10 rounded-2xl backdrop-blur-md">
-                                <CreditCard className="w-6 h-6 text-white" />
+                                {isLowCredits ? <AlertTriangle className="w-6 h-6 text-white" /> : <CreditCard className="w-6 h-6 text-white" />}
                             </div>
                         </div>
 
                         <div className="mt-6 relative z-10">
                             <button 
                                 onClick={onShowPayment}
-                                className="w-full py-3 bg-white text-slate-900 font-bold rounded-xl hover:bg-slate-100 transition-colors flex items-center justify-center gap-2 shadow-lg"
+                                className={`w-full py-3 font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg ${
+                                    isLowCredits 
+                                    ? 'bg-white text-red-600 hover:bg-red-50' 
+                                    : 'bg-white text-slate-900 hover:bg-slate-100'
+                                }`}
                             >
                                 <Plus className="w-4 h-4" /> Recharger Crédits
                             </button>
