@@ -46,9 +46,17 @@ const App: React.FC = () => {
       const handleFocus = async () => {
           if (user) {
               const updated = await storageService.getUserById(user.id);
-              if (updated && (updated.credits !== user.credits || updated.isSuspended !== user.isSuspended)) {
-                  setUser(updated);
-                  if(updated.isSuspended) toast.info("Votre compte a été mis à jour.");
+              if (updated) {
+                  // Stability Fix: Only update if preferences are valid, or if we were already in a state without them
+                  // If current user has preferences but updated doesn't, it might be a glitch (unless logout happened)
+                  if (!updated.preferences && user.preferences) {
+                      // Do not overwrite valid prefs with null, just update stats/credits
+                      const safeUpdate = { ...updated, preferences: user.preferences };
+                      setUser(safeUpdate);
+                  } else if (updated.credits !== user.credits || updated.isSuspended !== user.isSuspended) {
+                      setUser(updated);
+                      if(updated.isSuspended) toast.info("Votre compte a été mis à jour.");
+                  }
               }
           }
       };

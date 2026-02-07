@@ -138,7 +138,11 @@ const ChatInterface: React.FC<Props> = ({
           const cleanText = text.replace(/[#*`_]/g, '').replace(/\[Leçon \d+\]/gi, '');
           const pcmBuffer = await generateSpeech(cleanText);
           const updatedUser = await storageService.getUserById(user.id);
-          if (updatedUser) onUpdateUser(updatedUser);
+          if (updatedUser) {
+              // Safety check: preserve preferences if missing
+              if (!updatedUser.preferences) updatedUser.preferences = user.preferences;
+              onUpdateUser(updatedUser);
+          }
 
           if (!pcmBuffer) throw new Error("Audio init failed");
           
@@ -238,6 +242,11 @@ const ChatInterface: React.FC<Props> = ({
       // Fetch latest user state (credits deducted)
       const freshUser = await storageService.getUserById(user.id);
       let updatedUser = freshUser || user;
+
+      // SAFETY: Ensure we don't overwrite preferences with null/undefined if fetch failed or returned partial data
+      if (!updatedUser.preferences) {
+          updatedUser = { ...updatedUser, preferences: user.preferences };
+      }
 
       // Update Session
       const newMessages = [...newHistory, { id: aiMsgId, role: 'model' as const, text: fullText, timestamp: Date.now() }];
