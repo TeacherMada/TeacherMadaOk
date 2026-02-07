@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { X, Shield, FileText } from 'lucide-react';
 
@@ -21,7 +20,7 @@ const LegalModal: React.FC<LegalModalProps> = ({ type, onClose }) => {
                     {type === 'privacy' ? <Shield className="w-6 h-6"/> : <FileText className="w-6 h-6"/>}
                 </div>
                 <h2 className="text-xl font-black text-slate-900 dark:text-white">
-                    {type === 'privacy' ? 'Politique de Confidentialité' : 'Conditions d\'Utilisation'}
+                    {type === 'privacy' ? 'Confidentialité des Données' : 'Conditions Générales de Service'}
                 </h2>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
@@ -30,40 +29,40 @@ const LegalModal: React.FC<LegalModalProps> = ({ type, onClose }) => {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 md:p-8 text-sm text-slate-600 dark:text-slate-300 leading-relaxed space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 md:p-8 text-sm text-slate-600 dark:text-slate-300 leading-relaxed space-y-6 font-medium">
             {type === 'privacy' ? (
                 <>
-                    <p><strong>Dernière mise à jour : {new Date().toLocaleDateString()}</strong></p>
-                    <p>Chez TeacherMada, la confidentialité de vos données est notre priorité. Cette politique décrit comment nous traitons vos informations.</p>
+                    <p><strong>Engagement de confidentialité - TeacherMada Education</strong></p>
+                    <p>Votre apprentissage est personnel. Nous nous engageons à protéger vos informations avec les standards de sécurité les plus élevés.</p>
                     
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">1. Données collectées</h3>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">1. Données Apprenant</h3>
+                    <p>Nous collectons uniquement les données nécessaires à votre progression pédagogique :</p>
                     <ul className="list-disc pl-5 space-y-1">
-                        <li>Informations de compte (Nom d'utilisateur, email, mot de passe hashé).</li>
-                        <li>Données d'apprentissage (Progression, vocabulaire, historique de chat).</li>
-                        <li>Données techniques (Type d'appareil pour l'optimisation).</li>
+                        <li>Identifiants de connexion sécurisés (cryptés).</li>
+                        <li>Statistiques d'apprentissage et historique des leçons pour personnaliser le cursus.</li>
                     </ul>
 
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">2. Utilisation de l'IA</h3>
-                    <p>Vos conversations sont traitées par Google Gemini API pour générer des réponses. Ces données ne sont pas utilisées par Google pour entraîner leurs modèles publics via notre API (selon les CGU Enterprise de Google Cloud), mais nous vous conseillons de ne jamais partager d'informations personnelles sensibles (bancaires, santé) dans le chat.</p>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">2. Technologie Pédagogique</h3>
+                    <p>Vos exercices oraux et écrits sont traités par notre <strong>Moteur d'Analyse Linguistique Avancé</strong>. Ce système propriétaire permet une correction instantanée et naturelle, simulant un professeur natif expert. Vos échanges servent uniquement à générer des corrections en temps réel et ne sont pas vendus à des tiers.</p>
 
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">3. Stockage</h3>
-                    <p>Vos données sont stockées de manière sécurisée via Supabase (hébergé sur AWS). Les mots de passe sont cryptés. Nous ne vendons jamais vos données à des tiers.</p>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">3. Sécurité</h3>
+                    <p>Toutes les données transitent via des protocoles cryptés (SSL/TLS). Nos serveurs sont situés dans des environnements cloud sécurisés et conformes aux normes internationales.</p>
                 </>
             ) : (
                 <>
-                    <p><strong>Bienvenue sur TeacherMada.</strong> En utilisant cette application, vous acceptez les conditions suivantes.</p>
+                    <p><strong>Conditions Générales d'Utilisation - Plateforme TeacherMada</strong></p>
                     
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">1. Usage Personnel</h3>
-                    <p>Le compte est strictement personnel. Le partage de compte peut entraîner une suspension.</p>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">1. Accès au Service</h3>
+                    <p>TeacherMada est une plateforme d'excellence linguistique. L'accès est personnel et incessible. Tout partage de compte peut entraîner une suspension temporaire pour des raisons de sécurité.</p>
 
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">2. Crédits et Paiements</h3>
-                    <p>L'achat de crédits via Mobile Money est définitif. Les crédits permettent d'accéder aux fonctionnalités IA coûteuses. En cas de bug technique avéré, un remboursement sous forme de crédits sera effectué.</p>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">2. Système de Crédits</h3>
+                    <p>L'accès aux fonctionnalités avancées (Correction vocale, Cours personnalisés) nécessite des crédits. L'acquisition de crédits via Mobile Money est une transaction définitive garantissant l'accès immédiat aux ressources pédagogiques premium.</p>
 
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">3. Modération</h3>
-                    <p>Tout propos haineux, raciste ou illégal généré volontairement envers l'IA ou stocké dans l'application entraînera la suppression immédiate du compte sans remboursement.</p>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">3. Code de Conduite</h3>
+                    <p>Les utilisateurs s'engagent à utiliser le Professeur Digital de manière respectueuse. La plateforme est un espace d'apprentissage bienveillant ; tout contenu inapproprié sera automatiquement filtré par nos systèmes de modération.</p>
 
                     <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">4. Disponibilité</h3>
-                    <p>L'application est fournie "telle quelle". Nous nous efforçons d'assurer une disponibilité 24/7 mais ne sommes pas responsables des pannes liées aux fournisseurs d'IA (Google) ou d'hébergement.</p>
+                    <p>Nous garantissons une disponibilité maximale du service pour assurer votre continuité pédagogique, sauf cas de force majeure ou maintenance technique programmée.</p>
                 </>
             )}
         </div>
@@ -71,7 +70,7 @@ const LegalModal: React.FC<LegalModalProps> = ({ type, onClose }) => {
         {/* Footer */}
         <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
             <button onClick={onClose} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all">
-                J'ai compris
+                Accepter et Fermer
             </button>
         </div>
       </div>

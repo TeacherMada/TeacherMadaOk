@@ -476,7 +476,14 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           if (!currentTeacherText) return;
           setIsTranslating(true);
           try {
-              const prompt = `Traduire en Malagasy simple: "${currentTeacherText}"`;
+              const prompt = `
+                Tâche : 
+                1. Traduis ceci en Malagasy très simple : "${currentTeacherText}".
+                2. Suggère une réponse courte et naturelle que l'élève pourrait dire (dans la langue cible).
+                Format : 
+                "🇲🇬 [Traduction Malagasy]
+                💡 Valiny : [Suggestion de réponse]"
+              `;
               const response = await generateWithFallback('gemini-3-flash-preview', {
                   contents: [{ role: 'user', parts: [{ text: prompt }] }]
               }, 'gemini-2.0-flash');
@@ -592,7 +599,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                         <p className="text-white text-lg font-medium leading-relaxed">{currentTeacherText || "..."}</p>
                     </div>
                     <div className="pt-4 border-t border-white/10">
-                        <h4 className="text-xs font-bold text-yellow-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Sparkles className="w-3 h-3"/> En Malagasy :</h4>
+                        <h4 className="text-xs font-bold text-yellow-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Sparkles className="w-3 h-3"/> Aide & Traduction :</h4>
                         {isTranslating ? <div className="flex items-center gap-2 text-slate-400 text-sm"><Loader2 className="w-4 h-4 animate-spin"/> Traduction...</div> : <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">{translation || "..."}</div>}
                     </div>
                 </div>

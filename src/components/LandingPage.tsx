@@ -1,6 +1,5 @@
-
 import React, { useEffect, useState, useMemo } from 'react';
-import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target, Users, BookOpen, Shield, FileText } from 'lucide-react';
+import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target, Users, BookOpen, Shield, FileText, Download } from 'lucide-react';
 import LiveChatDemo from './LiveChatDemo';
 import { storageService } from '../services/storageService';
 import { TargetLanguage } from '../types';
@@ -24,9 +23,19 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
   // Stats State
   const [stats, setStats] = useState({ visitors: 14203, students: 850, lessons: 3900 });
 
+  // PWA Install State
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', handleScroll);
+    
+    // Capture PWA install prompt
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    });
+
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
@@ -77,6 +86,20 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
       return () => clearInterval(interval);
   }, []);
 
+  const handleInstallClick = () => {
+      if (deferredPrompt) {
+          deferredPrompt.prompt();
+          deferredPrompt.userChoice.then((choiceResult: any) => {
+              if (choiceResult.outcome === 'accepted') {
+                  setDeferredPrompt(null);
+              }
+          });
+      } else {
+          // Fallback if already installed or not supported
+          onStart();
+      }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0B0F19] text-slate-900 dark:text-slate-100 transition-colors duration-500 overflow-x-hidden font-sans selection:bg-indigo-500 selection:text-white">
       
@@ -107,15 +130,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
               >
                   {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
               </button>
-              <a 
-                 href="https://www.facebook.com/TeacherMadaFormation" 
-                 target="_blank" 
-                 rel="noopener noreferrer"
-                 className="hidden sm:flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-xs font-bold transition-colors"
+              <button 
+                  onClick={handleInstallClick}
+                  className="hidden sm:flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-full text-xs font-bold transition-colors"
               >
-                 <Facebook className="w-4 h-4 fill-current" />
-                 Suivre
-              </a>
+                 <Download className="w-4 h-4" />
+                 Installer
+              </button>
               <button 
                   onClick={onStart}
                   className="px-5 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300"
@@ -163,15 +184,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                         Créer mon compte gratuit
                         <ArrowRight className="w-5 h-5" />
                     </button>
-                    <a 
-                        href="https://www.facebook.com/TeacherMadaFormation" 
-                        target="_blank" 
-                        rel="noopener noreferrer"
+                    <button 
+                        onClick={handleInstallClick}
                         className="w-full sm:w-auto px-8 py-4 bg-white dark:bg-[#131825] hover:bg-slate-50 dark:hover:bg-[#1A2030] text-slate-800 dark:text-white text-lg font-bold rounded-2xl border border-slate-200 dark:border-white/10 shadow-sm transition-all flex items-center justify-center gap-3"
                     >
-                        <Facebook className="w-5 h-5 text-blue-600" />
-                        Voir la communauté
-                    </a>
+                        <Download className="w-5 h-5 text-indigo-500" />
+                        Installer cette Application
+                    </button>
                 </div>
             </div>
 
