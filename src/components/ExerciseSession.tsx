@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { ExerciseItem } from '../types';
 import { Check, X, ArrowRight, Trophy, RefreshCcw, HelpCircle } from 'lucide-react';
@@ -38,10 +37,28 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ exercises, onClose, o
 
     if (!answer) return;
 
-    if (currentExercise.type === 'fill_blank') {
-       correct = normalizeText(answer) === normalizeText(currentExercise.correctAnswer);
+    const normUser = normalizeText(String(answer));
+    const normCorrect = normalizeText(String(currentExercise.correctAnswer));
+
+    if (currentExercise.type === 'true_false') {
+        // Handle language variations and boolean strings for robustness
+        const trueVariants = ['vrai', 'true', 'yes', 'oui'];
+        const falseVariants = ['faux', 'false', 'no', 'non'];
+
+        const userIsTrue = trueVariants.includes(normUser);
+        const correctIsTrue = trueVariants.includes(normCorrect);
+        
+        const userIsFalse = falseVariants.includes(normUser);
+        const correctIsFalse = falseVariants.includes(normCorrect);
+
+        // If both map to the same boolean concept (True or False), it's correct
+        if (userIsTrue && correctIsTrue) correct = true;
+        else if (userIsFalse && correctIsFalse) correct = true;
+        // Fallback to direct text comparison (e.g. if answer is something else)
+        else correct = normUser === normCorrect;
     } else {
-       correct = answer === currentExercise.correctAnswer;
+        // For Multiple Choice and Fill Blank, standard normalization
+        correct = normUser === normCorrect;
     }
 
     setIsCorrect(correct);
@@ -149,7 +166,7 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ exercises, onClose, o
                                 disabled={isChecked}
                                 className={`p-4 rounded-xl border-2 text-left text-lg font-medium transition-all ${
                                     isChecked 
-                                        ? opt === currentExercise.correctAnswer 
+                                        ? normalizeText(opt) === normalizeText(currentExercise.correctAnswer) 
                                             ? 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-500 text-emerald-800 dark:text-emerald-300'
                                             : opt === selectedAnswer 
                                                 ? 'bg-red-100 dark:bg-red-900/30 border-red-500 text-red-800 dark:text-red-300'
@@ -175,11 +192,20 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ exercises, onClose, o
                                 disabled={isChecked}
                                 className={`p-8 rounded-2xl border-2 text-center text-xl font-bold transition-all ${
                                     isChecked 
-                                        ? opt === currentExercise.correctAnswer
-                                            ? 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-500 text-emerald-800 dark:text-emerald-300'
-                                            : opt === selectedAnswer
-                                                ? 'bg-red-100 dark:bg-red-900/30 border-red-500 text-red-800 dark:text-red-300'
-                                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 opacity-50'
+                                        ? (() => {
+                                            // Determine visual state for T/F based on correctness
+                                            const normOpt = normalizeText(opt);
+                                            const normCorrect = normalizeText(String(currentExercise.correctAnswer));
+                                            const trueSet = ['vrai', 'true', 'yes'];
+                                            const isOptTrue = trueSet.includes(normOpt);
+                                            const isCorrectTrue = trueSet.includes(normCorrect);
+                                            // Check if this option represents the correct answer
+                                            const isThisCorrect = (isOptTrue && isCorrectTrue) || (!isOptTrue && !isCorrectTrue);
+                                            
+                                            if (isThisCorrect) return 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-500 text-emerald-800 dark:text-emerald-300';
+                                            if (opt === selectedAnswer) return 'bg-red-100 dark:bg-red-900/30 border-red-500 text-red-800 dark:text-red-300';
+                                            return 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 opacity-50';
+                                        })()
                                         : selectedAnswer === opt
                                             ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-500 text-indigo-800 dark:text-indigo-300 shadow-lg'
                                             : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-indigo-300 hover:bg-slate-50 dark:hover:bg-slate-800'

@@ -233,7 +233,7 @@ const App: React.FC = () => {
       {isGeneratingExercise && (
           <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-white">
               <Loader2 className="w-12 h-12 animate-spin mb-4 text-indigo-500" />
-              <p className="font-bold text-lg">L'IA prépare vos exercices...</p>
+              <p className="font-bold text-lg">Un prof prépare vos exercices...</p>
           </div>
       )}
 
