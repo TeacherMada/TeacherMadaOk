@@ -47,13 +47,20 @@ const App: React.FC = () => {
           if (user) {
               const updated = await storageService.getUserById(user.id);
               if (updated) {
-                  // Stability Fix: Only update if preferences are valid, or if we were already in a state without them
-                  // If current user has preferences but updated doesn't, it might be a glitch (unless logout happened)
-                  if (!updated.preferences && user.preferences) {
-                      // Do not overwrite valid prefs with null, just update stats/credits
+                  // Stability Fix: Strict check for targetLanguage.
+                  // If remote user has lost preferences/language but local user has them, preserve local.
+                  const isRemoteInvalid = !updated.preferences || !updated.preferences.targetLanguage;
+                  const isLocalValid = user.preferences && user.preferences.targetLanguage;
+
+                  if (isRemoteInvalid && isLocalValid) {
+                      // Do not overwrite valid prefs with null/incomplete data
                       const safeUpdate = { ...updated, preferences: user.preferences };
                       setUser(safeUpdate);
-                  } else if (updated.credits !== user.credits || updated.isSuspended !== user.isSuspended) {
+                  } else if (
+                      updated.credits !== user.credits || 
+                      updated.isSuspended !== user.isSuspended ||
+                      JSON.stringify(updated.stats) !== JSON.stringify(user.stats)
+                  ) {
                       setUser(updated);
                       if(updated.isSuspended) toast.info("Votre compte a été mis à jour.");
                   }

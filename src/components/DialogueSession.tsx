@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, ChatMessage } from '../types';
 import { generateRoleplayResponse } from '../services/geminiService';
 import { storageService } from '../services/storageService';
-import { X, Send, Mic, MessageCircle, Clock, GraduationCap, ShoppingBag, Plane, Stethoscope, Utensils, School, StopCircle, Trophy, AlertTriangle, Loader2, Play, Briefcase, Info, ArrowLeft, RefreshCcw, BookOpen, Sparkles, Languages, BarChart } from 'lucide-react';
+import { X, Send, Mic, MessageCircle, Clock, GraduationCap, ShoppingBag, Plane, Stethoscope, Utensils, School, StopCircle, Trophy, AlertTriangle, Loader2, Play, Briefcase, Info, ArrowLeft, RefreshCcw, BookOpen, Sparkles, Languages, BarChart, ArrowRight } from 'lucide-react';
 
 interface DialogueSessionProps {
   user: UserProfile;
@@ -355,7 +355,10 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                              <p className="text-xs font-bold text-slate-400 uppercase mb-2">Feedback</p>
                              <p className="text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed">"{finalScore.feedback}"</p>
                          </div>
-                         <button onClick={onClose} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg">Continuer</button>
+                         <button onClick={onClose} className="group w-full py-4 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-black rounded-2xl shadow-xl hover:shadow-indigo-500/30 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2">
+                             <span className="tracking-wide">Terminer la session</span>
+                             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform"/>
+                         </button>
                      </div>
                  </div>
             )}

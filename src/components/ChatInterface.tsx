@@ -137,12 +137,17 @@ const ChatInterface: React.FC<Props> = ({
       try {
           const cleanText = text.replace(/[#*`_]/g, '').replace(/\[Leçon \d+\]/gi, '');
           const pcmBuffer = await generateSpeech(cleanText);
-          const updatedUser = await storageService.getUserById(user.id);
-          if (updatedUser) {
-              // Safety check: preserve preferences if missing
-              if (!updatedUser.preferences) updatedUser.preferences = user.preferences;
-              onUpdateUser(updatedUser);
+          
+          // Safety: Fetch updated user but keep preferences intact
+          const freshUser = await storageService.getUserById(user.id);
+          let updatedUser = freshUser || user;
+          
+          if (!updatedUser.preferences?.targetLanguage) {
+              if (user.preferences?.targetLanguage) {
+                  updatedUser = { ...updatedUser, preferences: user.preferences };
+              }
           }
+          onUpdateUser(updatedUser);
 
           if (!pcmBuffer) throw new Error("Audio init failed");
           
@@ -244,8 +249,11 @@ const ChatInterface: React.FC<Props> = ({
       let updatedUser = freshUser || user;
 
       // SAFETY: Ensure we don't overwrite preferences with null/undefined if fetch failed or returned partial data
-      if (!updatedUser.preferences) {
-          updatedUser = { ...updatedUser, preferences: user.preferences };
+      // CRITICAL FIX: Check specifically for targetLanguage, not just existence of object
+      if (!updatedUser.preferences || !updatedUser.preferences.targetLanguage) {
+          if (user.preferences?.targetLanguage) {
+              updatedUser = { ...updatedUser, preferences: user.preferences };
+          }
       }
 
       // Update Session
