@@ -175,13 +175,23 @@ const ChatInterface: React.FC<Props> = ({
       const currentLevel = user.preferences?.level || 'A1';
       const currentIndex = levels.indexOf(currentLevel);
       const nextLevel = currentIndex < levels.length - 1 ? levels[currentIndex + 1] : 'Expert';
+      
       let lessonNum = 1;
       const match = currentLessonTitle.match(/(\d+)/);
       if (match) lessonNum = parseInt(match[1], 10);
       else lessonNum = (user.stats.lessonsCompleted || 0) + 1;
-      const percentage = Math.min(lessonNum * 2, 100);
-      return { percentage, nextLevel, currentLevel };
+      
+      // Assume 50 lessons per level for progress bar
+      const percentage = Math.min((lessonNum / 50) * 100, 100);
+      
+      return { percentage, nextLevel, currentLevel, lessonNum };
   }, [currentLessonTitle, user.preferences?.level, user.stats.lessonsCompleted]);
+
+  // Safe flag extractor
+  const userFlag = useMemo(() => {
+      const lang = user.preferences?.targetLanguage || '';
+      return lang.includes(' ') ? lang.split(' ').pop() : '🏳️';
+  }, [user.preferences?.targetLanguage]);
 
   // --- TEXT CHAT ---
   const processMessage = async (text: string, isAuto: boolean = false) => {
@@ -192,9 +202,6 @@ const ChatInterface: React.FC<Props> = ({
         return;
     }
     const userDisplayMsg = isAuto ? "Suivant" : text;
-    // If it's a manual lesson command (e.g. "Commence la Leçon 5"), send it directly.
-    // If it's auto (from default logic), use generateNextLessonPrompt
-    // If we passed specific text for "isAuto" flow but constructed manually, treat as prompt
     const promptToSend = text;
 
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: userDisplayMsg, timestamp: Date.now() };
@@ -242,7 +249,7 @@ const ChatInterface: React.FC<Props> = ({
 
   const confirmNextLesson = () => {
       if (nextLessonInput.trim()) {
-          processMessage(`Commence la Leçon ${nextLessonInput}`, true); // Use true to flag as lesson progression
+          processMessage(`Commence la Leçon ${nextLessonInput}`, true); 
           setShowNextInput(false);
       }
   };
@@ -266,6 +273,7 @@ const ChatInterface: React.FC<Props> = ({
       {/* --- FIXED HEADER --- */}
       <header className="fixed top-0 left-0 w-full z-30 bg-white/80 dark:bg-[#131825]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm safe-top transition-colors">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+            {/* Left: Badge & Menu */}
             <div className="flex items-center gap-3 flex-1">
                 <button onClick={onExit} className="p-2 -ml-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors shrink-0">
                     <ArrowLeft className="w-6 h-6" />
@@ -275,17 +283,15 @@ const ChatInterface: React.FC<Props> = ({
                         onClick={(e) => { e.stopPropagation(); setShowTopMenu(!showTopMenu); }}
                         className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                     >
-                        <span className="text-xl leading-none">{user.preferences?.targetLanguage?.split(' ')[1] || '🇨🇵'}</span>
+                        <span className="text-xl leading-none">{userFlag}</span>
                         <div className="h-4 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
-                        <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase">{user.preferences?.level}</span>
+                        <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase">{progressData.currentLevel}</span>
                         <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${showTopMenu ? 'rotate-180' : ''}`} />
                     </button>
                     {showTopMenu && (
                         <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden z-50 animate-fade-in-up">
                             <button onClick={onStartPractice} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><MessageCircle className="w-4 h-4 text-indigo-500" /> Dialogue</button>
                             <button onClick={onStartExercise} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><Brain className="w-4 h-4 text-emerald-500" /> Exercices</button>
-                            
-                            {/* LOCKED VOICE CALL BUTTON */}
                             <button 
                                 onClick={handleVoiceCallClick} 
                                 className={`w-full text-left px-4 py-3 flex items-center gap-2 text-sm font-bold transition-colors ${
@@ -298,24 +304,37 @@ const ChatInterface: React.FC<Props> = ({
                                 Appel Vocal
                                 {(user.stats.lessonsCompleted || 0) < MIN_LESSONS_FOR_CALL && <Lock className="w-3 h-3 ml-auto text-slate-400"/>}
                             </button>
-
                             <div className="h-px bg-slate-100 dark:bg-slate-700 mx-2 my-1"></div>
                             <button onClick={onExit} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs font-bold text-red-500"><Repeat className="w-3.5 h-3.5" /> Changer Cours</button>
                         </div>
                     )}
                 </div>
             </div>
+
+            {/* Center: Lesson & Progress */}
             <div className="flex flex-col items-center justify-center shrink-0">
-                <h1 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-tight">{currentLessonTitle}</h1>
-                <button onClick={onShowPayment} className="flex items-center gap-1 mt-0.5 hover:scale-105 transition-transform">
-                    <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                    <span className="text-sm font-black text-amber-500">{user.freeUsage.count < 3 ? `${3 - user.freeUsage.count} Free` : user.credits}</span>
-                </button>
+                <h1 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] leading-tight mb-1">{currentLessonTitle}</h1>
+                <div className="w-24 h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div 
+                        className="h-full bg-indigo-500 transition-all duration-700" 
+                        style={{ width: `${progressData.percentage}%` }}
+                    ></div>
+                </div>
             </div>
+
+            {/* Right: Credits & Profile */}
             <div className="flex items-center justify-end gap-2 flex-1">
-                <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-indigo-600 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">{isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}</button>
+                <button onClick={onShowPayment} className="hidden sm:flex items-center gap-1.5 hover:scale-105 transition-transform bg-amber-50 dark:bg-amber-900/20 px-3 py-1.5 rounded-full border border-amber-100 dark:border-amber-900/50 mr-2">
+                    <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                    <span className="text-xs font-black text-amber-600 dark:text-amber-400">{user.freeUsage.count < 3 ? `${3 - user.freeUsage.count} Free` : user.credits}</span>
+                </button>
+                {/* Mobile Credit Icon */}
+                <button onClick={onShowPayment} className="sm:hidden flex items-center justify-center p-2 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-500 mr-1">
+                    <Zap className="w-4 h-4 fill-current"/>
+                </button>
+
+                <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-indigo-600 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors hidden sm:block">{isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}</button>
                 <button onClick={onShowProfile} className="relative group flex items-center gap-2">
-                    <div className="hidden sm:flex flex-col items-end"><span className="text-xs font-bold text-slate-700 dark:text-slate-200">{user.vocabulary.length} Mots</span></div>
                     <img src={`https://api.dicebear.com/9.x/micah/svg?seed=${user.username}`} alt="User" className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-800 shadow-md group-hover:scale-105 transition-transform border border-white dark:border-slate-600"/>
                 </button>
             </div>
@@ -396,26 +415,6 @@ const ChatInterface: React.FC<Props> = ({
       <footer className="fixed bottom-0 left-0 w-full bg-white/95 dark:bg-[#131825]/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 safe-bottom z-30 shadow-2xl">
         <div className="max-w-3xl mx-auto p-4">
             
-            {/* SMART PROGRESS STATS - Mobile First Layout */}
-            {!input && messages.length > 0 && !isStreaming && (
-                <div className="mb-3 px-1 animate-fade-in">
-                    <div className="flex justify-between items-center mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                        <span className="flex-1 text-left">{progressData.currentLevel}</span>
-                        <div className="flex items-center gap-1">
-                            <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-                            <span className="text-indigo-600 dark:text-indigo-400">{progressData.percentage}%</span>
-                        </div>
-                        <span className="flex-1 text-right">{progressData.nextLevel}</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                        <div 
-                            className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 bg-[length:200%_100%] animate-gradient"
-                            style={{ width: `${progressData.percentage}%` }}
-                        ></div>
-                    </div>
-                </div>
-            )}
-
             <div className="flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border border-transparent focus-within:border-indigo-500/30 focus-within:bg-white dark:focus-within:bg-slate-900 transition-all shadow-inner">
                 {/* LOCKED PHONE BUTTON */}
                 <button 
