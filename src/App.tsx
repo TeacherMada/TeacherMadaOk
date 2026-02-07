@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import LandingPage from './components/LandingPage';
 import AuthScreen from './components/AuthScreen';
@@ -188,6 +187,13 @@ const App: React.FC = () => {
                 onStartExercise={startExercise}
                 notify={notify}
                 onShowPayment={() => setShowPayment(true)}
+                onChangeCourse={async () => {
+                    if (!user) return;
+                    const updated = { ...user, preferences: null };
+                    setUser(updated);
+                    await storageService.saveUserProfile(updated);
+                    setCurrentSession(null);
+                }}
               />
           )}
 

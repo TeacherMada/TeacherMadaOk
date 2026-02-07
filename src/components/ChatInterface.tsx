@@ -16,6 +16,7 @@ interface Props {
   onStartExercise: () => void;
   notify: (m: string, t?: string) => void;
   onShowPayment: () => void;
+  onChangeCourse: () => void;
 }
 
 // Helper to convert Raw PCM to AudioBuffer
@@ -39,7 +40,8 @@ const ChatInterface: React.FC<Props> = ({
   onStartPractice, 
   onStartExercise,
   notify, 
-  onShowPayment
+  onShowPayment,
+  onChangeCourse
 }) => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>(session.messages);
@@ -305,7 +307,7 @@ const ChatInterface: React.FC<Props> = ({
                                 {(user.stats.lessonsCompleted || 0) < MIN_LESSONS_FOR_CALL && <Lock className="w-3 h-3 ml-auto text-slate-400"/>}
                             </button>
                             <div className="h-px bg-slate-100 dark:bg-slate-700 mx-2 my-1"></div>
-                            <button onClick={onExit} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs font-bold text-red-500"><Repeat className="w-3.5 h-3.5" /> Changer Cours</button>
+                            <button onClick={onChangeCourse} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs font-bold text-red-500"><Repeat className="w-3.5 h-3.5" /> Changer Cours</button>
                         </div>
                     )}
                 </div>
