@@ -38,7 +38,7 @@ const ChatInterface: React.FC<Props> = ({
   onExit, 
   onUpdateUser, 
   onStartPractice, 
-  onStartExercise,
+  onStartExercise, 
   notify, 
   onShowPayment,
   onChangeCourse
@@ -50,19 +50,22 @@ const ChatInterface: React.FC<Props> = ({
   
   const [showVoiceCall, setShowVoiceCall] = useState(false);
   
-  // Initialize Lesson Title from User Stats or Default
-  const [currentLessonTitle, setCurrentLessonTitle] = useState(() => {
-      const lastAiMessage = [...session.messages].reverse().find(m => m.role === 'model');
+  // Calculate current lesson based on stats or history
+  const calculateCurrentLesson = () => {
+      // First check messages for context
+      const lastAiMessage = [...messages].reverse().find(m => m.role === 'model');
       if (lastAiMessage) {
           const match = lastAiMessage.text.match(/(?:Leçon|Lesson)\s+(\d+)/i);
           if (match) return `Leçon ${match[1]}`;
       }
+      // Fallback to user stats
       const lessonNum = (user.stats.lessonsCompleted || 0) + 1;
       return `Leçon ${lessonNum}`;
-  });
+  };
+
+  const [currentLessonTitle, setCurrentLessonTitle] = useState(calculateCurrentLesson);
   
   const [showTopMenu, setShowTopMenu] = useState(false);
-  
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
   
   // Audio Playback State (TTS)
@@ -91,23 +94,22 @@ const ChatInterface: React.FC<Props> = ({
           if (!audioContext) {
               const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
               setAudioContext(ctx);
+          } else if (audioContext.state === 'suspended') {
+              audioContext.resume();
           }
       };
       window.addEventListener('click', initAudio, { once: true });
-      return () => window.removeEventListener('click', initAudio);
+      window.addEventListener('touchstart', initAudio, { once: true }); // Better mobile support
+      return () => {
+          window.removeEventListener('click', initAudio);
+          window.removeEventListener('touchstart', initAudio);
+      };
   }, [audioContext]);
 
-  // Lesson Title Update
+  // Update title when messages change or user stats update (e.g. forced by next lesson)
   useEffect(() => {
-      const lastAiMessage = [...messages].reverse().find(m => m.role === 'model');
-      if (lastAiMessage) {
-          const match = lastAiMessage.text.match(/(?:Leçon|Lesson)\s+(\d+)/i);
-          if (match) {
-              const newTitle = `Leçon ${match[1]}`;
-              if (newTitle !== currentLessonTitle) setCurrentLessonTitle(newTitle);
-          }
-      }
-  }, [messages, currentLessonTitle]);
+      setCurrentLessonTitle(calculateCurrentLesson());
+  }, [messages, user.stats.lessonsCompleted]);
 
   // --- TTS PLAYBACK ---
   const stopSpeaking = () => {
@@ -138,12 +140,19 @@ const ChatInterface: React.FC<Props> = ({
           const updatedUser = await storageService.getUserById(user.id);
           if (updatedUser) onUpdateUser(updatedUser);
 
-          if (!pcmBuffer || !audioContext) throw new Error("Audio init failed");
+          if (!pcmBuffer) throw new Error("Audio init failed");
+          
+          let ctx = audioContext;
+          if (!ctx) {
+              ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+              setAudioContext(ctx);
+          }
+          if (ctx.state === 'suspended') await ctx.resume();
 
-          const audioBuffer = pcmToAudioBuffer(new Uint8Array(pcmBuffer), audioContext, 24000);
-          const source = audioContext.createBufferSource();
+          const audioBuffer = pcmToAudioBuffer(new Uint8Array(pcmBuffer), ctx, 24000);
+          const source = ctx.createBufferSource();
           source.buffer = audioBuffer;
-          source.connect(audioContext.destination);
+          source.connect(ctx.destination);
           source.onended = () => {
               setSpeakingMessageId(null);
               setCurrentSource(null);
@@ -226,15 +235,42 @@ const ChatInterface: React.FC<Props> = ({
         }
       }
       
-      const updatedUser = await storageService.getUserById(user.id);
-      if (updatedUser) onUpdateUser(updatedUser);
-      storageService.saveSession({ ...session, messages: [...newHistory, { id: aiMsgId, role: 'model', text: fullText, timestamp: Date.now() }], progress: (messages.length / 20) * 100 });
+      // Fetch latest user state (credits deducted)
+      const freshUser = await storageService.getUserById(user.id);
+      let updatedUser = freshUser || user;
+
+      // Update Session
+      const newMessages = [...newHistory, { id: aiMsgId, role: 'model' as const, text: fullText, timestamp: Date.now() }];
+      storageService.saveSession({ ...session, messages: newMessages, progress: (messages.length / 20) * 100 });
+
+      // Handle Lesson Completion (Auto)
       if (isAuto) {
-          const newStats = { ...user.stats, lessonsCompleted: (user.stats.lessonsCompleted || 0) + 1 };
-          const updated = { ...(updatedUser || user), stats: newStats };
-          await storageService.saveUserProfile(updated);
-          onUpdateUser(updated);
+          const newStats = { 
+              ...updatedUser.stats, 
+              lessonsCompleted: (updatedUser.stats.lessonsCompleted || 0) + 1 
+          };
+          
+          // Sync to language history
+          const currentLang = updatedUser.preferences?.targetLanguage;
+          const currentHistory = updatedUser.preferences?.history || {};
+          if (currentLang) {
+              currentHistory[currentLang] = newStats;
+          }
+
+          updatedUser = { 
+              ...updatedUser, 
+              stats: newStats,
+              preferences: {
+                  ...updatedUser.preferences!,
+                  history: currentHistory
+              }
+          };
+          
+          await storageService.saveUserProfile(updatedUser);
       }
+      
+      onUpdateUser(updatedUser);
+
     } catch (e) {
       notify("Connexion instable.", "error");
     } finally {

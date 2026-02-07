@@ -7,8 +7,8 @@ import SmartDashboard from './components/SmartDashboard';
 import ExerciseSession from './components/ExerciseSession';
 import DialogueSession from './components/DialogueSession';
 import PaymentModal from './components/PaymentModal';
-import AdminDashboard from './components/AdminDashboard'; // Import AdminDashboard
-import { UserProfile, LearningSession, ExerciseItem } from './types';
+import AdminDashboard from './components/AdminDashboard';
+import { UserProfile, LearningSession, ExerciseItem, UserStats } from './types';
 import { storageService } from './services/storageService';
 import { generateExerciseFromHistory } from './services/geminiService';
 import { Toaster, toast } from './components/Toaster';
@@ -20,7 +20,7 @@ const App: React.FC = () => {
   const [showAuth, setShowAuth] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
-  const [showAdmin, setShowAdmin] = useState(false); // New Admin State
+  const [showAdmin, setShowAdmin] = useState(false);
   
   // Modes
   const [activeMode, setActiveMode] = useState<'chat' | 'exercise' | 'practice'>('chat');
@@ -56,7 +56,6 @@ const App: React.FC = () => {
       return () => window.removeEventListener('focus', handleFocus);
   }, [user]);
 
-  // Legacy notify bridge
   const notify = (msg: string, type: string = 'info') => {
     if (type === 'error') toast.error(msg);
     else if (type === 'success') toast.success(msg);
@@ -66,18 +65,72 @@ const App: React.FC = () => {
   const handleAuthSuccess = (u: UserProfile) => {
     setUser(u);
     setShowAuth(false);
-    if (u.preferences) {
+    // Ensure we start a session if user is already setup
+    if (u.preferences && u.preferences.targetLanguage) {
         const session = storageService.getOrCreateSession(u.id, u.preferences);
         setCurrentSession(session);
     }
   };
 
+  // Logic to handle Course Change: Save current stats to history, reset target
+  const handleChangeCourse = async () => {
+      if (!user) return;
+      
+      const currentLang = user.preferences?.targetLanguage;
+      const currentHistory = user.preferences?.history || {};
+      
+      // Save progress for current language
+      if (currentLang) {
+          currentHistory[currentLang] = user.stats;
+      }
+
+      // Reset active stats to 0 (or undefined) for safety until next selection
+      const emptyStats: UserStats = { lessonsCompleted: 0, exercisesCompleted: 0, dialoguesCompleted: 0 };
+
+      // Update user: keep history, unset targetLanguage
+      const updatedUser: UserProfile = {
+          ...user,
+          stats: emptyStats,
+          preferences: {
+              ...user.preferences!,
+              targetLanguage: '', // Clears target
+              level: '',
+              history: currentHistory
+          }
+      };
+
+      setUser(updatedUser);
+      await storageService.saveUserProfile(updatedUser);
+      setCurrentSession(null);
+  };
+
   const handleOnboardingComplete = async (prefs: any) => {
     if (!user) return;
-    const updated = { ...user, preferences: prefs };
+
+    const selectedLang = prefs.targetLanguage;
+    const history = user.preferences?.history || {};
+    
+    // Restore stats if they exist for this language
+    const restoredStats = history[selectedLang] || { 
+        lessonsCompleted: 0, 
+        exercisesCompleted: 0, 
+        dialoguesCompleted: 0 
+    };
+
+    const updated = { 
+        ...user, 
+        stats: restoredStats,
+        preferences: { 
+            ...prefs, 
+            history: history // Preserve history object
+        } 
+    };
+
     setUser(updated);
     await storageService.saveUserProfile(updated);
-    const session = storageService.getOrCreateSession(user.id, prefs);
+    
+    // Start session
+    const session = storageService.getOrCreateSession(user.id, updated.preferences!);
     setCurrentSession(session);
   };
 
@@ -116,7 +169,23 @@ const App: React.FC = () => {
               ...user.stats,
               exercisesCompleted: (user.stats.exercisesCompleted || 0) + 1
           };
-          const updatedUser = { ...user, stats: newStats };
+          
+          // Update History for current language as well
+          const currentLang = user.preferences?.targetLanguage;
+          const currentHistory = user.preferences?.history || {};
+          if (currentLang) {
+              currentHistory[currentLang] = newStats;
+          }
+
+          const updatedUser = { 
+              ...user, 
+              stats: newStats,
+              preferences: {
+                  ...user.preferences!,
+                  history: currentHistory
+              }
+          };
+
           await storageService.saveUserProfile(updatedUser);
           setUser(updatedUser);
           toast.success(`Exercice terminé ! Score : ${score}/${total}`);
@@ -124,7 +193,9 @@ const App: React.FC = () => {
       setActiveMode('chat');
   };
 
-  // If Admin Mode is active, render only Admin Dashboard
+  // Helper to check if onboarding is needed
+  const needsOnboarding = !user?.preferences || !user?.preferences?.targetLanguage;
+
   if (showAdmin && user?.role === 'admin') {
       return (
           <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans transition-colors duration-300">
@@ -144,7 +215,6 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-sans transition-colors duration-300">
       <Toaster />
 
-      {/* GLOBAL LOADER OVERLAY */}
       {isGeneratingExercise && (
           <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-white">
               <Loader2 className="w-12 h-12 animate-spin mb-4 text-indigo-500" />
@@ -166,7 +236,7 @@ const App: React.FC = () => {
         />
       )}
 
-      {user && !user.preferences && (
+      {user && needsOnboarding && (
         <Onboarding 
           onComplete={handleOnboardingComplete} 
           isDarkMode={isDarkMode} 
@@ -174,7 +244,7 @@ const App: React.FC = () => {
         />
       )}
 
-      {user && user.preferences && currentSession && (
+      {user && !needsOnboarding && currentSession && (
         <>
           {activeMode === 'chat' && (
               <ChatInterface 
@@ -182,18 +252,16 @@ const App: React.FC = () => {
                 session={currentSession} 
                 onShowProfile={() => setShowDashboard(true)}
                 onExit={() => setCurrentSession(null)}
-                onUpdateUser={setUser}
+                onUpdateUser={(updated) => {
+                    // Inject history saving logic into the standard update if stats changed
+                    // For now, simpler to rely on components calling saveUserProfile directly
+                    setUser(updated);
+                }}
                 onStartPractice={() => setActiveMode('practice')}
                 onStartExercise={startExercise}
                 notify={notify}
                 onShowPayment={() => setShowPayment(true)}
-                onChangeCourse={async () => {
-                    if (!user) return;
-                    const updated = { ...user, preferences: null };
-                    setUser(updated);
-                    await storageService.saveUserProfile(updated);
-                    setCurrentSession(null);
-                }}
+                onChangeCourse={handleChangeCourse}
               />
           )}
 
@@ -209,7 +277,10 @@ const App: React.FC = () => {
               <DialogueSession 
                   user={user}
                   onClose={() => setActiveMode('chat')}
-                  onUpdateUser={setUser}
+                  onUpdateUser={(u) => {
+                      // Sync history here too if needed, though dialogue handles its own finish
+                      setUser(u);
+                  }}
                   notify={notify}
                   onShowPayment={() => setShowPayment(true)}
               />
@@ -225,7 +296,7 @@ const App: React.FC = () => {
               toggleTheme={() => setIsDarkMode(!isDarkMode)}
               messages={currentSession.messages}
               onOpenAdmin={() => { setShowDashboard(false); setShowAdmin(true); }}
-              onShowPayment={() => { setShowDashboard(false); setShowPayment(true); }} // Inject payment handler
+              onShowPayment={() => { setShowDashboard(false); setShowPayment(true); }}
             />
           )}
 
@@ -239,13 +310,13 @@ const App: React.FC = () => {
       )}
 
       {/* Session Resume Screen */}
-      {user && user.preferences && !currentSession && !showAdmin && (
+      {user && !needsOnboarding && !currentSession && !showAdmin && (
         <div className="h-screen flex flex-col items-center justify-center p-6 bg-white dark:bg-slate-900 animate-fade-in">
            <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center text-white mb-8 shadow-2xl shadow-indigo-500/40">
              <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-12 h-12" />
            </div>
            <h1 className="text-2xl font-black mb-2">Bon retour, {user.username} !</h1>
-           <p className="text-slate-500 mb-10 text-center">Prêt à continuer votre apprentissage du {user.preferences.targetLanguage} ?</p>
+           <p className="text-slate-500 mb-10 text-center">Prêt à continuer votre apprentissage du {user.preferences?.targetLanguage} ?</p>
            
            <div className="space-y-4 w-full max-w-sm">
              <button 
@@ -255,11 +326,7 @@ const App: React.FC = () => {
                Reprendre mon cours
              </button>
              <button 
-                onClick={async () => {
-                  const updated = {...user, preferences: null};
-                  setUser(updated);
-                  await storageService.saveUserProfile(updated);
-                }}
+                onClick={handleChangeCourse}
                 className="w-full py-4 text-slate-500 font-bold hover:text-indigo-600 transition-colors"
              >
                Changer de langue ou niveau

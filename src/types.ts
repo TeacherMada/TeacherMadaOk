@@ -41,6 +41,12 @@ export interface VocabularyItem {
   addedAt: number;
 }
 
+export interface UserStats {
+  lessonsCompleted: number;
+  exercisesCompleted: number;
+  dialoguesCompleted: number;
+}
+
 export interface UserPreferences {
   targetLanguage: string;
   level: string;
@@ -48,6 +54,7 @@ export interface UserPreferences {
   mode: string;
   voiceName: VoiceName;
   needsAssessment?: boolean;
+  history?: Record<string, UserStats>; // Stores progress per language
 }
 
 export interface ChatMessage {
@@ -62,12 +69,6 @@ export interface LearningSession {
   messages: ChatMessage[];
   progress: number;
   score: number;
-}
-
-export interface UserStats {
-  lessonsCompleted: number;
-  exercisesCompleted: number;
-  dialoguesCompleted: number;
 }
 
 export interface UserProfile {
