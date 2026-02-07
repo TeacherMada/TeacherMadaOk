@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, ChatMessage } from '../types';
 import { generateRoleplayResponse } from '../services/geminiService';
 import { storageService } from '../services/storageService';
-import { X, Send, Mic, MessageCircle, Clock, GraduationCap, ShoppingBag, Plane, Stethoscope, Utensils, School, StopCircle, Trophy, AlertTriangle, Loader2, Play, Briefcase, Info, ArrowLeft, RefreshCcw, BookOpen } from 'lucide-react';
+import { X, Send, Mic, MessageCircle, Clock, GraduationCap, ShoppingBag, Plane, Stethoscope, Utensils, School, StopCircle, Trophy, AlertTriangle, Loader2, Play, Briefcase, Info, ArrowLeft, RefreshCcw, BookOpen, Sparkles, Languages, BarChart } from 'lucide-react';
 
 interface DialogueSessionProps {
   user: UserProfile;
@@ -14,6 +14,7 @@ interface DialogueSessionProps {
 }
 
 const SCENARIOS = [
+    { id: 'freestyle', title: 'Dialogue Libre', subtitle: 'Conversation ouverte', icon: <Sparkles className="w-8 h-8"/>, color: 'bg-violet-500', prompt: "Discussion libre et naturelle sur n'importe quel sujet. Adapte-toi au niveau de l'utilisateur." },
     { id: 'greeting', title: 'Première Rencontre', subtitle: 'Bases & Politesse', icon: <MessageCircle className="w-8 h-8"/>, color: 'bg-emerald-500', prompt: "Rencontre avec un nouvel ami étranger. Salutations et présentations." },
     { id: 'market', title: 'Au Marché', subtitle: 'Négociation & Nombres', icon: <ShoppingBag className="w-8 h-8"/>, color: 'bg-orange-500', prompt: "Acheter des fruits au marché local et négocier le prix." },
     { id: 'restaurant', title: 'Restaurant', subtitle: 'Commander & Goûts', icon: <Utensils className="w-8 h-8"/>, color: 'bg-rose-500', prompt: "Commander un repas complet et demander l'addition." },
@@ -21,6 +22,23 @@ const SCENARIOS = [
     { id: 'job', title: 'Entretien d\'Embauche', subtitle: 'Professionnel & Formel', icon: <Briefcase className="w-8 h-8"/>, color: 'bg-slate-600', prompt: "Un entretien pour un stage ou un emploi. Parler de ses qualités." },
     { id: 'doctor', title: 'Consultation', subtitle: 'Santé & Corps', icon: <Stethoscope className="w-8 h-8"/>, color: 'bg-red-500', prompt: "Expliquer des symptômes à un médecin." },
 ];
+
+const getSpeechLang = (targetLang: string) => {
+    if (targetLang.includes('Anglais')) return 'en-US';
+    if (targetLang.includes('Français')) return 'fr-FR';
+    if (targetLang.includes('Chinois')) return 'zh-CN';
+    if (targetLang.includes('Espagnol')) return 'es-ES';
+    if (targetLang.includes('Allemand')) return 'de-DE';
+    if (targetLang.includes('Italien')) return 'it-IT';
+    if (targetLang.includes('Portugais')) return 'pt-PT';
+    if (targetLang.includes('Russe')) return 'ru-RU';
+    if (targetLang.includes('Japonais')) return 'ja-JP';
+    if (targetLang.includes('Coréen')) return 'ko-KR';
+    if (targetLang.includes('Hindi')) return 'hi-IN';
+    if (targetLang.includes('Arabe')) return 'ar-SA';
+    if (targetLang.includes('Swahili')) return 'sw-KE';
+    return 'fr-FR';
+};
 
 const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
   const [scenario, setScenario] = useState<typeof SCENARIOS[0] | null>(null);
@@ -35,6 +53,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
   const [finalScore, setFinalScore] = useState<{score: number, feedback: string} | null>(null);
   const [showIntro, setShowIntro] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [isListening, setIsListening] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -90,6 +109,40 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       } else {
           onShowPayment();
       }
+  };
+
+  const handleMicClick = () => {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+          notify("Votre navigateur ne supporte pas la reconnaissance vocale.", 'error');
+          return;
+      }
+
+      if (isListening) {
+          setIsListening(false);
+          return;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = getSpeechLang(user.preferences?.targetLanguage || '');
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => setIsListening(true);
+      recognition.onend = () => setIsListening(false);
+      recognition.onerror = (event: any) => {
+          console.error("Speech error", event.error);
+          setIsListening(false);
+          notify("Erreur micro.", 'error');
+      };
+      recognition.onresult = (event: any) => {
+          const transcript = event.results[0][0].transcript;
+          if (transcript) {
+              setInput(prev => prev + (prev ? ' ' : '') + transcript);
+          }
+      };
+
+      recognition.start();
   };
 
   const handleSend = async () => {
@@ -222,7 +275,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                   <div className={`absolute top-0 left-0 w-full h-2 ${scenario.color}`}></div>
                   <div className={`w-20 h-20 mx-auto ${scenario.color} rounded-full flex items-center justify-center shadow-lg mb-6 animate-float`}><div className="text-white">{scenario.icon}</div></div>
                   <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-2">{scenario.title}</h2>
-                  <p className="text-slate-500 dark:text-slate-400 mb-8 px-4 leading-relaxed">"Tu vas être immergé dans une situation réelle. Chaque réponse de l'IA consomme <strong>1 crédit</strong>."</p>
+                  <p className="text-slate-500 dark:text-slate-400 mb-8 px-4 leading-relaxed">"Tu vas être immergé dans une situation réelle. TeacherMada vous guide, corrige, apprend en temps réel"</p>
                   
                   <div className="flex gap-3">
                       <button onClick={() => setScenario(null)} className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors">Retour</button>
@@ -235,18 +288,24 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
 
   return (
     <div className="fixed inset-0 z-[120] bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
-        <div className="bg-white dark:bg-slate-900 p-4 shadow-sm flex items-center justify-between border-b border-slate-100 dark:border-slate-800 z-20">
+        <div className="bg-white dark:bg-slate-900 px-4 py-3 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 dark:border-slate-800 z-20 gap-3 sm:gap-0">
             <div className="flex items-center gap-3">
-                <div className={`p-2.5 rounded-xl text-white shadow-md ${scenario.color}`}>{scenario.icon}</div>
-                <div>
-                    <h3 className="font-bold text-slate-800 dark:text-white text-sm">{scenario.title}</h3>
-                    <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-                        <span className="flex items-center gap-1 text-indigo-500"><Clock className="w-3 h-3"/> {formatTime(secondsActive)}</span>
+                <div className={`p-2.5 rounded-xl text-white shadow-md ${scenario.color} shrink-0`}>{scenario.icon}</div>
+                <div className="flex flex-col">
+                    <h3 className="font-bold text-slate-800 dark:text-white text-sm leading-tight mb-0.5">{scenario.title}</h3>
+                    <div className="flex items-center gap-2 text-[10px] font-medium text-slate-500">
+                        <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-indigo-500 border border-slate-200 dark:border-slate-700">
+                            <Languages className="w-3 h-3"/> {user.preferences?.targetLanguage}
+                        </span>
+                        <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-emerald-500 border border-slate-200 dark:border-slate-700">
+                            <BarChart className="w-3 h-3"/> {user.preferences?.level}
+                        </span>
+                        <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {formatTime(secondsActive)}</span>
                     </div>
                 </div>
             </div>
             {!finalScore && (
-                <button onClick={handleFinish} className="px-4 py-2 bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 rounded-xl text-xs font-bold hover:bg-red-100 transition-colors flex items-center gap-2"><StopCircle className="w-4 h-4"/> <span className="hidden sm:inline">Terminer</span></button>
+                <button onClick={handleFinish} className="px-4 py-2 bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 rounded-xl text-xs font-bold hover:bg-red-100 transition-colors flex items-center gap-2 self-end sm:self-auto"><StopCircle className="w-4 h-4"/> <span className="hidden sm:inline">Terminer</span></button>
             )}
         </div>
 
@@ -277,6 +336,15 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                     )}
                 </div>
             ))}
+
+            {isLoading && (
+                <div className="flex justify-start">
+                    <div className="bg-white dark:bg-slate-800 p-3 rounded-2xl rounded-tl-none border border-slate-100 dark:border-slate-700 flex items-center gap-2 shadow-sm">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500"/>
+                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">TeacherMada écrit...</span>
+                    </div>
+                </div>
+            )}
             
             {/* Final Score View */}
             {finalScore && (
@@ -297,8 +365,32 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
         {!finalScore && !isInitializing && (
             <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 z-20">
                 <div className="flex gap-3 max-w-4xl mx-auto">
-                    <input type="text" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()} placeholder={`Répondez en ${user.preferences?.targetLanguage}...`} className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-2xl px-5 py-4 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all shadow-inner" disabled={isLoading} autoFocus />
-                    <button onClick={handleSend} disabled={!input.trim() || isLoading} className="p-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl disabled:opacity-50 shadow-lg"><Send className="w-6 h-6" /></button>
+                    <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-2xl p-1 flex items-center transition-all shadow-inner focus-within:ring-2 focus-within:ring-indigo-500">
+                        <input 
+                            type="text" 
+                            value={input} 
+                            onChange={e => setInput(e.target.value)} 
+                            onKeyDown={e => e.key === 'Enter' && handleSend()} 
+                            placeholder={`Répondez en ${user.preferences?.targetLanguage}...`} 
+                            className="flex-1 bg-transparent px-4 py-3 outline-none dark:text-white placeholder:text-slate-400" 
+                            disabled={isLoading} 
+                            autoFocus 
+                        />
+                        <button 
+                            onClick={handleMicClick}
+                            disabled={isLoading}
+                            className={`p-2.5 rounded-xl transition-all mr-1 ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-indigo-500 hover:bg-white dark:hover:bg-slate-700'}`}
+                        >
+                            <Mic className="w-5 h-5"/>
+                        </button>
+                    </div>
+                    <button 
+                        onClick={handleSend} 
+                        disabled={!input.trim() || isLoading} 
+                        className="p-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl disabled:opacity-50 shadow-lg"
+                    >
+                        <Send className="w-6 h-6" />
+                    </button>
                 </div>
             </div>
         )}
