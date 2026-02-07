@@ -416,7 +416,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       try {
           // 3. Call AI with Fallback
-          // Try Gemini 3, fallback to Gemini 2.0 to avoid "Connection Error"
           const result = await generateWithFallback('gemini-3-flash-preview', {
               contents: requestContents,
               config: { systemInstruction: getSystemPrompt() }
@@ -425,11 +424,18 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           const replyText = result.text;
           if (!replyText) throw new Error("Empty response");
 
-          // 4. On Success: Update State & History
-          if (await storageService.canRequest(user.id)) {
-              await storageService.consumeCredit(user.id);
-              const u = await storageService.getUserById(user.id);
-              if(u && mountedRef.current) onUpdateUser(u);
+          // 4. ATOMIC UPDATE: Consume Credit & Refresh
+          // Using deductCreditOrUsage ensures we get the latest user state immediately
+          // without waiting for async propagation or risking incomplete objects
+          const updatedUser = await storageService.deductCreditOrUsage(user.id);
+          
+          if (updatedUser) {
+              // Safety Check: Ensure preferences exist before updating to avoid onboarding redirect
+              if (updatedUser.preferences && updatedUser.preferences.targetLanguage) {
+                  if(mountedRef.current) onUpdateUser(updatedUser);
+              } else {
+                  console.warn("Update received without preferences, skipping UI update to prevent redirect.");
+              }
           } else {
               notify("Crédits épuisés.", "error");
               onShowPayment();
@@ -446,9 +452,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       } catch (e: any) {
           console.error("Turn failed", e);
-          // Don't show "I didn't hear well" alert excessively, just restart listening quietly or show subtle hint
           notify("Je n'ai pas compris, réessayez.", "warning");
-          // DO NOT save to history. Just restart listening.
           setTimeout(() => {
               if (mountedRef.current) startListening();
           }, 1500);

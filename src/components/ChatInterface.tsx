@@ -364,7 +364,9 @@ const ChatInterface: React.FC<Props> = ({
 
             {/* Right: Profile & Theme */}
             <div className="flex items-center justify-end gap-3 flex-1">
-                <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-indigo-600 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors hidden sm:block">{isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}</button>
+                <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-indigo-600 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                    {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                </button>
                 <button onClick={onShowProfile} className="relative group flex items-center gap-2">
                     <img src={`https://api.dicebear.com/9.x/micah/svg?seed=${user.username}`} alt="User" className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-800 shadow-md group-hover:scale-105 transition-transform border border-white dark:border-slate-600"/>
                 </button>
@@ -446,17 +448,23 @@ const ChatInterface: React.FC<Props> = ({
       <footer className="fixed bottom-0 left-0 w-full bg-white/95 dark:bg-[#131825]/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 safe-bottom z-30 shadow-2xl">
         <div className="max-w-3xl mx-auto p-4 flex flex-col gap-3">
             
-            {/* PROGRESS BAR (New Location) */}
-            <div className="flex items-center gap-3 px-2">
-                <span className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 uppercase min-w-[30px] text-right">{progressData.currentLevel}</span>
-                <div className="flex-1 h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative">
+            {/* PROGRESS BAR - CENTERED PERCENTAGE */}
+            <div className="flex items-center justify-between gap-3 px-2">
+                <span className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 uppercase min-w-[30px]">{progressData.currentLevel}</span>
+                
+                <div className="flex-1 h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative border border-slate-200 dark:border-slate-700">
                     <div 
                         className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-1000 ease-out"
                         style={{ width: `${progressData.percentage}%` }}
                     />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-[8px] font-bold text-slate-500 dark:text-slate-400 bg-white/50 dark:bg-black/50 px-1.5 rounded-full backdrop-blur-sm">
+                            {progressData.percentage}%
+                        </span>
+                    </div>
                 </div>
-                <span className="text-[10px] font-bold text-slate-400 w-8 text-center">{progressData.percentage}%</span>
-                <span className="text-[10px] font-black text-slate-400 uppercase min-w-[30px] text-left">{progressData.nextLevel}</span>
+                
+                <span className="text-[10px] font-black text-slate-400 uppercase min-w-[30px] text-right">{progressData.nextLevel}</span>
             </div>
 
             <div className="flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border border-transparent focus-within:border-indigo-500/30 focus-within:bg-white dark:focus-within:bg-slate-900 transition-all shadow-inner">
