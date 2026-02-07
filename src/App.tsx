@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import LandingPage from './components/LandingPage';
 import AuthScreen from './components/AuthScreen';
@@ -29,7 +30,7 @@ const App: React.FC = () => {
 
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
 
-  // Load User & Theme
+  // Load User & Theme & Subscribe to Updates
   useEffect(() => {
     const init = async () => {
         const curr = await storageService.getCurrentUser();
@@ -37,11 +38,27 @@ const App: React.FC = () => {
     };
     init();
     
+    // Global Event Listener for User Updates (Credits, Stats, etc.)
+    // This ensures that when credits are consumed in services, the UI updates instantly
+    const unsubscribe = storageService.subscribeToUserUpdates((updatedUser) => {
+        // Only update if it matches current user to prevent race conditions
+        if (user && updatedUser.id === user.id) {
+            setUser(updatedUser);
+        } else if (!user) {
+            // Case where user might be set initially
+            setUser(updatedUser);
+        }
+    });
+    
     document.documentElement.classList.toggle('dark', isDarkMode);
     localStorage.setItem('tm_theme', isDarkMode ? 'dark' : 'light');
-  }, [isDarkMode]);
 
-  // Refresh User Data on Focus (To sync credits/admin changes)
+    return () => {
+        unsubscribe();
+    };
+  }, [isDarkMode, user?.id]); // Depend on ID to ensure subscription matches
+
+  // Refresh User Data on Focus (To sync credits/admin changes from other tabs/devices)
   useEffect(() => {
       const handleFocus = async () => {
           if (user) {
@@ -268,8 +285,7 @@ const App: React.FC = () => {
                 onShowProfile={() => setShowDashboard(true)}
                 onExit={() => setCurrentSession(null)}
                 onUpdateUser={(updated) => {
-                    // Inject history saving logic into the standard update if stats changed
-                    // For now, simpler to rely on components calling saveUserProfile directly
+                    // We can directly set user here, but the global subscription will also catch it
                     setUser(updated);
                 }}
                 onStartPractice={() => setActiveMode('practice')}
@@ -292,10 +308,7 @@ const App: React.FC = () => {
               <DialogueSession 
                   user={user}
                   onClose={() => setActiveMode('chat')}
-                  onUpdateUser={(u) => {
-                      // Sync history here too if needed, though dialogue handles its own finish
-                      setUser(u);
-                  }}
+                  onUpdateUser={(u) => setUser(u)}
                   notify={notify}
                   onShowPayment={() => setShowPayment(true)}
               />

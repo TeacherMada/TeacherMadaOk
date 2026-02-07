@@ -5,6 +5,14 @@ import { UserProfile, UserPreferences, LearningSession, AdminRequest, SystemSett
 const SESSION_PREFIX = 'tm_v3_session_';
 const SETTINGS_KEY = 'tm_system_settings';
 
+// --- EVENT BUS FOR REAL-TIME UPDATES ---
+type UserUpdateListener = (user: UserProfile) => void;
+let userListeners: UserUpdateListener[] = [];
+
+const notifyListeners = (user: UserProfile) => {
+    userListeners.forEach(listener => listener(user));
+};
+
 // Helper to map Supabase DB shape to UserProfile
 const mapProfile = (data: any): UserProfile => ({
     id: data.id,
@@ -35,6 +43,14 @@ const formatLoginEmail = (input: string) => {
 };
 
 export const storageService = {
+  // --- REAL-TIME SUBSCRIPTION ---
+  subscribeToUserUpdates: (callback: UserUpdateListener) => {
+      userListeners.push(callback);
+      return () => {
+          userListeners = userListeners.filter(cb => cb !== callback);
+      };
+  },
+
   // --- AUTH (Supabase) ---
   
   login: async (id: string, pass: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
@@ -137,7 +153,12 @@ export const storageService = {
       };
 
       const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
-      if (error) console.error("Save User Error:", error.message);
+      if (error) {
+          console.error("Save User Error:", error.message);
+      } else {
+          // Notify app of update
+          notifyListeners(user);
+      }
   },
 
   getAllUsers: async (): Promise<UserProfile[]> => {
@@ -159,6 +180,7 @@ export const storageService = {
 
       let allowed = false;
       let newFreeUsage = { ...user.freeUsage };
+      let newCredits = user.credits;
 
       if (now.getTime() - lastReset.getTime() > oneWeek) {
           newFreeUsage = { count: 0, lastResetWeek: now.toISOString() };
@@ -169,10 +191,17 @@ export const storageService = {
           allowed = true;
           // Update free usage
           await supabase.from('profiles').update({ free_usage: newFreeUsage }).eq('id', userId);
+          // Notify with updated free usage
+          notifyListeners({ ...user, freeUsage: newFreeUsage });
       } else {
           if (user.credits > 0) {
-              const { error } = await supabase.from('profiles').update({ credits: user.credits - 1 }).eq('id', userId);
+              newCredits = user.credits - 1;
+              const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
               allowed = !error;
+              if (allowed) {
+                  // Notify with updated credits
+                  notifyListeners({ ...user, credits: newCredits });
+              }
           }
       }
 
@@ -220,10 +249,15 @@ export const storageService = {
           console.error("AddCredits Update Error:", updateError);
           return false;
       }
+
+      // Fetch full profile to notify listeners
+      const updatedUser = await storageService.getUserById(userId);
+      if (updatedUser) notifyListeners(updatedUser);
+
       return true;
   },
 
-  // --- SECURE CREDIT REDEMPTION (Client Side Fallback due to RPC complexity) ---
+  // --- SECURE CREDIT REDEMPTION ---
   redeemCode: async (userId: string, inputCode: string): Promise<{ success: boolean; amount?: number; message?: string }> => {
       try {
           const code = inputCode.trim().toUpperCase();
@@ -253,7 +287,6 @@ export const storageService = {
               if (saveSuccess) {
                   return { success: true, amount: amountToAdd };
               } else {
-                  // In a real transactional system we would rollback, but for this simplified flow:
                   return { success: false, message: "Code utilisé mais erreur de validation finale." };
               }
           }
@@ -393,25 +426,22 @@ export const storageService = {
               
               if (Array.isArray(data.valid_transaction_refs)) {
                   normalizedCoupons = data.valid_transaction_refs.map((r: any) => {
-                      // Fix: Handle cases where data might be double-stringified or object
                       if (typeof r === 'string') {
                           try {
                               const parsed = JSON.parse(r);
                               if (typeof parsed === 'object') return parsed;
-                              // Fallback if string but not json (legacy data?)
                               return { code: r, amount: 0, createdAt: new Date().toISOString() };
                           } catch (e) {
                               return { code: r, amount: 0, createdAt: new Date().toISOString() };
                           }
                       }
                       return r;
-                  }).filter((c: any) => c && c.code); // Filter out bad objects
+                  }).filter((c: any) => c && c.code);
               }
 
               const settings: SystemSettings = {
                   apiKeys: data.api_keys || [],
                   activeModel: data.active_model || 'gemini-3-flash-preview',
-                  // Ensure numeric
                   creditPrice: data.credit_price || 50,
                   customLanguages: data.custom_languages || [],
                   validTransactionRefs: normalizedCoupons,
@@ -466,9 +496,13 @@ export const storageService = {
   },
   
   deductCreditOrUsage: async (userId: string) => {
-      await storageService.checkAndConsumeCredit(userId);
-      return storageService.getUserById(userId);
+      const success = await storageService.checkAndConsumeCredit(userId);
+      if (success) {
+          return storageService.getUserById(userId);
+      }
+      return null;
   },
+  
   canPerformRequest: async (userId: string) => {
       const allowed = await storageService.canRequest(userId);
       return { allowed };
