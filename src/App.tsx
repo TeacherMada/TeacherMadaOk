@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import LandingPage from './components/LandingPage';
 import AuthScreen from './components/AuthScreen';
 import Onboarding from './components/Onboarding';
@@ -30,40 +30,24 @@ const App: React.FC = () => {
 
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
 
-  // Robust User Update Handler: Prevents overwriting valid preferences with incomplete data
-  // This fixes the bug where updates (like credits) cause a redirect to onboarding
-  const safeSetUser = useCallback((updated: UserProfile | ((prev: UserProfile | null) => UserProfile | null)) => {
-      setUser(current => {
-          const nextUser = typeof updated === 'function' ? updated(current) : updated;
-          
-          if (!nextUser) return null;
-          if (!current) return nextUser;
-
-          // If IDs match, check for data integrity
-          if (current.id === nextUser.id) {
-              const isRemoteInvalid = !nextUser.preferences || !nextUser.preferences.targetLanguage;
-              const isLocalValid = current.preferences && current.preferences.targetLanguage;
-
-              if (isRemoteInvalid && isLocalValid) {
-                  // Merge: Keep the new data (credits, stats) but preserve valid preferences
-                  return { ...nextUser, preferences: current.preferences };
-              }
-          }
-          return nextUser;
-      });
-  }, []);
-
   // Load User & Theme & Subscribe to Updates
   useEffect(() => {
     const init = async () => {
         const curr = await storageService.getCurrentUser();
-        if (curr) safeSetUser(curr);
+        if (curr) setUser(curr);
     };
     init();
     
     // Global Event Listener for User Updates (Credits, Stats, etc.)
+    // This ensures that when credits are consumed in services, the UI updates instantly
     const unsubscribe = storageService.subscribeToUserUpdates((updatedUser) => {
-        safeSetUser(updatedUser);
+        // Only update if it matches current user to prevent race conditions
+        if (user && updatedUser.id === user.id) {
+            setUser(updatedUser);
+        } else if (!user) {
+            // Case where user might be set initially
+            setUser(updatedUser);
+        }
     });
     
     document.documentElement.classList.toggle('dark', isDarkMode);
@@ -72,24 +56,37 @@ const App: React.FC = () => {
     return () => {
         unsubscribe();
     };
-  }, [isDarkMode, safeSetUser]);
+  }, [isDarkMode, user?.id]); // Depend on ID to ensure subscription matches
 
-  // Refresh User Data on Focus
+  // Refresh User Data on Focus (To sync credits/admin changes from other tabs/devices)
   useEffect(() => {
       const handleFocus = async () => {
           if (user) {
               const updated = await storageService.getUserById(user.id);
               if (updated) {
-                  safeSetUser(updated);
-                  if (updated.credits !== user.credits || updated.isSuspended !== user.isSuspended) {
-                      // Optional: toast.info("Données synchronisées.");
+                  // Stability Fix: Strict check for targetLanguage.
+                  // If remote user has lost preferences/language but local user has them, preserve local.
+                  const isRemoteInvalid = !updated.preferences || !updated.preferences.targetLanguage;
+                  const isLocalValid = user.preferences && user.preferences.targetLanguage;
+
+                  if (isRemoteInvalid && isLocalValid) {
+                      // Do not overwrite valid prefs with null/incomplete data
+                      const safeUpdate = { ...updated, preferences: user.preferences };
+                      setUser(safeUpdate);
+                  } else if (
+                      updated.credits !== user.credits || 
+                      updated.isSuspended !== user.isSuspended ||
+                      JSON.stringify(updated.stats) !== JSON.stringify(user.stats)
+                  ) {
+                      setUser(updated);
+                      if(updated.isSuspended) toast.info("Votre compte a été mis à jour.");
                   }
               }
           }
       };
       window.addEventListener('focus', handleFocus);
       return () => window.removeEventListener('focus', handleFocus);
-  }, [user, safeSetUser]);
+  }, [user]);
 
   const notify = (msg: string, type: string = 'info') => {
     if (type === 'error') toast.error(msg);
@@ -98,7 +95,7 @@ const App: React.FC = () => {
   };
 
   const handleAuthSuccess = (u: UserProfile) => {
-    safeSetUser(u);
+    setUser(u);
     setShowAuth(false);
     // Ensure we start a session if user is already setup
     if (u.preferences && u.preferences.targetLanguage) {
@@ -134,7 +131,7 @@ const App: React.FC = () => {
           }
       };
 
-      safeSetUser(updatedUser);
+      setUser(updatedUser);
       await storageService.saveUserProfile(updatedUser);
       setCurrentSession(null);
   };
@@ -161,7 +158,7 @@ const App: React.FC = () => {
         } 
     };
 
-    safeSetUser(updated);
+    setUser(updated);
     await storageService.saveUserProfile(updated);
     
     // Start session
@@ -171,7 +168,7 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     await storageService.logout();
-    safeSetUser(null);
+    setUser(null);
     setCurrentSession(null);
     setShowDashboard(false);
     setShowAdmin(false);
@@ -222,14 +219,13 @@ const App: React.FC = () => {
           };
 
           await storageService.saveUserProfile(updatedUser);
-          safeSetUser(updatedUser);
+          setUser(updatedUser);
           toast.success(`Exercice terminé ! Score : ${score}/${total}`);
       }
       setActiveMode('chat');
   };
 
   // Helper to check if onboarding is needed
-  // STRICT check: Must have preferences AND targetLanguage
   const needsOnboarding = !user?.preferences || !user?.preferences?.targetLanguage;
 
   if (showAdmin && user?.role === 'admin') {
@@ -288,7 +284,10 @@ const App: React.FC = () => {
                 session={currentSession} 
                 onShowProfile={() => setShowDashboard(true)}
                 onExit={() => setCurrentSession(null)}
-                onUpdateUser={safeSetUser}
+                onUpdateUser={(updated) => {
+                    // We can directly set user here, but the global subscription will also catch it
+                    setUser(updated);
+                }}
                 onStartPractice={() => setActiveMode('practice')}
                 onStartExercise={startExercise}
                 notify={notify}
@@ -309,7 +308,7 @@ const App: React.FC = () => {
               <DialogueSession 
                   user={user}
                   onClose={() => setActiveMode('chat')}
-                  onUpdateUser={safeSetUser}
+                  onUpdateUser={(u) => setUser(u)}
                   notify={notify}
                   onShowPayment={() => setShowPayment(true)}
               />
@@ -319,7 +318,7 @@ const App: React.FC = () => {
             <SmartDashboard 
               user={user} 
               onClose={() => setShowDashboard(false)} 
-              onUpdateUser={safeSetUser} 
+              onUpdateUser={setUser} 
               onLogout={handleLogout}
               isDarkMode={isDarkMode} 
               toggleTheme={() => setIsDarkMode(!isDarkMode)}
