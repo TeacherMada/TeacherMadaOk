@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, ChatMessage } from '../types';
 import { generateRoleplayResponse } from '../services/geminiService';
 import { storageService } from '../services/storageService';
-import { X, Send, Mic, MessageCircle, Clock, GraduationCap, ShoppingBag, Plane, Stethoscope, Utensils, School, StopCircle, Trophy, AlertTriangle, Loader2, Play, Briefcase, Info, ArrowLeft, RefreshCcw, BookOpen, Sparkles, Languages, BarChart, ArrowRight } from 'lucide-react';
+import { X, Send, Mic, MessageCircle, Clock, GraduationCap, ShoppingBag, Plane, Stethoscope, Utensils, School, StopCircle, Trophy, AlertTriangle, Loader2, Play, Briefcase, Info, ArrowLeft, RefreshCcw, BookOpen, Sparkles, Languages, BarChart, ArrowRight, Settings2, Globe, ChevronRight } from 'lucide-react';
 
 interface DialogueSessionProps {
   user: UserProfile;
@@ -12,6 +12,24 @@ interface DialogueSessionProps {
   notify: (message: string, type: 'success' | 'error' | 'info') => void;
   onShowPayment: () => void; // Added Prop
 }
+
+const LANGUAGES = [
+    { code: 'Anglais', label: 'Anglais 🇬🇧', bcp47: 'en-GB' },
+    { code: 'Français', label: 'Français 🇫🇷', bcp47: 'fr-FR' },
+    { code: 'Chinois', label: 'Chinois 🇨🇳', bcp47: 'zh-CN' },
+    { code: 'Espagnol', label: 'Espagnol 🇪🇸', bcp47: 'es-ES' },
+    { code: 'Allemand', label: 'Allemand 🇩🇪', bcp47: 'de-DE' },
+    { code: 'Italien', label: 'Italien 🇮🇹', bcp47: 'it-IT' },
+    { code: 'Portugais', label: 'Portugais 🇵🇹', bcp47: 'pt-PT' },
+    { code: 'Russe', label: 'Russe 🇷🇺', bcp47: 'ru-RU' },
+    { code: 'Japonais', label: 'Japonais 🇯🇵', bcp47: 'ja-JP' },
+    { code: 'Coréen', label: 'Coréen 🇰🇷', bcp47: 'ko-KR' },
+    { code: 'Hindi', label: 'Hindi 🇮🇳', bcp47: 'hi-IN' },
+    { code: 'Arabe', label: 'Arabe 🇸🇦', bcp47: 'ar-SA' },
+    { code: 'Swahili', label: 'Swahili 🇰🇪', bcp47: 'sw-KE' },
+];
+
+const LEVELS = ['Débutant (A1)', 'Élémentaire (A2)', 'Intermédiaire (B1)', 'Avancé (B2)', 'Expert (C1)'];
 
 const SCENARIOS = [
     { id: 'freestyle', title: 'Dialogue Libre', subtitle: 'Conversation ouverte', icon: <Sparkles className="w-8 h-8"/>, color: 'bg-violet-500', prompt: "Discussion libre et naturelle sur n'importe quel sujet. Adapte-toi au niveau de l'utilisateur." },
@@ -24,23 +42,18 @@ const SCENARIOS = [
 ];
 
 const getSpeechLang = (targetLang: string) => {
-    if (targetLang.includes('Anglais')) return 'en-US';
-    if (targetLang.includes('Français')) return 'fr-FR';
-    if (targetLang.includes('Chinois')) return 'zh-CN';
-    if (targetLang.includes('Espagnol')) return 'es-ES';
-    if (targetLang.includes('Allemand')) return 'de-DE';
-    if (targetLang.includes('Italien')) return 'it-IT';
-    if (targetLang.includes('Portugais')) return 'pt-PT';
-    if (targetLang.includes('Russe')) return 'ru-RU';
-    if (targetLang.includes('Japonais')) return 'ja-JP';
-    if (targetLang.includes('Coréen')) return 'ko-KR';
-    if (targetLang.includes('Hindi')) return 'hi-IN';
-    if (targetLang.includes('Arabe')) return 'ar-SA';
-    if (targetLang.includes('Swahili')) return 'sw-KE';
-    return 'fr-FR';
+    const found = LANGUAGES.find(l => targetLang.includes(l.code));
+    return found ? found.bcp47 : 'fr-FR';
 };
 
 const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
+  // Flow State: 'setup' -> 'selection' -> 'intro' -> 'chat' -> 'score'
+  const [step, setStep] = useState<'setup' | 'selection' | 'intro' | 'chat'>('setup');
+  
+  // Configuration
+  const [selectedLang, setSelectedLang] = useState(user.preferences?.targetLanguage?.split(' ')[0] || 'Anglais');
+  const [selectedLevel, setSelectedLevel] = useState(user.preferences?.level || 'Débutant (A1)');
+
   const [scenario, setScenario] = useState<typeof SCENARIOS[0] | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -49,46 +62,63 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
   
   // Correction State
   const [lastCorrection, setLastCorrection] = useState<{original: string, corrected: string, explanation: string} | null>(null);
-  
   const [finalScore, setFinalScore] = useState<{score: number, feedback: string} | null>(null);
-  const [showIntro, setShowIntro] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isListening, setIsListening] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Timer Logic: Just for display, 1 Credit per interaction (Request-Based)
+  // Timer Logic
   useEffect(() => {
     let interval: any;
-    if (scenario && !finalScore && !showIntro && !isInitializing) {
+    if (step === 'chat' && !finalScore && !isInitializing) {
         interval = setInterval(() => {
             setSecondsActive(prev => prev + 1);
         }, 1000);
     }
     return () => clearInterval(interval);
-  }, [scenario, finalScore, showIntro, isInitializing]);
+  }, [step, finalScore, isInitializing]);
 
   useEffect(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, lastCorrection, isLoading]);
 
+  // --- Handlers ---
+
+  const confirmSetup = () => {
+      setStep('selection');
+  };
+
   const selectScenario = (selected: typeof SCENARIOS[0]) => {
       setScenario(selected);
-      setShowIntro(true);
+      setStep('intro');
+  };
+
+  // Helper to get a user object with overridden preferences for this session
+  const getSessionUser = () => {
+      return {
+          ...user,
+          preferences: {
+              ...user.preferences!,
+              targetLanguage: selectedLang,
+              level: selectedLevel
+          }
+      };
   };
 
   const startSession = async () => {
       if (!scenario) return;
       
-      // Check if user CAN request, consumption happens in service
       const allowed = await storageService.canRequest(user.id);
       
       if (allowed) {
-          setShowIntro(false);
+          setStep('chat');
           setIsInitializing(true);
           
           try {
-              const result = await generateRoleplayResponse([], scenario.prompt, user, false, true);
+              // Use session-specific user config
+              const sessionUser = getSessionUser();
+              const result = await generateRoleplayResponse([], scenario.prompt, sessionUser, false, true);
               setMessages([{
                   id: 'sys_init',
                   role: 'model',
@@ -96,13 +126,13 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                   timestamp: Date.now()
               }]);
               
-              // Update user state after credit consumption by service
               const u = await storageService.getUserById(user.id);
               if (u) onUpdateUser(u);
 
           } catch (e) {
               notify("Erreur d'initialisation. Réessayez.", 'error');
               setScenario(null);
+              setStep('selection');
           } finally {
               setIsInitializing(false);
           }
@@ -124,7 +154,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       }
 
       const recognition = new SpeechRecognition();
-      recognition.lang = getSpeechLang(user.preferences?.targetLanguage || '');
+      recognition.lang = getSpeechLang(selectedLang);
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
 
@@ -156,7 +186,6 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       setIsLoading(true);
       setLastCorrection(null);
 
-      // Check credit locally before sending
       if (!(await storageService.canRequest(user.id))) {
           notify("Crédits insuffisants.", 'error');
           onShowPayment();
@@ -166,7 +195,8 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
 
       try {
           const currentHistory = [...messages, userMsg];
-          const result = await generateRoleplayResponse(currentHistory, scenario.prompt, user);
+          const sessionUser = getSessionUser();
+          const result = await generateRoleplayResponse(currentHistory, scenario.prompt, sessionUser);
           
           if (result.aiReply === "⚠️ Crédits insuffisants.") {
               notify("Crédits épuisés.", 'error');
@@ -174,7 +204,6 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
               return;
           }
 
-          // Force UI update after consumption
           const updatedUser = await storageService.getUserById(user.id);
           if (updatedUser) onUpdateUser(updatedUser);
 
@@ -200,8 +229,8 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       if (!scenario) return;
       setIsLoading(true);
       try {
-          // Final evaluation consumes 1 credit
-          const result = await generateRoleplayResponse(messages, scenario.prompt, user, true);
+          const sessionUser = getSessionUser();
+          const result = await generateRoleplayResponse(messages, scenario.prompt, sessionUser, true);
           
           const updatedUser = await storageService.getUserById(user.id);
           if (updatedUser) onUpdateUser(updatedUser);
@@ -211,7 +240,6 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
               feedback: result.feedback || "Bravo pour ta participation !"
           });
           
-          // Update Stats
           const newStats = { 
               ...user.stats, 
               dialoguesCompleted: (user.stats.dialoguesCompleted || 0) + 1 
@@ -236,13 +264,60 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  if (!scenario) {
+  // --- RENDER VIEWS ---
+
+  // 1. SETUP VIEW
+  if (step === 'setup') {
+      return (
+        <div className="fixed inset-0 z-[120] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in font-sans">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-8 shadow-2xl border border-slate-200 dark:border-slate-800 relative overflow-hidden">
+                <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-slate-100 dark:bg-slate-800 rounded-full hover:bg-red-50 hover:text-red-500 transition-colors"><X className="w-5 h-5"/></button>
+                <div className="text-center mb-8">
+                    <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce-slight">
+                        <Settings2 className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
+                    </div>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white">Configuration</h2>
+                    <p className="text-slate-500 text-sm mt-1">Personnalisez votre session</p>
+                </div>
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block flex items-center gap-2"><Globe className="w-3 h-3" /> Langue</label>
+                        <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto scrollbar-hide">
+                            {LANGUAGES.map(l => (
+                                <button key={l.code} onClick={() => setSelectedLang(l.code)} className={`px-3 py-3 rounded-xl text-sm font-bold border transition-all ${selectedLang === l.code ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-transparent hover:border-slate-300'}`}>{l.label}</button>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block flex items-center gap-2"><BarChart className="w-3 h-3" /> Niveau</label>
+                        <select value={selectedLevel} onChange={(e) => setSelectedLevel(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-slate-800 dark:text-white outline-none border border-transparent focus:border-indigo-500 appearance-none cursor-pointer">
+                            {LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+                        </select>
+                    </div>
+                    <button onClick={confirmSetup} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-lg shadow-indigo-500/30 transform active:scale-95 transition-all flex items-center justify-center gap-2 mt-4">
+                        Continuer <ArrowRight className="w-5 h-5" />
+                    </button>
+                </div>
+            </div>
+        </div>
+      );
+  }
+
+  // 2. SCENARIO SELECTION
+  if (step === 'selection') {
       return (
         <div className="fixed inset-0 z-[120] bg-slate-50 dark:bg-slate-950 flex flex-col animate-fade-in">
             <div className="p-6 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center shadow-sm z-10">
-                <div>
-                    <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Espace Dialogue</h2>
-                    <p className="text-slate-500 text-sm">Choisis ta mission du jour.</p>
+                <div className="flex items-center gap-3">
+                    <button onClick={() => setStep('setup')} className="p-2 -ml-2 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"><ArrowLeft className="w-6 h-6"/></button>
+                    <div>
+                        <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Espace Dialogue</h2>
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+                            <span>{selectedLang}</span>
+                            <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
+                            <span className="text-indigo-500">{selectedLevel}</span>
+                        </div>
+                    </div>
                 </div>
                 <button onClick={onClose} className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-full hover:bg-slate-200 transition-colors"><X className="w-5 h-5"/></button>
             </div>
@@ -268,7 +343,8 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       );
   }
 
-  if (showIntro) {
+  // 3. INTRO VIEW
+  if (step === 'intro' && scenario) {
       return (
           <div className="fixed inset-0 z-[125] bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
               <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[2rem] p-8 text-center shadow-2xl relative overflow-hidden border border-white/10">
@@ -278,7 +354,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                   <p className="text-slate-500 dark:text-slate-400 mb-8 px-4 leading-relaxed">"Tu vas être immergé dans une situation réelle. TeacherMada vous guide, corrige, apprend en temps réel"</p>
                   
                   <div className="flex gap-3">
-                      <button onClick={() => setScenario(null)} className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors">Retour</button>
+                      <button onClick={() => setStep('selection')} className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors">Retour</button>
                       <button onClick={startSession} className="flex-[2] py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-xl shadow-lg hover:shadow-indigo-500/30 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"><Play className="w-5 h-5 fill-current"/> C'est parti</button>
                   </div>
               </div>
@@ -286,19 +362,20 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
       );
   }
 
+  // 4. CHAT & SCORE VIEW (Existing logic wrapped in 'chat' step)
   return (
     <div className="fixed inset-0 z-[120] bg-slate-50 dark:bg-slate-950 flex flex-col font-sans">
         <div className="bg-white dark:bg-slate-900 px-4 py-3 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 dark:border-slate-800 z-20 gap-3 sm:gap-0">
             <div className="flex items-center gap-3">
-                <div className={`p-2.5 rounded-xl text-white shadow-md ${scenario.color} shrink-0`}>{scenario.icon}</div>
+                <div className={`p-2.5 rounded-xl text-white shadow-md ${scenario?.color} shrink-0`}>{scenario?.icon}</div>
                 <div className="flex flex-col">
-                    <h3 className="font-bold text-slate-800 dark:text-white text-sm leading-tight mb-0.5">{scenario.title}</h3>
+                    <h3 className="font-bold text-slate-800 dark:text-white text-sm leading-tight mb-0.5">{scenario?.title}</h3>
                     <div className="flex items-center gap-2 text-[10px] font-medium text-slate-500">
                         <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-indigo-500 border border-slate-200 dark:border-slate-700">
-                            <Languages className="w-3 h-3"/> {user.preferences?.targetLanguage}
+                            <Languages className="w-3 h-3"/> {selectedLang}
                         </span>
                         <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-emerald-500 border border-slate-200 dark:border-slate-700">
-                            <BarChart className="w-3 h-3"/> {user.preferences?.level}
+                            <BarChart className="w-3 h-3"/> {selectedLevel}
                         </span>
                         <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {formatTime(secondsActive)}</span>
                     </div>
@@ -374,7 +451,7 @@ const DialogueSession: React.FC<DialogueSessionProps> = ({ user, onClose, onUpda
                             value={input} 
                             onChange={e => setInput(e.target.value)} 
                             onKeyDown={e => e.key === 'Enter' && handleSend()} 
-                            placeholder={`Répondez en ${user.preferences?.targetLanguage}...`} 
+                            placeholder={`Répondez en ${selectedLang}...`} 
                             className="flex-1 bg-transparent px-4 py-3 outline-none dark:text-white placeholder:text-slate-400" 
                             disabled={isLoading} 
                             autoFocus 
