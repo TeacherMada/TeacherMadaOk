@@ -2,7 +2,8 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
 import { storageService } from '../services/storageService';
-import { GraduationCap, ArrowRight, Sun, Moon, Mail, Lock, User, ArrowLeft, HelpCircle, Phone, X, Send, AlertTriangle } from 'lucide-react';
+import { GraduationCap, ArrowRight, Sun, Moon, Mail, Lock, User, ArrowLeft, HelpCircle, Phone, X, Send, AlertTriangle, ShieldCheck } from 'lucide-react';
+import LegalModal from './LegalModals';
 
 interface AuthScreenProps {
   onAuthSuccess: (user: UserProfile) => void;
@@ -21,8 +22,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
-  // State pour la modale mot de passe oublié
+  // State pour la modale mot de passe oublié et Legal
   const [showForgotModal, setShowForgotModal] = useState(false);
+  const [activeLegal, setActiveLegal] = useState<'privacy' | 'terms' | null>(null);
+  
   const [forgotData, setForgotData] = useState({
       username: '',
       phone: '',
@@ -104,6 +107,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 transition-colors duration-300 relative font-sans">
+       
+       <LegalModal type={activeLegal} onClose={() => setActiveLegal(null)} />
+
        {/* Contrôles Supérieurs */}
       <div className="absolute top-0 left-0 w-full p-6 flex justify-between items-center z-10">
           <button onClick={onBack} className="p-3 bg-white dark:bg-slate-900 shadow-sm rounded-full text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all hover:scale-105"><ArrowLeft className="w-5 h-5" /></button>
@@ -258,6 +264,15 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
                  </button>
              </div>
         )}
+        
+        <div className="mt-8 text-center border-t border-slate-100 dark:border-slate-800 pt-4 pb-2">
+            <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                En vous connectant, vous acceptez nos 
+                <button onClick={() => setActiveLegal('terms')} className="text-indigo-500 hover:underline mx-1 font-bold">Conditions</button>
+                et
+                <button onClick={() => setActiveLegal('privacy')} className="text-indigo-500 hover:underline mx-1 font-bold">Confidentialité</button>.
+            </p>
+        </div>
       </div>
 
       {/* Modal Récupération de Compte */}

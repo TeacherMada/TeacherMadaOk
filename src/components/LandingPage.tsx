@@ -1,8 +1,10 @@
+
 import React, { useEffect, useState, useMemo } from 'react';
-import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target, Users, BookOpen } from 'lucide-react';
+import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target, Users, BookOpen, Shield, FileText } from 'lucide-react';
 import LiveChatDemo from './LiveChatDemo';
 import { storageService } from '../services/storageService';
 import { TargetLanguage } from '../types';
+import LegalModal from './LegalModals';
 
 interface LandingPageProps {
   onStart: () => void;
@@ -17,6 +19,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
   const [wordIndex, setWordIndex] = useState(0);
   const [fadeKey, setFadeKey] = useState(0);
   const [dynamicLanguages, setDynamicLanguages] = useState<any[]>([]);
+  const [activeLegal, setActiveLegal] = useState<'privacy' | 'terms' | null>(null);
   
   // Stats State
   const [stats, setStats] = useState({ visitors: 14203, students: 850, lessons: 3900 });
@@ -77,6 +80,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0B0F19] text-slate-900 dark:text-slate-100 transition-colors duration-500 overflow-x-hidden font-sans selection:bg-indigo-500 selection:text-white">
       
+      <LegalModal type={activeLegal} onClose={() => setActiveLegal(null)} />
+
       {/* Navbar */}
       <nav className={`fixed top-0 w-full z-50 transition-all duration-300 ${scrolled ? 'bg-white/80 dark:bg-[#0B0F19]/80 backdrop-blur-lg border-b border-slate-200 dark:border-white/5 py-3' : 'bg-transparent py-5'}`}>
         <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
@@ -236,7 +241,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
           </div>
       </section>
 
-      {/* Philosophy Section - SMART UPGRADE */}
+      {/* Philosophy Section */}
       <section className="py-24 bg-slate-50 dark:bg-[#0B0F19] relative">
          <div className="max-w-7xl mx-auto px-6">
             <div className="text-center mb-16">
@@ -387,16 +392,16 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                 </div>
             </div>
             
-            <div className="flex gap-6">
+            <div className="flex gap-6 items-center">
+                <button onClick={() => setActiveLegal('terms')} className="text-slate-500 hover:text-indigo-600 transition-colors text-sm font-bold">Conditions</button>
+                <button onClick={() => setActiveLegal('privacy')} className="text-slate-500 hover:text-indigo-600 transition-colors text-sm font-bold">Confidentialité</button>
                 <a href="https://www.facebook.com/TeacherMadaFormation" target="_blank" className="text-slate-500 hover:text-blue-600 transition-colors">
                     <Facebook className="w-5 h-5" />
                 </a>
-                <a href="#" className="text-slate-500 hover:text-indigo-600 transition-colors text-sm font-bold">Contact</a>
-                <a href="#" className="text-slate-500 hover:text-indigo-600 transition-colors text-sm font-bold">À propos</a>
             </div>
 
             <p className="text-sm text-slate-500 dark:text-slate-500">
-                &copy; {new Date().getFullYear()} TeacherMada. Tous droits réservés.
+                &copy; {new Date().getFullYear()} TeacherMada.
             </p>
         </div>
       </footer>
@@ -407,12 +412,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
 // --- Sub-components for UI ---
 
 const StatWidget = ({ icon, value, label, live }: { icon: React.ReactNode, value: number, label: string, live?: boolean }) => {
-    // Basic CountUp Effect
     const [displayValue, setDisplayValue] = useState(0);
     
     useEffect(() => {
         let start = 0;
-        // Faster animation for demo feel
         const duration = 1500; 
         const increment = Math.ceil(value / (duration / 16));
         
@@ -427,9 +430,8 @@ const StatWidget = ({ icon, value, label, live }: { icon: React.ReactNode, value
         }, 16);
         
         return () => clearInterval(timer);
-    }, [value]); // Re-run if target value updates (e.g. visitors increment)
+    }, [value]);
 
-    // Format number (e.g. 14,203)
     const formatted = displayValue.toLocaleString('fr-FR');
 
     return (
