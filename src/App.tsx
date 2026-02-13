@@ -61,11 +61,18 @@ const App: React.FC = () => {
     
     // Global Event Listener for User Updates (Credits, Stats, etc.)
     const unsubscribe = storageService.subscribeToUserUpdates((updatedUser) => {
-        if (user && updatedUser.id === user.id) {
-            setUser(updatedUser);
-        } else if (!user) {
-            setUser(updatedUser);
-        }
+        setUser((currentUser) => {
+            // FIX: Sticky Preferences Protection
+            // Si l'utilisateur courant a des préférences mais que la mise à jour (ex: crédit) 
+            // les a perdues, on force la conservation des préférences actuelles.
+            if (currentUser && currentUser.id === updatedUser.id) {
+                if (currentUser.preferences && (!updatedUser.preferences || !updatedUser.preferences.targetLanguage)) {
+                    return { ...updatedUser, preferences: currentUser.preferences };
+                }
+            }
+            // Sinon, on prend la mise à jour telle quelle
+            return updatedUser;
+        });
     });
     
     document.documentElement.classList.toggle('dark', isDarkMode);
@@ -74,7 +81,7 @@ const App: React.FC = () => {
     return () => {
         unsubscribe();
     };
-  }, [isDarkMode, user?.id]);
+  }, [isDarkMode]);
 
   // Refresh User Data on Focus
   useEffect(() => {
@@ -82,13 +89,13 @@ const App: React.FC = () => {
           if (user) {
               const updated = await storageService.getUserById(user.id);
               if (updated) {
-                  const isRemoteInvalid = !updated.preferences || !updated.preferences.targetLanguage;
-                  const isLocalValid = user.preferences && user.preferences.targetLanguage;
-
-                  if (isRemoteInvalid && isLocalValid) {
-                      const safeUpdate = { ...updated, preferences: user.preferences };
-                      setUser(safeUpdate);
-                  } else if (
+                  // Additional Check: Don't overwrite if remote is missing critical data
+                  if (user.preferences && (!updated.preferences || !updated.preferences.targetLanguage)) {
+                      // Remote is incomplete, stick with local
+                      return;
+                  }
+                  
+                  if (
                       updated.credits !== user.credits || 
                       updated.isSuspended !== user.isSuspended ||
                       JSON.stringify(updated.stats) !== JSON.stringify(user.stats)
@@ -306,7 +313,13 @@ const App: React.FC = () => {
                 onShowProfile={() => setShowDashboard(true)}
                 onExit={() => setCurrentSession(null)}
                 onUpdateUser={(updated) => {
-                    setUser(updated);
+                    // Direct update protection also here
+                    setUser(prev => {
+                        if (prev && prev.preferences && !updated.preferences) {
+                            return { ...updated, preferences: prev.preferences };
+                        }
+                        return updated;
+                    });
                 }}
                 onStartPractice={() => setActiveMode('practice')}
                 onStartExercise={startExercise}
