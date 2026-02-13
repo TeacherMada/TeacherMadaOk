@@ -4,6 +4,7 @@ import { UserProfile, UserPreferences, LearningSession, AdminRequest, SystemSett
 
 const SESSION_PREFIX = 'tm_v3_session_';
 const SETTINGS_KEY = 'tm_system_settings';
+const SUPPORT_QUOTA_KEY = 'tm_support_quota';
 
 // --- EVENT BUS FOR REAL-TIME UPDATES ---
 type UserUpdateListener = (user: UserProfile) => void;
@@ -103,7 +104,6 @@ export const storageService = {
         
         if (!authData.user) return { success: false, error: "Erreur de création." };
 
-        // Wait briefly for trigger to create profile if using one, otherwise basic profile check
         await new Promise(r => setTimeout(r, 2000));
 
         const user = await storageService.getUserById(authData.user.id);
@@ -156,7 +156,6 @@ export const storageService = {
       if (error) {
           console.error("Save User Error:", error.message);
       } else {
-          // Notify app of update
           notifyListeners(user);
       }
   },
@@ -168,54 +167,32 @@ export const storageService = {
 
   // --- LOGIC: CREDITS & USAGE ---
 
-  checkAndConsumeCredit: async (userId: string): Promise<boolean> => {
-      const user = await storageService.getUserById(userId);
-      if (!user) return false;
-      if (user.role === 'admin') return true;
-      if (user.isSuspended) return false;
+  // Checks support agent daily quota (100/day) - Local Storage based for simplicity and device limiting
+  canUseSupportAgent: (): boolean => {
+      const today = new Date().toDateString();
+      const raw = localStorage.getItem(SUPPORT_QUOTA_KEY);
+      let data = raw ? JSON.parse(raw) : { date: today, count: 0 };
 
-      const now = new Date();
-      const lastReset = new Date(user.freeUsage.lastResetWeek || 0);
-      const oneWeek = 7 * 24 * 60 * 60 * 1000;
-
-      let allowed = false;
-      let newFreeUsage = { ...user.freeUsage };
-      let newCredits = user.credits;
-
-      // Reset weekly free tier
-      if (now.getTime() - lastReset.getTime() > oneWeek) {
-          newFreeUsage = { count: 0, lastResetWeek: now.toISOString() };
+      if (data.date !== today) {
+          data = { date: today, count: 0 };
       }
 
-      if (newFreeUsage.count < 3) {
-          // Use free tier first
-          newFreeUsage.count++;
-          allowed = true;
-          // Optimistic update
-          const updatedUser = { ...user, freeUsage: newFreeUsage };
-          notifyListeners(updatedUser);
-          await supabase.from('profiles').update({ free_usage: newFreeUsage }).eq('id', userId);
-      } else {
-          // Consume credits
-          if (user.credits > 0) {
-              newCredits = user.credits - 1;
-              allowed = true;
-              // Optimistic update
-              const updatedUser = { ...user, credits: newCredits };
-              notifyListeners(updatedUser);
-              
-              const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
-              if (error) {
-                  // Rollback on error
-                  notifyListeners(user);
-                  allowed = false;
-              }
-          } else {
-              allowed = false;
-          }
+      if (data.count < 100) {
+          return true;
       }
+      return false;
+  },
 
-      return allowed;
+  incrementSupportUsage: () => {
+      const today = new Date().toDateString();
+      const raw = localStorage.getItem(SUPPORT_QUOTA_KEY);
+      let data = raw ? JSON.parse(raw) : { date: today, count: 0 };
+
+      if (data.date !== today) {
+          data = { date: today, count: 0 };
+      }
+      data.count++;
+      localStorage.setItem(SUPPORT_QUOTA_KEY, JSON.stringify(data));
   },
 
   canRequest: async (userId: string): Promise<boolean> => {
@@ -224,51 +201,55 @@ export const storageService = {
       if (user.role === 'admin') return true;
       if (user.isSuspended) return false;
       
-      // Check free tier logic first
-      const now = new Date();
-      const lastReset = new Date(user.freeUsage.lastResetWeek || 0);
-      const isResetDue = (now.getTime() - lastReset.getTime()) > (7 * 24 * 60 * 60 * 1000);
-      
-      if (isResetDue) return true; // Reset will happen on consume
-      if (user.freeUsage.count < 3) return true;
-      
-      // Strict credit check
+      // STRICT RULE: 1 Request = 1 Credit. No free main app usage if credits are 0.
       return user.credits > 0;
   },
 
-  consumeCredit: async (userId: string) => {
-      await storageService.checkAndConsumeCredit(userId);
+  consumeCredit: async (userId: string): Promise<boolean> => {
+      const user = await storageService.getUserById(userId);
+      if (!user) return false;
+      if (user.role === 'admin') return true;
+      if (user.isSuspended) return false;
+
+      // STRICT CHECK
+      if (user.credits <= 0) return false;
+
+      const newCredits = user.credits - 1;
+      
+      // Optimistic update
+      const updatedUser = { ...user, credits: newCredits };
+      notifyListeners(updatedUser);
+      
+      const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
+      
+      if (error) {
+          // Rollback on error
+          notifyListeners(user);
+          return false;
+      }
+      return true;
   },
 
   addCredits: async (userId: string, amount: number): Promise<boolean> => {
-      // Direct Database Update
       const { data: user, error: fetchError } = await supabase
           .from('profiles')
           .select('credits')
           .eq('id', userId)
           .single();
 
-      if (fetchError || !user) {
-          console.error("AddCredits Fetch Error:", fetchError);
-          return false;
-      }
+      if (fetchError || !user) return false;
 
       const newCredits = (user.credits || 0) + amount;
       const { error: updateError } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
       
-      if (updateError) {
-          console.error("AddCredits Update Error:", updateError);
-          return false;
-      }
+      if (updateError) return false;
 
-      // Fetch full profile to notify listeners
       const updatedUser = await storageService.getUserById(userId);
       if (updatedUser) notifyListeners(updatedUser);
 
       return true;
   },
 
-  // --- SECURE CREDIT REDEMPTION ---
   redeemCode: async (userId: string, inputCode: string): Promise<{ success: boolean; amount?: number; message?: string }> => {
       try {
           const code = inputCode.trim().toUpperCase();
@@ -295,7 +276,6 @@ export const storageService = {
           return { success: false, message: "Code invalide ou déjà utilisé." };
 
       } catch (e: any) {
-          console.error("Redeem Error:", e);
           return { success: false, message: "Erreur technique." };
       }
   },
@@ -445,8 +425,9 @@ export const storageService = {
       return !error;
   },
   
+  // This helper attempts to deduct and returns the NEW user profile if successful, or null if failed
   deductCreditOrUsage: async (userId: string) => {
-      const success = await storageService.checkAndConsumeCredit(userId);
+      const success = await storageService.consumeCredit(userId);
       if (success) {
           return storageService.getUserById(userId);
       }

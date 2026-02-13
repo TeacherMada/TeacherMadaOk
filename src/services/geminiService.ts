@@ -24,7 +24,7 @@ const generateWithRetry = async (model: string, params: any) => {
             const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
             return await ai.models.generateContent({ model, ...params });
         } catch (e: any) {
-            console.warn(`API attempt ${i+1} failed with key ending in ...${shuffledKeys[i].slice(-4)}:`, e.message);
+            console.warn(`API attempt ${i+1} failed:`, e.message);
             lastError = e;
         }
     }
@@ -60,9 +60,8 @@ const streamWithRetry = async function* (model: string, params: any) {
 };
 
 // --- MODELS CONFIGURATION ---
-// We use gemini-3-flash-preview for best speed/cost ratio (Free tier eligible via AI Studio)
 const TEXT_MODEL = 'gemini-3-flash-preview'; 
-const SUPPORT_MODEL = 'gemini-3-flash-preview'; 
+const SUPPORT_MODEL = 'gemini-2.0-flash'; // Optimized for Cost/Speed for Chatbot
 const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts'; 
 
 // --- TUTORIAL AGENT (SUPPORT) ---
@@ -72,16 +71,20 @@ export const generateSupportResponse = async (
     user: UserProfile,
     history: {role: string, text: string}[]
 ): Promise<string> => {
-    // Note: Support queries do NOT consume credits to ensure help is always available
+    
+    // Check Daily Quota for Support (100/day free)
+    if (!storageService.canUseSupportAgent()) {
+        return "⛔ Quota journalier d'aide atteint (100/100). Revenez demain pour plus d'assistance gratuite.";
+    }
+
     const systemInstruction = SUPPORT_AGENT_PROMPT(context, user);
     
-    // Format history for Gemini
+    // Format history
     const contents = history.map(msg => ({
         role: msg.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: msg.text }]
     }));
     
-    // Add current query
     contents.push({ role: 'user', parts: [{ text: userQuery }] });
 
     try {
@@ -89,10 +92,14 @@ export const generateSupportResponse = async (
             contents: contents,
             config: {
                 systemInstruction: systemInstruction,
-                maxOutputTokens: 300,
+                maxOutputTokens: 1000, // Increased to prevent cutoffs
                 temperature: 0.5
             }
         });
+        
+        // Count usage if successful
+        storageService.incrementSupportUsage();
+        
         return response.text || "Je n'ai pas de réponse pour le moment.";
     } catch (e) {
         console.error("Support Agent Error", e);
@@ -108,10 +115,9 @@ export async function* sendMessageStream(
 ) {
   if (!user.preferences) throw new Error("Profil incomplet");
   
-  // 1. CHECK CREDITS STRICTLY BEFORE CALLING AI
-  const canRequest = await storageService.canRequest(user.id);
-  if (!canRequest) {
-    yield "⛔ **Crédits épuisés.**\n\nVeuillez recharger votre compte pour continuer à apprendre avec TeacherMada. Cliquez sur l'éclair ⚡ en haut.";
+  // 1. STRICT CHECK BEFORE CALLING AI
+  if (!(await storageService.canRequest(user.id))) {
+    yield "⛔ **Crédits épuisés.**\n\n1 Requête = 1 Crédit.\nVeuillez recharger votre compte pour continuer.";
     return;
   }
 
@@ -139,7 +145,7 @@ export async function* sendMessageStream(
   for await (const chunk of stream) {
       if (typeof chunk === 'string') {
           yield chunk;
-          hasYielded = true; // We got something back
+          hasYielded = true; 
       } else {
           const text = chunk.text;
           if (text) {
@@ -160,8 +166,10 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
     const user = await storageService.getCurrentUser();
     if (!user) return null;
     
-    // Check credits
-    if (!(await storageService.canRequest(user.id))) return null;
+    // Strict Credit Check for TTS
+    if (!(await storageService.canRequest(user.id))) {
+        return null; // UI will handle this failure
+    }
 
     try {
         const response = await generateWithRetry(AUDIO_MODEL, {
@@ -179,6 +187,7 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (!base64Audio) return null;
 
+        // Consume Credit on Success
         await storageService.consumeCredit(user.id);
 
         const binaryString = atob(base64Audio);
@@ -198,6 +207,8 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
 // --- VOCABULARY EXTRACTION ---
 export const extractVocabulary = async (history: ChatMessage[]): Promise<VocabularyItem[]> => {
     const user = await storageService.getCurrentUser();
+    // No Credit check here as it is usually a manual action or background, 
+    // but based on "1 request = 1 credit", we should check.
     if (!user || !(await storageService.canRequest(user.id))) return [];
 
     const context = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
@@ -227,6 +238,8 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
         });
 
         const rawData = JSON.parse(response.text || "[]");
+        
+        // Consume Credit
         await storageService.consumeCredit(user.id);
 
         return rawData.map((item: any) => ({
@@ -293,8 +306,9 @@ export const generateRoleplayResponse = async (
     isInitial: boolean = false
 ): Promise<{ aiReply: string; correction?: string; explanation?: string; score?: number; feedback?: string }> => {
     
+    // Strict Credit Check
     if (!(await storageService.canRequest(user.id))) {
-        return { aiReply: "⚠️ Crédits insuffisants. Veuillez recharger." };
+        return { aiReply: "⚠️ Crédits insuffisants." };
     }
 
     const sysInstruct = `Tu es un partenaire de jeu de rôle linguistique. SCENARIO: ${scenarioPrompt}. LANGUE: ${user.preferences?.targetLanguage}. NIVEAU: ${user.preferences?.level}.`;
@@ -325,7 +339,9 @@ export const generateRoleplayResponse = async (
             }
         });
 
+        // Credit consumed only if successful
         await storageService.consumeCredit(user.id);
+        
         return JSON.parse(response.text || "{}");
     } catch (e) {
         return { aiReply: "Problème technique." };

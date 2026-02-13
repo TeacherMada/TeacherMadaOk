@@ -65,7 +65,6 @@ const ChatInterface: React.FC<Props> = ({
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
 
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
-  const MIN_LESSONS_FOR_CALL = 0;
 
   // Derive title
   const currentLessonTitle = useMemo(() => {
@@ -128,9 +127,10 @@ const ChatInterface: React.FC<Props> = ({
           return;
       }
       
+      // STRICT CREDIT CHECK FOR AUDIO
       const canPlay = await storageService.canRequest(user.id);
       if (!canPlay) {
-          notify("Crédits épuisés. Recharchez pour utiliser le TTS.", "error");
+          notify("Crédits épuisés (1 requête audio = 1 Crédit).", "error");
           onShowPayment();
           return;
       }
@@ -143,7 +143,7 @@ const ChatInterface: React.FC<Props> = ({
           const cleanText = text.replace(/[#*`_]/g, '').replace(/\[Leçon \d+\]/gi, '');
           const pcmBuffer = await generateSpeech(cleanText);
           
-          if (!pcmBuffer) throw new Error("Audio init failed");
+          if (!pcmBuffer) throw new Error("Audio init failed (Credits or Network)");
           
           let ctx = audioContext;
           if (!ctx) {
@@ -171,6 +171,7 @@ const ChatInterface: React.FC<Props> = ({
   };
 
   const handleVoiceCallClick = async () => {
+      // STRICT CREDIT CHECK FOR CALL
       const canCall = await storageService.canRequest(user.id);
       if (!canCall) {
           notify("Crédits insuffisants pour l'appel.", "error");
@@ -207,7 +208,7 @@ const ChatInterface: React.FC<Props> = ({
     // STRICT CHECK BEFORE SENDING
     const canRequest = await storageService.canRequest(user.id);
     if (!canRequest) {
-        notify("Crédits insuffisants. Veuillez recharger.", "error");
+        notify("Crédits insuffisants (1 requête = 1 crédit).", "error");
         onShowPayment();
         return;
     }

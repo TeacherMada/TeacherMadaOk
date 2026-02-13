@@ -10,11 +10,31 @@ import DialogueSession from './components/DialogueSession';
 import PaymentModal from './components/PaymentModal';
 import AdminDashboard from './components/AdminDashboard';
 import TutorialAgent from './components/TutorialAgent';
-import { UserProfile, LearningSession, ExerciseItem, UserStats } from './types';
+import { UserProfile, LearningSession, ExerciseItem, UserStats, LearningMode } from './types';
 import { storageService } from './services/storageService';
 import { generateExerciseFromHistory } from './services/geminiService';
 import { Toaster, toast } from './components/Toaster';
 import { Loader2 } from 'lucide-react';
+
+// Mock Guest User for Landing Page Chatbot
+const GUEST_USER: UserProfile = {
+  id: 'guest',
+  username: 'Visiteur',
+  role: 'user',
+  createdAt: Date.now(),
+  preferences: {
+    targetLanguage: 'Français',
+    level: 'Débutant',
+    explanationLanguage: 'Français',
+    mode: LearningMode.Course,
+    voiceName: 'Zephyr'
+  },
+  stats: { lessonsCompleted: 0, exercisesCompleted: 0, dialoguesCompleted: 0 },
+  vocabulary: [],
+  credits: 0,
+  freeUsage: { lastResetWeek: new Date().toISOString(), count: 0 },
+  aiMemory: 'Visiteur curieux'
+};
 
 const App: React.FC = () => {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -214,7 +234,7 @@ const App: React.FC = () => {
 
   // Determine Context for Tutorial Agent
   const getAgentContext = () => {
-      if (!user) return "Page d'Accueil / Connexion";
+      if (!user) return "Page d'Accueil (Visiteur non connecté) - Présentation de TeacherMada";
       if (needsOnboarding) return "Configuration du Profil (Langue/Niveau)";
       if (showAdmin) return "Panneau Administrateur";
       if (showPayment) return "Rechargement de Crédits";
@@ -243,9 +263,9 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-sans transition-colors duration-300">
       <Toaster />
 
-      {/* Tutorial Agent available everywhere */}
-      {user && !showAdmin && (
-          <TutorialAgent user={user} context={getAgentContext()} />
+      {/* Tutorial Agent available everywhere (Guest or User), except Admin */}
+      {!showAdmin && (
+          <TutorialAgent user={user || GUEST_USER} context={getAgentContext()} />
       )}
 
       {isGeneratingExercise && (

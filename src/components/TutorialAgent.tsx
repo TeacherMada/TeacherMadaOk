@@ -30,7 +30,7 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
         { 
           id: 'welcome', 
           role: 'assistant', 
-          text: `Bonjour ${user.username} ! 👋 \n\nJe suis votre guide TeacherMada. Vous êtes actuellement sur **${context}**.\n\nComment puis-je vous aider à utiliser l'application ?` 
+          text: `Bonjour ${user.username} ! 👋\nJe suis l'assistant TeacherMada. \n\nVous êtes sur : **${context}**.\n\nUne question sur les fonctionnalités ou les crédits ?` 
         }
       ]);
     }
@@ -68,7 +68,7 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
       
       setMessages(prev => [...prev, aiMsg]);
     } catch (e) {
-      setMessages(prev => [...prev, { id: 'err', role: 'assistant', text: "Désolé, j'ai eu un petit souci de connexion. Réessayez ?" }]);
+      setMessages(prev => [...prev, { id: 'err', role: 'assistant', text: "Désolé, j'ai eu un petit souci. Réessayez ?" }]);
     } finally {
       setIsTyping(false);
     }
@@ -76,24 +76,25 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
 
   return (
     <>
-      {/* Floating Action Button (FAB) */}
+      {/* Floating Action Button (FAB) - MOVED TO LEFT & RESIZED */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className={`fixed bottom-24 right-4 z-[40] p-4 rounded-full shadow-2xl transition-all duration-300 group ${isOpen ? 'bg-slate-200 dark:bg-slate-800 rotate-90 scale-90' : 'bg-teal-500 hover:bg-teal-600 hover:scale-110'}`}
+        className={`fixed bottom-24 left-4 z-[40] p-3 rounded-full shadow-2xl transition-all duration-300 group ${isOpen ? 'bg-slate-200 dark:bg-slate-800 rotate-90 scale-90' : 'bg-teal-500 hover:bg-teal-600 hover:scale-110'}`}
+        title="Assistant Guide"
       >
         {isOpen ? (
-            <X className="w-6 h-6 text-slate-500" />
+            <X className="w-5 h-5 text-slate-500" />
         ) : (
             <>
-                <Bot className="w-7 h-7 text-white" />
-                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse"></span>
+                <Bot className="w-6 h-6 text-white" />
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse"></span>
             </>
         )}
       </button>
 
-      {/* Chat Window */}
+      {/* Chat Window - POSITIONED LEFT */}
       {isOpen && (
-        <div className="fixed bottom-40 right-4 w-[90vw] max-w-[350px] h-[500px] max-h-[60vh] bg-white dark:bg-[#1E293B] rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden z-[40] animate-slide-up origin-bottom-right">
+        <div className="fixed bottom-40 left-4 w-[90vw] max-w-[320px] h-[450px] max-h-[60vh] bg-white dark:bg-[#1E293B] rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden z-[40] animate-slide-up origin-bottom-left">
           
           {/* Header */}
           <div className="p-4 bg-teal-500 text-white flex items-center gap-3 shadow-md">
@@ -103,7 +104,7 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
             <div>
                 <h3 className="font-bold text-sm">Assistant Guide</h3>
                 <p className="text-[10px] text-teal-100 opacity-90 flex items-center gap-1">
-                    <Sparkles className="w-2 h-2" /> Toujours là pour vous
+                    <Sparkles className="w-2 h-2" /> Aide (100 req/j gratuits)
                 </p>
             </div>
           </div>
@@ -152,7 +153,7 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Une question sur l'appli ?"
+              placeholder="Posez votre question..."
               className="flex-1 bg-slate-100 dark:bg-slate-900 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-teal-500/50 transition-all"
             />
             <button 
