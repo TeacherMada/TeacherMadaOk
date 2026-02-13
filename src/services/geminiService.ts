@@ -62,7 +62,7 @@ const streamWithRetry = async function* (model: string, params: any) {
 // --- MODELS CONFIGURATION ---
 const TEXT_MODEL = 'gemini-3-flash-preview'; 
 const SUPPORT_MODEL = 'gemini-2.5-flash-lite'; // Switch to gemini-3-flash-preview for maximum stability
-const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts'; 
+const AUDIO_MODEL = 'gemini-3-flash-preview'; // last use gemini-2.5-flash-preview-tts
 
 // --- TUTORIAL AGENT (SUPPORT) ---
 export const generateSupportResponse = async (
