@@ -4,13 +4,33 @@ import { UserProfile, ChatMessage, VocabularyItem, ExerciseItem } from "../types
 import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
 import { storageService } from "./storageService";
 
-// --- API KEY ROTATION & CLIENT MANAGEMENT ---
+// --- API KEY MANAGEMENT ---
 const getApiKeys = () => {
   const rawKey = process.env.API_KEY || "";
   return rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
 };
 
-// Internal retry helper for stream requests
+// Internal helper for API calls with retry logic
+const generateWithRetry = async (model: string, params: any) => {
+    const keys = getApiKeys();
+    if (keys.length === 0) throw new Error("Clé API manquante.");
+
+    const shuffledKeys = [...keys].sort(() => 0.5 - Math.random());
+    const maxAttempts = Math.min(3, keys.length);
+    let lastError;
+
+    for (let i = 0; i < maxAttempts; i++) {
+        try {
+            const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
+            return await ai.models.generateContent({ model, ...params });
+        } catch (e: any) {
+            console.warn(`API attempt ${i+1} failed with key ending in ...${shuffledKeys[i].slice(-4)}:`, e.message);
+            lastError = e;
+        }
+    }
+    throw lastError;
+};
+
 const streamWithRetry = async function* (model: string, params: any) {
     const keys = getApiKeys();
     if (keys.length === 0) {
@@ -31,7 +51,7 @@ const streamWithRetry = async function* (model: string, params: any) {
             }
             return; // Success
         } catch (e: any) {
-            console.warn(`Stream attempt ${i+1} failed`, e.message);
+            console.warn(`Stream attempt ${i+1} failed:`, e.message);
             if (i === maxAttempts - 1) {
                 yield `⚠️ Erreur de connexion (${e.status || 'Reseau'}). Veuillez réessayer.`;
             }
@@ -39,30 +59,10 @@ const streamWithRetry = async function* (model: string, params: any) {
     }
 };
 
-// Internal retry helper for standard requests
-const generateWithRetry = async (model: string, params: any) => {
-    const keys = getApiKeys();
-    if (keys.length === 0) throw new Error("No API keys");
-
-    const shuffledKeys = [...keys].sort(() => 0.5 - Math.random());
-    const maxAttempts = Math.min(3, keys.length);
-    let lastError;
-
-    for (let i = 0; i < maxAttempts; i++) {
-        try {
-            const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
-            return await ai.models.generateContent({ model, ...params });
-        } catch (e: any) {
-            console.warn(`API attempt ${i+1} failed`, e.message);
-            lastError = e;
-        }
-    }
-    throw lastError;
-};
-
-// Models Configuration
-const TEXT_MODEL = 'gemini-3-flash-preview'; // Fast & Smart
-const SUPPORT_MODEL = 'gemini-2.0-flash'; // Cost effective for simple support queries
+// --- MODELS CONFIGURATION ---
+// We use gemini-3-flash-preview for best speed/cost ratio (Free tier eligible via AI Studio)
+const TEXT_MODEL = 'gemini-3-flash-preview'; 
+const SUPPORT_MODEL = 'gemini-3-flash-preview'; 
 const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts'; 
 
 // --- TUTORIAL AGENT (SUPPORT) ---
@@ -89,18 +89,18 @@ export const generateSupportResponse = async (
             contents: contents,
             config: {
                 systemInstruction: systemInstruction,
-                maxOutputTokens: 300, // Keep support answers concise
+                maxOutputTokens: 300,
                 temperature: 0.5
             }
         });
         return response.text || "Je n'ai pas de réponse pour le moment.";
     } catch (e) {
         console.error("Support Agent Error", e);
-        return "Désolé, je ne peux pas répondre pour l'instant. Vérifiez votre connexion.";
+        return "Désolé, je rencontre un problème technique momentané. Veuillez réessayer dans quelques secondes.";
     }
 };
 
-// --- STREAMING MESSAGE ---
+// --- STREAMING MESSAGE (MAIN CHAT) ---
 export async function* sendMessageStream(
   message: string,
   user: UserProfile,
@@ -108,8 +108,10 @@ export async function* sendMessageStream(
 ) {
   if (!user.preferences) throw new Error("Profil incomplet");
   
-  if (!(await storageService.canRequest(user.id))) {
-    yield "⚠️ Crédits insuffisants. Veuillez recharger votre compte.";
+  // 1. CHECK CREDITS STRICTLY BEFORE CALLING AI
+  const canRequest = await storageService.canRequest(user.id);
+  if (!canRequest) {
+    yield "⛔ **Crédits épuisés.**\n\nVeuillez recharger votre compte pour continuer à apprendre avec TeacherMada. Cliquez sur l'éclair ⚡ en haut.";
     return;
   }
 
@@ -123,6 +125,7 @@ export async function* sendMessageStream(
   
   contents.push({ role: 'user', parts: [{ text: message }] });
 
+  // 2. CALL AI
   const stream = streamWithRetry(TEXT_MODEL, {
       contents: contents,
       config: {
@@ -136,6 +139,7 @@ export async function* sendMessageStream(
   for await (const chunk of stream) {
       if (typeof chunk === 'string') {
           yield chunk;
+          hasYielded = true; // We got something back
       } else {
           const text = chunk.text;
           if (text) {
@@ -145,6 +149,7 @@ export async function* sendMessageStream(
       }
   }
 
+  // 3. CONSUME CREDIT ONLY IF SUCCESSFUL
   if (hasYielded) {
       await storageService.consumeCredit(user.id);
   }
@@ -153,7 +158,10 @@ export async function* sendMessageStream(
 // --- GEMINI TTS (Text-to-Speech) ---
 export const generateSpeech = async (text: string, voiceName: string = 'Kore'): Promise<ArrayBuffer | null> => {
     const user = await storageService.getCurrentUser();
-    if (!user || !(await storageService.canRequest(user.id))) return null;
+    if (!user) return null;
+    
+    // Check credits
+    if (!(await storageService.canRequest(user.id))) return null;
 
     try {
         const response = await generateWithRetry(AUDIO_MODEL, {
@@ -244,9 +252,6 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
     
     const prompt = `Génère 3 exercices (QCM ou Vrai/Faux) pour un élève de niveau ${user.preferences?.level} apprenant le ${user.preferences?.targetLanguage}.
     CONTEXTE : L'élève est à la ${lessonInfo}.
-    INSTRUCTION : Les exercices doivent porter sur les concepts vus dans la conversation récente ou être adaptés au niveau actuel si le contexte est court. Sois bienveillant et instructif dans l'explication.
-    Conversation récente :
-    ${context}
     Format JSON Array attendu.`;
 
     try {
@@ -288,7 +293,9 @@ export const generateRoleplayResponse = async (
     isInitial: boolean = false
 ): Promise<{ aiReply: string; correction?: string; explanation?: string; score?: number; feedback?: string }> => {
     
-    if (!(await storageService.canRequest(user.id))) return { aiReply: "⚠️ Crédits insuffisants." };
+    if (!(await storageService.canRequest(user.id))) {
+        return { aiReply: "⚠️ Crédits insuffisants. Veuillez recharger." };
+    }
 
     const sysInstruct = `Tu es un partenaire de jeu de rôle linguistique. SCENARIO: ${scenarioPrompt}. LANGUE: ${user.preferences?.targetLanguage}. NIVEAU: ${user.preferences?.level}.`;
 
@@ -327,8 +334,5 @@ export const generateRoleplayResponse = async (
 
 export const generateNextLessonPrompt = (user: UserProfile): string => {
   const nextLessonNum = (user.stats.lessonsCompleted || 0) + 1;
-  return `IMPÉRATIF: Génère IMMÉDIATEMENT le contenu de la Leçon ${nextLessonNum}.
-  NE FAIS AUCUN COMMENTAIRE. NE POSE PAS DE QUESTIONS. NE VALIDE PAS.
-  Commence ta réponse STRICTEMENT par : "Leçon ${nextLessonNum} : [Titre]"
-  Suis la structure Markdown définie dans le prompt système.`;
+  return `IMPÉRATIF: Génère IMMÉDIATEMENT le contenu de la Leçon ${nextLessonNum}.`;
 };

@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff, Lock, Keyboard, Check, TrendingUp, AlertTriangle } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
@@ -50,24 +51,6 @@ const ChatInterface: React.FC<Props> = ({
   
   const [showVoiceCall, setShowVoiceCall] = useState(false);
   
-  // Calculate current lesson based on stats or history
-  const calculateCurrentLesson = () => {
-      // First check messages for context
-      const lastAiMessage = [...messages].reverse().find(m => m.role === 'model');
-      if (lastAiMessage) {
-          const match = lastAiMessage.text.match(/(?:Leçon|Lesson)\s+(\d+)/i);
-          if (match) return `Leçon ${match[1]}`;
-      }
-      // Fallback to user stats
-      const lessonNum = (user.stats.lessonsCompleted || 0) + 1;
-      return `Leçon ${lessonNum}`;
-  };
-
-  const [currentLessonTitle, setCurrentLessonTitle] = useState(calculateCurrentLesson);
-  
-  const [showTopMenu, setShowTopMenu] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
-  
   // Audio Playback State (TTS)
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
@@ -77,9 +60,32 @@ const ChatInterface: React.FC<Props> = ({
   // Lesson Selection State
   const [showNextInput, setShowNextInput] = useState(false);
   const [nextLessonInput, setNextLessonInput] = useState('');
+  
+  const [showTopMenu, setShowTopMenu] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
 
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
   const MIN_LESSONS_FOR_CALL = 0;
+
+  // Derive title
+  const currentLessonTitle = useMemo(() => {
+      const lastAiMessage = [...messages].reverse().find(m => m.role === 'model');
+      if (lastAiMessage) {
+          const match = lastAiMessage.text.match(/(?:Leçon|Lesson)\s+(\d+)/i);
+          if (match) return `Leçon ${match[1]}`;
+      }
+      return `Leçon ${(user.stats.lessonsCompleted || 0) + 1}`;
+  }, [messages, user.stats.lessonsCompleted]);
+
+  // Sync user updates (credits)
+  useEffect(() => {
+      const unsub = storageService.subscribeToUserUpdates((updated) => {
+          if (updated.id === user.id) {
+              onUpdateUser(updated);
+          }
+      });
+      return () => unsub();
+  }, [user.id, onUpdateUser]);
 
   const toggleTheme = () => {
       const newMode = !isDarkMode;
@@ -88,7 +94,7 @@ const ChatInterface: React.FC<Props> = ({
       localStorage.setItem('tm_theme', newMode ? 'dark' : 'light');
   };
 
-  // Initialize Playback Audio Context
+  // Audio Context Init
   useEffect(() => {
       const initAudio = () => {
           if (!audioContext) {
@@ -99,19 +105,14 @@ const ChatInterface: React.FC<Props> = ({
           }
       };
       window.addEventListener('click', initAudio, { once: true });
-      window.addEventListener('touchstart', initAudio, { once: true }); // Better mobile support
+      window.addEventListener('touchstart', initAudio, { once: true });
       return () => {
           window.removeEventListener('click', initAudio);
           window.removeEventListener('touchstart', initAudio);
       };
   }, [audioContext]);
 
-  // Update title when messages change or user stats update (e.g. forced by next lesson)
-  useEffect(() => {
-      setCurrentLessonTitle(calculateCurrentLesson());
-  }, [messages, user.stats.lessonsCompleted]);
-
-  // --- TTS PLAYBACK ---
+  // TTS Logic
   const stopSpeaking = () => {
       if (currentSource) {
           try { currentSource.stop(); } catch (e) {}
@@ -126,10 +127,14 @@ const ChatInterface: React.FC<Props> = ({
           stopSpeaking();
           return;
       }
-      if (!(await storageService.canRequest(user.id))) {
-          notify("Crédits insuffisants pour le TTS.", "error");
+      
+      const canPlay = await storageService.canRequest(user.id);
+      if (!canPlay) {
+          notify("Crédits épuisés. Recharchez pour utiliser le TTS.", "error");
+          onShowPayment();
           return;
       }
+
       stopSpeaking();
       setIsLoadingAudio(true);
       setSpeakingMessageId(id);
@@ -138,17 +143,6 @@ const ChatInterface: React.FC<Props> = ({
           const cleanText = text.replace(/[#*`_]/g, '').replace(/\[Leçon \d+\]/gi, '');
           const pcmBuffer = await generateSpeech(cleanText);
           
-          // Safety: Fetch updated user but keep preferences intact
-          const freshUser = await storageService.getUserById(user.id);
-          let updatedUser = freshUser || user;
-          
-          if (!updatedUser.preferences?.targetLanguage) {
-              if (user.preferences?.targetLanguage) {
-                  updatedUser = { ...updatedUser, preferences: user.preferences };
-              }
-          }
-          onUpdateUser(updatedUser);
-
           if (!pcmBuffer) throw new Error("Audio init failed");
           
           let ctx = audioContext;
@@ -177,11 +171,8 @@ const ChatInterface: React.FC<Props> = ({
   };
 
   const handleVoiceCallClick = async () => {
-      if ((user.stats.lessonsCompleted || 0) < MIN_LESSONS_FOR_CALL) {
-          notify(`Complétez ${MIN_LESSONS_FOR_CALL - (user.stats.lessonsCompleted || 0)} leçon(s) de plus pour débloquer l'appel !`, "error");
-          return;
-      }
-      if (!(await storageService.canRequest(user.id))) {
+      const canCall = await storageService.canRequest(user.id);
+      if (!canCall) {
           notify("Crédits insuffisants pour l'appel.", "error");
           onShowPayment();
           return;
@@ -189,41 +180,38 @@ const ChatInterface: React.FC<Props> = ({
       setShowVoiceCall(true);
   };
 
-  // --- PROGRESS ---
+  // Progress Data
   const progressData = useMemo(() => {
       const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
       const currentLevel = user.preferences?.level || 'A1';
       const currentIndex = levels.indexOf(currentLevel);
       const nextLevel = currentIndex < levels.length - 1 ? levels[currentIndex + 1] : 'Expert';
       
-      let lessonNum = 1;
-      const match = currentLessonTitle.match(/(\d+)/);
-      if (match) lessonNum = parseInt(match[1], 10);
-      else lessonNum = (user.stats.lessonsCompleted || 0) + 1;
-      
-      // Assume 50 lessons per level for progress bar
+      const lessonNum = (user.stats.lessonsCompleted || 0) + 1;
       const percentage = Math.min((lessonNum / 50) * 100, 100);
       
-      return { percentage: Math.round(percentage), nextLevel, currentLevel, lessonNum };
-  }, [currentLessonTitle, user.preferences?.level, user.stats.lessonsCompleted]);
+      return { percentage: Math.round(percentage), nextLevel, currentLevel };
+  }, [user.preferences?.level, user.stats.lessonsCompleted]);
 
-  // Safe flag extractor
   const userFlag = useMemo(() => {
       const lang = user.preferences?.targetLanguage || '';
       return lang.includes(' ') ? lang.split(' ').pop() : '🏳️';
   }, [user.preferences?.targetLanguage]);
 
-  // Low Credit Check
-  const isLowCredits = user.credits < 2;
+  const isLowCredits = user.credits <= 0;
 
   // --- TEXT CHAT ---
   const processMessage = async (text: string, isAuto: boolean = false) => {
     if (isStreaming) return;
-    const canProceed = await storageService.canRequest(user.id);
-    if (!canProceed) {
+    
+    // STRICT CHECK BEFORE SENDING
+    const canRequest = await storageService.canRequest(user.id);
+    if (!canRequest) {
+        notify("Crédits insuffisants. Veuillez recharger.", "error");
         onShowPayment();
         return;
     }
+
     const userDisplayMsg = isAuto ? "Suivant" : text;
     const promptToSend = text;
 
@@ -247,51 +235,19 @@ const ChatInterface: React.FC<Props> = ({
         }
       }
       
-      // Fetch latest user state (credits deducted)
-      const freshUser = await storageService.getUserById(user.id);
-      let updatedUser = freshUser || user;
-
-      // SAFETY: Ensure we don't overwrite preferences with null/undefined if fetch failed or returned partial data
-      if (!updatedUser.preferences || !updatedUser.preferences.targetLanguage) {
-          if (user.preferences?.targetLanguage) {
-              updatedUser = { ...updatedUser, preferences: user.preferences };
-          }
-      }
-
       // Update Session
       const newMessages = [...newHistory, { id: aiMsgId, role: 'model' as const, text: fullText, timestamp: Date.now() }];
       storageService.saveSession({ ...session, messages: newMessages, progress: (messages.length / 20) * 100 });
 
       // Handle Lesson Completion (Auto)
       if (isAuto) {
-          const newStats = { 
-              ...updatedUser.stats, 
-              lessonsCompleted: (updatedUser.stats.lessonsCompleted || 0) + 1 
-          };
-          
-          // Sync to language history
-          const currentLang = updatedUser.preferences?.targetLanguage;
-          const currentHistory = updatedUser.preferences?.history || {};
-          if (currentLang) {
-              currentHistory[currentLang] = newStats;
-          }
-
-          updatedUser = { 
-              ...updatedUser, 
-              stats: newStats,
-              preferences: {
-                  ...updatedUser.preferences!,
-                  history: currentHistory
-              }
-          };
-          
-          await storageService.saveUserProfile(updatedUser);
+          const newStats = { ...user.stats, lessonsCompleted: (user.stats.lessonsCompleted || 0) + 1 };
+          const updated = { ...user, stats: newStats };
+          await storageService.saveUserProfile(updated); // Credits already deducted in service
       }
-      
-      onUpdateUser(updatedUser);
 
     } catch (e) {
-      notify("Connexion instable.", "error");
+      notify("Erreur de connexion.", "error");
     } finally {
       setIsStreaming(false);
     }
@@ -316,7 +272,6 @@ const ChatInterface: React.FC<Props> = ({
   return (
     <div className="flex flex-col h-[100dvh] bg-[#F0F2F5] dark:bg-[#0B0F19] font-sans transition-colors duration-300 overflow-hidden" onClick={() => setShowTopMenu(false)}>
       
-      {/* Voice Call Overlay */}
       {showVoiceCall && (
           <VoiceCall 
               user={user} 
@@ -327,10 +282,9 @@ const ChatInterface: React.FC<Props> = ({
           />
       )}
 
-      {/* --- FIXED HEADER --- */}
-      <header className="fixed top-0 left-0 w-full z-30 bg-white/80 dark:bg-[#131825]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm safe-top transition-colors">
+      {/* --- HEADER --- */}
+      <header className="fixed top-0 left-0 w-full z-30 bg-white/80 dark:bg-[#131825]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm safe-top">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-            {/* Left: Badge & Menu */}
             <div className="flex items-center gap-3 flex-1">
                 <button onClick={onExit} className="p-2 -ml-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors shrink-0">
                     <ArrowLeft className="w-6 h-6" />
@@ -341,7 +295,6 @@ const ChatInterface: React.FC<Props> = ({
                         className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                     >
                         <span className="text-xl leading-none">{userFlag}</span>
-                        <div className="h-4 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
                         <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase">{progressData.currentLevel}</span>
                         <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${showTopMenu ? 'rotate-180' : ''}`} />
                     </button>
@@ -349,18 +302,7 @@ const ChatInterface: React.FC<Props> = ({
                         <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden z-50 animate-fade-in-up">
                             <button onClick={onStartPractice} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><MessageCircle className="w-4 h-4 text-indigo-500" /> Dialogue</button>
                             <button onClick={onStartExercise} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><Brain className="w-4 h-4 text-emerald-500" /> Exercices</button>
-                            <button 
-                                onClick={handleVoiceCallClick} 
-                                className={`w-full text-left px-4 py-3 flex items-center gap-2 text-sm font-bold transition-colors ${
-                                    (user.stats.lessonsCompleted || 0) >= MIN_LESSONS_FOR_CALL 
-                                    ? 'hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200' 
-                                    : 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-800/50 text-slate-400'
-                                }`}
-                            >
-                                <Phone className="w-4 h-4 text-purple-500" /> 
-                                Appel Vocal
-                                {(user.stats.lessonsCompleted || 0) < MIN_LESSONS_FOR_CALL && <Lock className="w-3 h-3 ml-auto text-slate-400"/>}
-                            </button>
+                            <button onClick={handleVoiceCallClick} className="w-full text-left px-4 py-3 flex items-center gap-2 text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200"><Phone className="w-4 h-4 text-purple-500" /> Appel Vocal</button>
                             <div className="h-px bg-slate-100 dark:bg-slate-700 mx-2 my-1"></div>
                             <button onClick={onChangeCourse} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs font-bold text-red-500"><Repeat className="w-3.5 h-3.5" /> Changer Cours</button>
                         </div>
@@ -368,7 +310,6 @@ const ChatInterface: React.FC<Props> = ({
                 </div>
             </div>
 
-            {/* Center: Lesson & Credits (Updated) */}
             <div className="flex flex-col items-center justify-center shrink-0">
                 <h1 className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-widest leading-tight mb-0.5">
                     {currentLessonTitle}
@@ -388,34 +329,20 @@ const ChatInterface: React.FC<Props> = ({
                 </div>
             </div>
 
-            {/* Right: Profile & Theme */}
             <div className="flex items-center justify-end gap-3 flex-1">
-                <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-indigo-600 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                <button onClick={toggleTheme} className="p-2 text-slate-400 hover:text-indigo-600 rounded-full transition-colors">
                     {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
                 </button>
                 <button onClick={onShowProfile} className="relative group flex items-center gap-2">
-                    <img src={`https://api.dicebear.com/9.x/micah/svg?seed=${user.username}`} alt="User" className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-800 shadow-md group-hover:scale-105 transition-transform border border-white dark:border-slate-600"/>
+                    <img src={`https://api.dicebear.com/9.x/micah/svg?seed=${user.username}`} alt="User" className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-800 shadow-md border border-white dark:border-slate-600"/>
                 </button>
             </div>
         </div>
       </header>
 
-      {/* Chat Area */}
+      {/* --- CHAT AREA --- */}
       <main className="flex-1 overflow-y-auto pt-16 pb-40 px-4 md:px-6 space-y-6 scrollbar-hide relative">
         <div className="max-w-3xl mx-auto space-y-6">
-            {messages.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-20 opacity-60">
-                    <div className="w-24 h-24 bg-white dark:bg-slate-800 rounded-[2rem] flex items-center justify-center mb-6 shadow-xl border border-slate-100 dark:border-slate-700">
-                        <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-14 h-14 object-contain" />
-                    </div>
-                    <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Bonjour, {user.username} !</h3>
-                    <p className="text-slate-500 dark:text-slate-400 text-sm text-center max-w-xs">Prêt pour {currentLessonTitle} en {user.preferences?.targetLanguage} ?</p>
-                    <div className="flex flex-wrap justify-center gap-2 mt-6">
-                        <button onClick={() => processMessage(`Commence la ${currentLessonTitle}`, true)} className="px-4 py-2 bg-indigo-600 text-white rounded-full text-xs font-bold shadow-md hover:bg-indigo-700 transition-colors">🚀 Démarrer {currentLessonTitle}</button>
-                    </div>
-                </div>
-            )}
-            
             {messages.map((msg, idx) => (
             <div key={msg.id || idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slide-up group`}>
                 {msg.role === 'model' && (
@@ -447,12 +374,6 @@ const ChatInterface: React.FC<Props> = ({
                         </div>
                     )}
                 </div>
-                
-                {msg.role === 'user' && (
-                    <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 ml-3 mt-1 shrink-0 overflow-hidden shadow-sm border border-white dark:border-slate-600">
-                        <img src={`https://api.dicebear.com/9.x/micah/svg?seed=${user.username}`} className="w-full h-full object-cover" />
-                    </div>
-                )}
             </div>
             ))}
             
@@ -470,51 +391,42 @@ const ChatInterface: React.FC<Props> = ({
         </div>
       </main>
 
-      {/* Footer - FIXED POSITION */}
+      {/* --- FOOTER --- */}
       <footer className="fixed bottom-0 left-0 w-full bg-white/95 dark:bg-[#131825]/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 safe-bottom z-30 shadow-2xl">
         <div className="max-w-3xl mx-auto p-4 flex flex-col gap-3">
             
-            {/* PROGRESS BAR - CENTERED PERCENTAGE */}
+            {/* PROGRESS */}
             <div className="flex items-center justify-between gap-3 px-2">
                 <span className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 uppercase min-w-[30px]">{progressData.currentLevel}</span>
-                
                 <div className="flex-1 h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative border border-slate-200 dark:border-slate-700">
-                    <div 
-                        className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-1000 ease-out"
-                        style={{ width: `${progressData.percentage}%` }}
-                    />
+                    <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-1000 ease-out" style={{ width: `${progressData.percentage}%` }} />
                     <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-[8px] font-bold text-slate-500 dark:text-slate-400 bg-white/50 dark:bg-black/50 px-1.5 rounded-full backdrop-blur-sm">
-                            {progressData.percentage}%
-                        </span>
+                        <span className="text-[8px] font-bold text-slate-500 dark:text-slate-400 bg-white/50 dark:bg-black/50 px-1.5 rounded-full backdrop-blur-sm">{progressData.percentage}%</span>
                     </div>
                 </div>
-                
                 <span className="text-[10px] font-black text-slate-400 uppercase min-w-[30px] text-right">{progressData.nextLevel}</span>
             </div>
 
-            <div className="flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border border-transparent focus-within:border-indigo-500/30 focus-within:bg-white dark:focus-within:bg-slate-900 transition-all shadow-inner">
+            <div className={`flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border transition-all shadow-inner ${isLowCredits ? 'border-red-500/50' : 'border-transparent focus-within:border-indigo-500/30'}`}>
                 {/* LOCKED PHONE BUTTON */}
                 <button 
                     onClick={handleVoiceCallClick}
-                    className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition-all ${
-                        (user.stats.lessonsCompleted || 0) >= MIN_LESSONS_FOR_CALL 
-                        ? 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-900/30' 
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-300 dark:text-slate-600 cursor-not-allowed'
-                    }`}
+                    className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-700 text-slate-500 hover:text-indigo-600 transition-all"
                 >
-                    {(user.stats.lessonsCompleted || 0) >= MIN_LESSONS_FOR_CALL ? <Phone className="w-5 h-5" /> : <Lock className="w-4 h-4"/>}
+                    <Phone className="w-5 h-5" />
                 </button>
 
                 <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}}
-                    placeholder="Message..."
-                    className="flex-1 bg-transparent border-none outline-none text-slate-800 dark:text-white text-sm px-2 resize-none max-h-32 placeholder:text-slate-400 py-2.5"
+                    placeholder={isLowCredits ? "Rechargez pour parler..." : "Message..."}
+                    className="flex-1 bg-transparent border-none outline-none text-slate-800 dark:text-white text-sm px-2 resize-none max-h-32 placeholder:text-slate-400 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
                     rows={1}
                     style={{ minHeight: '40px' }}
+                    disabled={isLowCredits}
                 />
+                
                 {input.trim().length === 0 ? (
                     showNextInput ? (
                         <div className="h-10 flex items-center gap-1 bg-white dark:bg-slate-900 rounded-full px-1 border border-indigo-500/30 animate-fade-in shadow-sm">
@@ -531,10 +443,22 @@ const ChatInterface: React.FC<Props> = ({
                             <button onClick={() => setShowNextInput(false)} className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"><X size={14}/></button>
                         </div>
                     ) : (
-                        <button onClick={handleNextClick} disabled={isStreaming} className="h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full font-bold text-xs shadow-md transition-all active:scale-95 flex items-center gap-1.5 shrink-0">Suivant <ArrowRight className="w-3.5 h-3.5" /></button>
+                        <button 
+                            onClick={handleNextClick} 
+                            disabled={isStreaming || isLowCredits} 
+                            className="h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full font-bold text-xs shadow-md transition-all active:scale-95 flex items-center gap-1.5 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Suivant <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
                     )
                 ) : (
-                    <button onClick={handleSend} disabled={isStreaming} className="h-10 w-10 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-md transition-all active:scale-95 flex items-center justify-center shrink-0"><Send className="w-4 h-4 ml-0.5" /></button>
+                    <button 
+                        onClick={handleSend} 
+                        disabled={isStreaming || isLowCredits} 
+                        className="h-10 w-10 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-md transition-all active:scale-95 flex items-center justify-center shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <Send className="w-4 h-4 ml-0.5" />
+                    </button>
                 )}
             </div>
         </div>
