@@ -9,6 +9,7 @@ import ExerciseSession from './components/ExerciseSession';
 import DialogueSession from './components/DialogueSession';
 import PaymentModal from './components/PaymentModal';
 import AdminDashboard from './components/AdminDashboard';
+import TutorialAgent from './components/TutorialAgent';
 import { UserProfile, LearningSession, ExerciseItem, UserStats } from './types';
 import { storageService } from './services/storageService';
 import { generateExerciseFromHistory } from './services/geminiService';
@@ -39,13 +40,10 @@ const App: React.FC = () => {
     init();
     
     // Global Event Listener for User Updates (Credits, Stats, etc.)
-    // This ensures that when credits are consumed in services, the UI updates instantly
     const unsubscribe = storageService.subscribeToUserUpdates((updatedUser) => {
-        // Only update if it matches current user to prevent race conditions
         if (user && updatedUser.id === user.id) {
             setUser(updatedUser);
         } else if (!user) {
-            // Case where user might be set initially
             setUser(updatedUser);
         }
     });
@@ -56,21 +54,18 @@ const App: React.FC = () => {
     return () => {
         unsubscribe();
     };
-  }, [isDarkMode, user?.id]); // Depend on ID to ensure subscription matches
+  }, [isDarkMode, user?.id]);
 
-  // Refresh User Data on Focus (To sync credits/admin changes from other tabs/devices)
+  // Refresh User Data on Focus
   useEffect(() => {
       const handleFocus = async () => {
           if (user) {
               const updated = await storageService.getUserById(user.id);
               if (updated) {
-                  // Stability Fix: Strict check for targetLanguage.
-                  // If remote user has lost preferences/language but local user has them, preserve local.
                   const isRemoteInvalid = !updated.preferences || !updated.preferences.targetLanguage;
                   const isLocalValid = user.preferences && user.preferences.targetLanguage;
 
                   if (isRemoteInvalid && isLocalValid) {
-                      // Do not overwrite valid prefs with null/incomplete data
                       const safeUpdate = { ...updated, preferences: user.preferences };
                       setUser(safeUpdate);
                   } else if (
@@ -97,35 +92,30 @@ const App: React.FC = () => {
   const handleAuthSuccess = (u: UserProfile) => {
     setUser(u);
     setShowAuth(false);
-    // Ensure we start a session if user is already setup
     if (u.preferences && u.preferences.targetLanguage) {
         const session = storageService.getOrCreateSession(u.id, u.preferences);
         setCurrentSession(session);
     }
   };
 
-  // Logic to handle Course Change: Save current stats to history, reset target
   const handleChangeCourse = async () => {
       if (!user) return;
       
       const currentLang = user.preferences?.targetLanguage;
       const currentHistory = user.preferences?.history || {};
       
-      // Save progress for current language
       if (currentLang) {
           currentHistory[currentLang] = user.stats;
       }
 
-      // Reset active stats to 0 (or undefined) for safety until next selection
       const emptyStats: UserStats = { lessonsCompleted: 0, exercisesCompleted: 0, dialoguesCompleted: 0 };
 
-      // Update user: keep history, unset targetLanguage
       const updatedUser: UserProfile = {
           ...user,
           stats: emptyStats,
           preferences: {
               ...user.preferences!,
-              targetLanguage: '', // Clears target
+              targetLanguage: '', 
               level: '',
               history: currentHistory
           }
@@ -142,7 +132,6 @@ const App: React.FC = () => {
     const selectedLang = prefs.targetLanguage;
     const history = user.preferences?.history || {};
     
-    // Restore stats if they exist for this language
     const restoredStats = history[selectedLang] || { 
         lessonsCompleted: 0, 
         exercisesCompleted: 0, 
@@ -154,14 +143,13 @@ const App: React.FC = () => {
         stats: restoredStats,
         preferences: { 
             ...prefs, 
-            history: history // Preserve history object
+            history: history
         } 
     };
 
     setUser(updated);
     await storageService.saveUserProfile(updated);
     
-    // Start session
     const session = storageService.getOrCreateSession(user.id, updated.preferences!);
     setCurrentSession(session);
   };
@@ -174,8 +162,6 @@ const App: React.FC = () => {
     setShowAdmin(false);
     setActiveMode('chat');
   };
-
-  // --- FEATURE HANDLERS ---
 
   const startExercise = async () => {
       if (!user || !currentSession) return;
@@ -202,7 +188,6 @@ const App: React.FC = () => {
               exercisesCompleted: (user.stats.exercisesCompleted || 0) + 1
           };
           
-          // Update History for current language as well
           const currentLang = user.preferences?.targetLanguage;
           const currentHistory = user.preferences?.history || {};
           if (currentLang) {
@@ -225,8 +210,19 @@ const App: React.FC = () => {
       setActiveMode('chat');
   };
 
-  // Helper to check if onboarding is needed
   const needsOnboarding = !user?.preferences || !user?.preferences?.targetLanguage;
+
+  // Determine Context for Tutorial Agent
+  const getAgentContext = () => {
+      if (!user) return "Page d'Accueil / Connexion";
+      if (needsOnboarding) return "Configuration du Profil (Langue/Niveau)";
+      if (showAdmin) return "Panneau Administrateur";
+      if (showPayment) return "Rechargement de Crédits";
+      if (showDashboard) return "Profil Utilisateur & Statistiques";
+      if (activeMode === 'exercise') return "Session d'Exercices (Quiz)";
+      if (activeMode === 'practice') return "Session de Dialogue (Roleplay)";
+      return `Chat Principal - Apprentissage du ${user.preferences?.targetLanguage || 'Language'}`;
+  };
 
   if (showAdmin && user?.role === 'admin') {
       return (
@@ -246,6 +242,11 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-sans transition-colors duration-300">
       <Toaster />
+
+      {/* Tutorial Agent available everywhere */}
+      {user && !showAdmin && (
+          <TutorialAgent user={user} context={getAgentContext()} />
+      )}
 
       {isGeneratingExercise && (
           <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-white">
@@ -285,7 +286,6 @@ const App: React.FC = () => {
                 onShowProfile={() => setShowDashboard(true)}
                 onExit={() => setCurrentSession(null)}
                 onUpdateUser={(updated) => {
-                    // We can directly set user here, but the global subscription will also catch it
                     setUser(updated);
                 }}
                 onStartPractice={() => setActiveMode('practice')}

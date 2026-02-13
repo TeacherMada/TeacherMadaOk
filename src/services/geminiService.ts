@@ -1,6 +1,7 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { UserProfile, ChatMessage, VocabularyItem, ExerciseItem } from "../types";
-import { SYSTEM_PROMPT_TEMPLATE } from "../constants";
+import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
 import { storageService } from "./storageService";
 
 // --- API KEY ROTATION & CLIENT MANAGEMENT ---
@@ -25,17 +26,13 @@ const streamWithRetry = async function* (model: string, params: any) {
             const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
             const responseStream = await ai.models.generateContentStream({ model, ...params });
             
-            // If we successfully get the stream iterator, we yield chunks.
-            // If the stream fails mid-way, that's harder to retry without repeating content,
-            // but usually connection errors happen at start.
             for await (const chunk of responseStream) {
                 yield chunk;
             }
-            return; // Success, exit retry loop
+            return; // Success
         } catch (e: any) {
-            console.warn(`Stream attempt ${i+1} failed with key ...${shuffledKeys[i].slice(-4)}`, e.message);
+            console.warn(`Stream attempt ${i+1} failed`, e.message);
             if (i === maxAttempts - 1) {
-                // Last attempt failed
                 yield `⚠️ Erreur de connexion (${e.status || 'Reseau'}). Veuillez réessayer.`;
             }
         }
@@ -65,7 +62,43 @@ const generateWithRetry = async (model: string, params: any) => {
 
 // Models Configuration
 const TEXT_MODEL = 'gemini-3-flash-preview'; // Fast & Smart
-const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts'; // Specialized TTS
+const SUPPORT_MODEL = 'gemini-2.0-flash'; // Cost effective for simple support queries
+const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts'; 
+
+// --- TUTORIAL AGENT (SUPPORT) ---
+export const generateSupportResponse = async (
+    userQuery: string,
+    context: string,
+    user: UserProfile,
+    history: {role: string, text: string}[]
+): Promise<string> => {
+    // Note: Support queries do NOT consume credits to ensure help is always available
+    const systemInstruction = SUPPORT_AGENT_PROMPT(context, user);
+    
+    // Format history for Gemini
+    const contents = history.map(msg => ({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.text }]
+    }));
+    
+    // Add current query
+    contents.push({ role: 'user', parts: [{ text: userQuery }] });
+
+    try {
+        const response = await generateWithRetry(SUPPORT_MODEL, {
+            contents: contents,
+            config: {
+                systemInstruction: systemInstruction,
+                maxOutputTokens: 300, // Keep support answers concise
+                temperature: 0.5
+            }
+        });
+        return response.text || "Je n'ai pas de réponse pour le moment.";
+    } catch (e) {
+        console.error("Support Agent Error", e);
+        return "Désolé, je ne peux pas répondre pour l'instant. Vérifiez votre connexion.";
+    }
+};
 
 // --- STREAMING MESSAGE ---
 export async function* sendMessageStream(
@@ -101,15 +134,9 @@ export async function* sendMessageStream(
 
   let hasYielded = false;
   for await (const chunk of stream) {
-      // streamWithRetry yields raw chunks (which have .text) or error strings?
-      // Wait, streamWithRetry yields `GenerateContentResponse` chunks typically.
-      // But my error handling yields strings.
-      
       if (typeof chunk === 'string') {
-          // This is my error message
           yield chunk;
       } else {
-          // It's a Gemini chunk
           const text = chunk.text;
           if (text) {
               yield text;
