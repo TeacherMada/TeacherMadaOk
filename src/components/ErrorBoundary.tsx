@@ -64,7 +64,8 @@ class ErrorBoundary extends Component<Props, State> {
       );
     }
 
-    return this.props.children;
+    // Cast 'this' to any to bypass the TypeScript error about 'props' missing on 'ErrorBoundary'
+    return (this as any).props.children;
   }
 }
 

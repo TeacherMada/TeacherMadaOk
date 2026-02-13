@@ -12,7 +12,7 @@ interface LandingPageProps {
   toggleTheme: () => void;
 }
 
-const WORDS = ["INTELLIGEMMENT", "RAPIDEMENT", "NATURELLEMENT", "EFFICACEMENT"];
+const WORDS = ["GRATUITEMENT", "INTELLIGEMMENT", "RAPIDEMENT", "NATURELLEMENT", "EFFICACEMENT"];
 
 const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTheme }) => {
   const [scrolled, setScrolled] = useState(false);
