@@ -130,7 +130,7 @@ const ChatInterface: React.FC<Props> = ({
       // STRICT CREDIT CHECK FOR AUDIO
       const canPlay = await storageService.canRequest(user.id);
       if (!canPlay) {
-          notify("Crédits épuisés (1 requête audio = 1 Crédit).", "error");
+          notify("Crédit insuffisant (1 audio = 1 Crédit).", "error");
           onShowPayment();
           return;
       }
@@ -170,15 +170,20 @@ const ChatInterface: React.FC<Props> = ({
       }
   };
 
-  const handleVoiceCallClick = async () => {
-      // STRICT CREDIT CHECK FOR CALL
-      const canCall = await storageService.canRequest(user.id);
-      if (!canCall) {
-          notify("Crédits insuffisants pour l'appel.", "error");
+  // --- FEATURE CHECK HANDLERS ---
+  
+  const handleMenuAction = async (action: () => void) => {
+      const allowed = await storageService.canRequest(user.id);
+      if (!allowed) {
+          notify("Crédit insuffisant.", "error");
           onShowPayment();
           return;
       }
-      setShowVoiceCall(true);
+      action();
+  };
+
+  const handleVoiceCallClick = async () => {
+      handleMenuAction(() => setShowVoiceCall(true));
   };
 
   // Progress Data
@@ -256,7 +261,13 @@ const ChatInterface: React.FC<Props> = ({
 
   const handleSend = () => { if (input.trim()) processMessage(input); };
   
-  const handleNextClick = () => {
+  const handleNextClick = async () => {
+      const allowed = await storageService.canRequest(user.id);
+      if(!allowed) {
+          notify("Crédit insuffisant.", "error");
+          onShowPayment();
+          return;
+      }
       setNextLessonInput(((user.stats.lessonsCompleted || 0) + 1).toString());
       setShowNextInput(true);
   };
@@ -301,8 +312,8 @@ const ChatInterface: React.FC<Props> = ({
                     </button>
                     {showTopMenu && (
                         <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden z-50 animate-fade-in-up">
-                            <button onClick={onStartPractice} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><MessageCircle className="w-4 h-4 text-indigo-500" /> Dialogue</button>
-                            <button onClick={onStartExercise} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><Brain className="w-4 h-4 text-emerald-500" /> Exercices</button>
+                            <button onClick={() => handleMenuAction(onStartPractice)} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><MessageCircle className="w-4 h-4 text-indigo-500" /> Dialogue</button>
+                            <button onClick={() => handleMenuAction(onStartExercise)} className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200"><Brain className="w-4 h-4 text-emerald-500" /> Exercices</button>
                             <button onClick={handleVoiceCallClick} className="w-full text-left px-4 py-3 flex items-center gap-2 text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200"><Phone className="w-4 h-4 text-purple-500" /> Appel Vocal</button>
                             <div className="h-px bg-slate-100 dark:bg-slate-700 mx-2 my-1"></div>
                             <button onClick={onChangeCourse} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs font-bold text-red-500"><Repeat className="w-3.5 h-3.5" /> Changer Cours</button>
@@ -446,7 +457,7 @@ const ChatInterface: React.FC<Props> = ({
                     ) : (
                         <button 
                             onClick={handleNextClick} 
-                            disabled={isStreaming || isLowCredits} 
+                            disabled={isStreaming} 
                             className="h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full font-bold text-xs shadow-md transition-all active:scale-95 flex items-center gap-1.5 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Suivant <ArrowRight className="w-3.5 h-3.5" />
@@ -455,7 +466,7 @@ const ChatInterface: React.FC<Props> = ({
                 ) : (
                     <button 
                         onClick={handleSend} 
-                        disabled={isStreaming || isLowCredits} 
+                        disabled={isStreaming} 
                         className="h-10 w-10 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-md transition-all active:scale-95 flex items-center justify-center shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <Send className="w-4 h-4 ml-0.5" />

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { UserProfile, ChatMessage, ExplanationLanguage, UserPreferences } from '../types';
 import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck, Upload, Library, TrendingUp, Star, CreditCard, Plus, AlertTriangle } from 'lucide-react';
@@ -39,7 +40,6 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
       const threshold = 500;
       
       // Calculate real progress based on assumption that 1 lesson = 2% (from ChatInterface logic)
-      // or use the stored stats directly. Here we mirror the ChatInterface logic for consistency.
       const lessonBasedPercentage = Math.min((user.stats.lessonsCompleted + 1) * 2, 100);
       
       return { percentage: lessonBasedPercentage, nextLevel, currentLevel };
@@ -82,6 +82,31 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
           setTimeout(() => window.location.reload(), 1500);
       } else {
           toast.error("Fichier invalide ou corrompu.");
+      }
+  };
+
+  const handleExtract = async () => {
+      // Check Credits
+      if (!(await storageService.canRequest(user.id))) {
+          toast.error("Crédits insuffisants pour l'extraction IA.");
+          onShowPayment();
+          return;
+      }
+
+      // Use passed messages or fallback to storage
+      const history = messages.length > 0 ? messages : storageService.getChatHistory(user.preferences!.targetLanguage);
+      if (history.length < 2) {
+        toast.info("Parlez un peu plus avant d'extraire des mots.");
+        return;
+      }
+      
+      try {
+        const newWords = await extractVocabulary(history);
+        const updated = { ...user, vocabulary: [...newWords, ...user.vocabulary].slice(0, 100) };
+        onUpdateUser(updated);
+        toast.success(`${newWords.length} mots ajoutés à votre boîte !`);
+      } catch (e) {
+          toast.error("Erreur lors de l'extraction.");
       }
   };
 
@@ -226,6 +251,12 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                             <div className="flex items-center gap-1.5"><Star className="w-3.5 h-3.5 text-emerald-500 fill-emerald-500"/> {user.stats.exercisesCompleted} Exercices</div>
                         </div>
                     </div>
+
+                    {/* Vocab Extraction Action */}
+                    <button onClick={handleExtract} className="w-full py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl flex items-center justify-center gap-3 shadow-sm hover:shadow-md transition-all group">
+                        <Sparkles className="w-5 h-5 text-indigo-500 group-hover:scale-110 transition-transform" />
+                        <span className="font-bold text-sm text-slate-700 dark:text-slate-200">Extraire Mots Clés (IA)</span>
+                    </button>
 
                     {/* Settings List */}
                     <div className="space-y-1">

@@ -61,7 +61,7 @@ const streamWithRetry = async function* (model: string, params: any) {
 
 // --- MODELS CONFIGURATION ---
 const TEXT_MODEL = 'gemini-3-flash-preview'; 
-const SUPPORT_MODEL = 'gemini-2.0-flash'; // Optimized for Cost/Speed for Chatbot
+const SUPPORT_MODEL = 'gemini-3-flash-preview'; // Switched to 3-flash for maximum stability
 const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts'; 
 
 // --- TUTORIAL AGENT (SUPPORT) ---
@@ -92,7 +92,7 @@ export const generateSupportResponse = async (
             contents: contents,
             config: {
                 systemInstruction: systemInstruction,
-                maxOutputTokens: 1000, // Increased to prevent cutoffs
+                maxOutputTokens: 1000, 
                 temperature: 0.5
             }
         });
@@ -207,8 +207,7 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
 // --- VOCABULARY EXTRACTION ---
 export const extractVocabulary = async (history: ChatMessage[]): Promise<VocabularyItem[]> => {
     const user = await storageService.getCurrentUser();
-    // No Credit check here as it is usually a manual action or background, 
-    // but based on "1 request = 1 credit", we should check.
+    
     if (!user || !(await storageService.canRequest(user.id))) return [];
 
     const context = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
