@@ -76,10 +76,10 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
 
   return (
     <>
-      {/* Floating Action Button (FAB) - MOVED TO LEFT & RESIZED */}
+      {/* Floating Action Button (FAB) - MOVED UP ~20px (bottom-24 -> bottom-32) */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className={`fixed bottom-24 left-4 z-[40] p-3 rounded-full shadow-2xl transition-all duration-300 group ${isOpen ? 'bg-slate-200 dark:bg-slate-800 rotate-90 scale-90' : 'bg-teal-500 hover:bg-teal-600 hover:scale-110'}`}
+        className={`fixed bottom-32 left-4 z-[40] p-3 rounded-full shadow-2xl transition-all duration-300 group ${isOpen ? 'bg-slate-200 dark:bg-slate-800 rotate-90 scale-90' : 'bg-teal-500 hover:bg-teal-600 hover:scale-110'}`}
         title="Assistant Guide"
       >
         {isOpen ? (
@@ -92,21 +92,30 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
         )}
       </button>
 
-      {/* Chat Window - POSITIONED LEFT */}
+      {/* Chat Window - POSITIONED LEFT & MOVED UP to match button */}
       {isOpen && (
-        <div className="fixed bottom-40 left-4 w-[90vw] max-w-[320px] h-[450px] max-h-[60vh] bg-white dark:bg-[#1E293B] rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden z-[40] animate-slide-up origin-bottom-left">
+        <div className="fixed bottom-48 left-4 w-[90vw] max-w-[320px] h-[450px] max-h-[60vh] bg-white dark:bg-[#1E293B] rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden z-[40] animate-slide-up origin-bottom-left">
           
-          {/* Header */}
-          <div className="p-4 bg-teal-500 text-white flex items-center gap-3 shadow-md">
-            <div className="p-2 bg-white/20 rounded-xl backdrop-blur-sm">
-                <LifeBuoy className="w-5 h-5" />
+          {/* Header with Close Button */}
+          <div className="p-4 bg-teal-500 text-white flex items-center justify-between shadow-md">
+            <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-xl backdrop-blur-sm">
+                    <LifeBuoy className="w-5 h-5" />
+                </div>
+                <div>
+                    <h3 className="font-bold text-sm">Assistant Guide</h3>
+                    <p className="text-[10px] text-teal-100 opacity-90 flex items-center gap-1">
+                        <Sparkles className="w-2 h-2" /> Aide (100 req/j gratuits)
+                    </p>
+                </div>
             </div>
-            <div>
-                <h3 className="font-bold text-sm">Assistant Guide</h3>
-                <p className="text-[10px] text-teal-100 opacity-90 flex items-center gap-1">
-                    <Sparkles className="w-2 h-2" /> Aide (100 req/j gratuits)
-                </p>
-            </div>
+            <button 
+                onClick={() => setIsOpen(false)}
+                className="p-1.5 hover:bg-white/20 rounded-full transition-colors"
+                title="Fermer"
+            >
+                <X className="w-5 h-5" />
+            </button>
           </div>
 
           {/* Messages Area */}
