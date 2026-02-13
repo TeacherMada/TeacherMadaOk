@@ -341,7 +341,15 @@ const App: React.FC = () => {
               <DialogueSession 
                   user={user}
                   onClose={() => setActiveMode('chat')}
-                  onUpdateUser={(u) => setUser(u)}
+                  onUpdateUser={(updated) => {
+                      // FIX: Apply sticky preferences protection here as well
+                      setUser(prev => {
+                          if (prev && prev.preferences && !updated.preferences) {
+                              return { ...updated, preferences: prev.preferences };
+                          }
+                          return updated;
+                      });
+                  }}
                   notify={notify}
                   onShowPayment={() => setShowPayment(true)}
               />
@@ -401,3 +409,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+    
