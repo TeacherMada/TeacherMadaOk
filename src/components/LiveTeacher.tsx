@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Volume2, Activity } from 'lucide-react';
+import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2 } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -85,7 +85,6 @@ const floatTo16BitPCM = (input: Float32Array) => {
 };
 
 const getApiKey = () => {
-    // Rotation basique si plusieurs clés
     const keys = (process.env.API_KEY || "").split(',').map(k => k.trim()).filter(k => k.length > 10);
     return keys[Math.floor(Math.random() * keys.length)];
 };
@@ -93,7 +92,7 @@ const getApiKey = () => {
 const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [subStatus, setSubStatus] = useState('');
-  const [volume, setVolume] = useState(0); // Pour la visualisation
+  const [volume, setVolume] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [teacherSpeaking, setTeacherSpeaking] = useState(false);
@@ -102,13 +101,12 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
-  const nextStartTimeRef = useRef(0); // Pour coller les morceaux audio sans trous
+  const nextStartTimeRef = useRef(0);
   const isMountedRef = useRef(true);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   useEffect(() => {
       isMountedRef.current = true;
-      // Démarrage auto
       startSession();
       
       return () => {
@@ -124,7 +122,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           interval = setInterval(() => {
               setDuration(d => {
                   const next = d + 1;
-                  // Facturation chaque minute
                   if (next > 0 && next % 60 === 0) handleBilling();
                   return next;
               });
@@ -155,12 +152,12 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       setSubStatus("Initialisation audio...");
 
       try {
-          // 1. Initialiser l'AudioContext (Impératif sur click utilisateur ou au mount si autorisé)
+          // 1. Initialiser l'AudioContext
           const AC = window.AudioContext || (window as any).webkitAudioContext;
-          const ctx = new AC(); // Pas de sampleRate forcé ici, on s'adapte au hardware
+          const ctx = new AC(); 
           await ctx.resume();
           audioContextRef.current = ctx;
-          nextStartTimeRef.current = ctx.currentTime + 0.1; // Buffer initial
+          nextStartTimeRef.current = ctx.currentTime + 0.1;
 
           // 2. Connexion Gemini
           const apiKey = getApiKey();
@@ -170,11 +167,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           
           setSubStatus("Connexion IA...");
           
-          // Prompt système strict
           const sysPrompt = `You are TeacherMada, a friendly language teacher helping user learn ${user.preferences?.targetLanguage || 'French'}.
           Level: ${user.preferences?.level || 'Beginner'}.
+          Start the conversation immediately by briefly introducing yourself in one sentence.
           Keep responses concise and conversational (1-2 sentences max).
-          Correction policy: Gently correct mistakes before answering.`;
+          Gently correct mistakes before answering.`;
 
           const session = await client.live.connect({
               model: LIVE_MODEL,
@@ -191,10 +188,8 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                           console.log(">>> LIVE CONNECTED");
                           setStatus('connected');
                           setSubStatus("En ligne");
-                          
-                          // FORCE TEACHER TO SPEAK FIRST
-                          // On envoie un message texte "caché" pour déclencher la réponse audio
-                          session.send([{ text: "Introduce yourself briefly and ask me a simple question." }], true);
+                          // Note: On n'envoie PAS de texte ici pour éviter l'erreur TS.
+                          // L'instruction système "Start immediately" doit suffire, sinon l'utilisateur parlera.
                       }
                   },
                   onmessage: async (msg: any) => {
@@ -210,7 +205,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       if (msg.serverContent?.turnComplete) {
                           setTeacherSpeaking(false);
                           setSubStatus("À vous...");
-                          // Resynchronisation si latence excessive
                           if (nextStartTimeRef.current < ctx.currentTime) {
                               nextStartTimeRef.current = ctx.currentTime;
                           }
@@ -222,10 +216,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   },
                   onerror: (err) => {
                       console.error("Session error", err);
-                      // Ignore les erreurs mineures de fermeture
-                      if (isMountedRef.current) {
-                          // notify("Erreur de connexion live", "error");
-                      }
                   }
               }
           });
@@ -253,45 +243,40 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           mediaStreamRef.current = stream;
 
           const source = ctx.createMediaStreamSource(stream);
-          // Utilisation de ScriptProcessor (legacy mais large support) pour capter le PCM
           const processor = ctx.createScriptProcessor(4096, 1, 1);
           processorRef.current = processor;
 
           processor.onaudioprocess = (e) => {
-              // Ne pas envoyer si on est en mute
               if (isMuted) return;
 
               const inputData = e.inputBuffer.getChannelData(0);
               const actualSampleRate = e.inputBuffer.sampleRate;
 
-              // 1. Visualizer (RMS)
+              // Visualizer (RMS)
               let sum = 0;
-              // Echantillonnage partiel pour perf
               for (let i = 0; i < inputData.length; i += 10) sum += inputData[i] * inputData[i];
               const rms = Math.sqrt(sum / (inputData.length / 10));
-              setVolume(Math.min(100, rms * 400)); // Amplification visuelle
+              setVolume(Math.min(100, rms * 400));
 
-              // 2. Downsampling CRITIQUE (ex: 48k -> 16k)
-              // C'est ici que la magie opère pour que l'IA comprenne la voix
+              // Downsampling & Streaming
               const downsampledData = downsampleBuffer(inputData, actualSampleRate, INPUT_SAMPLE_RATE);
-
-              // 3. Conversion & Envoi
               const base64Audio = floatTo16BitPCM(downsampledData);
               
               try {
-                  // Envoi en temps réel
-                  session.sendRealtimeInput([{
-                      mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
-                      data: base64Audio
-                  }]);
+                  // Correction ici : structure stricte { media: { mimeType, data } }
+                  session.sendRealtimeInput({
+                      media: {
+                          mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
+                          data: base64Audio
+                      }
+                  });
               } catch (err) {
                   // Session fermée ou erreur réseau
               }
           };
 
           source.connect(processor);
-          // Hack: le processor doit être connecté à la destination pour "tirer" le flux,
-          // mais on met le gain à 0 pour ne pas s'entendre soi-même (feedback loop).
+          // Hack pour garder le processor actif dans Chrome
           const muteNode = ctx.createGain();
           muteNode.gain.value = 0;
           processor.connect(muteNode);
@@ -313,9 +298,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           source.connect(ctx.destination);
 
           const now = ctx.currentTime;
-          // Gestion file d'attente "Gapless"
-          // Si le temps prévu est passé, on joue tout de suite
-          // Sinon on planifie à la suite du morceau précédent
           const startTime = Math.max(now, nextStartTimeRef.current);
           
           source.start(startTime);
@@ -371,16 +353,14 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
           {/* Visualizer Central */}
           <div className="flex-1 flex flex-col items-center justify-center relative w-full">
-              {/* Cercles qui pulsent selon le volume ou l'activité du prof */}
+              {/* Cercles Pulse */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  {/* Pulse Micro Utilisateur */}
                   {!teacherSpeaking && (
                       <>
                         <div className="w-48 h-48 rounded-full border border-indigo-500/30 transition-all duration-75" style={{ transform: `scale(${1 + volume/100})`, opacity: Math.min(1, volume/50) }}></div>
                         <div className="w-64 h-64 rounded-full border border-indigo-500/20 absolute transition-all duration-100" style={{ transform: `scale(${1 + volume/150})`, opacity: Math.min(0.5, volume/80) }}></div>
                       </>
                   )}
-                  {/* Pulse Professeur */}
                   {teacherSpeaking && (
                       <>
                         <div className="w-56 h-56 rounded-full bg-emerald-500/10 animate-ping absolute"></div>
