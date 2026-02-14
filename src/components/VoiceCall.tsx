@@ -201,6 +201,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
     1. Réponses COURTES (max 15 mots).
     2. Pose toujours une question de relance.
     3. Si l'utilisateur parle français, traduis et réponds dans la langue cible.
+    4. IMPÉRATIF: Commence la conversation immédiatement par une salutation chaleureuse et demande comment ça va.
   `;
 
   // --- LEVEL 1: GEMINI LIVE ---
@@ -218,7 +219,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               model: LIVE_MODEL,
               config: {
                   responseModalities: [Modality.AUDIO],
-                  systemInstruction: getSystemPrompt(),
+                  systemInstruction: { parts: [{ text: getSystemPrompt() }] },
                   speechConfig: {
                       voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
                   }
@@ -236,11 +237,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           // Setup Audio Pipeline
           await setupLiveAudioInput(session);
           setupLiveAudioOutput(session);
-
-          // Teacher speaks first
-          session.sendRealtimeInput({
-              text: "Bonjour ! Comment vas-tu aujourd'hui ?"
-          });
 
       } catch (e) {
           console.warn("Level 1 (Live) failed, falling back to Level 2 (TTS).", e);
@@ -344,7 +340,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           const response = await ai.models.generateContent({
               model: FALLBACK_MODEL,
               contents: [...historyRef.current, { role: 'user', parts: [userPart] }],
-              config: { systemInstruction: getSystemPrompt() }
+              config: { systemInstruction: { parts: [{ text: getSystemPrompt() }] } }
           });
 
           const text = response.text || "Je t'écoute.";
@@ -423,8 +419,11 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       if (!textInput.trim()) return;
       
       if (archLevel === 1) {
-          // Send text to live session
-          liveSessionRef.current?.sendRealtimeInput({ text: textInput });
+          // Send text to live session - NOT SUPPORTED IN REALTIME INPUT
+          // Live API primarily audio. We rely on audio input.
+          // To send text commands, we'd need 'send' method if supported by SDK wrapper or use ToolUse.
+          // For now, in Level 1, text input is disabled/hidden or just logged.
+          console.warn("Text input in Live Mode Level 1 is experimental.");
       } else {
           processTurn_L2(textInput);
       }
