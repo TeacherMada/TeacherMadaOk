@@ -223,6 +223,58 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                   speechConfig: {
                       voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
                   }
+              },
+              callbacks: {
+                  onopen: () => {
+                      console.log("Live Session Connected");
+                      setStatus('connected');
+                  },
+                  onmessage: async (msg: any) => {
+                      // 1. Audio Output
+                      const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+                      if (audioData && audioCtxRef.current) {
+                          try {
+                              const buffer = await base64ToAudioBuffer(audioData, audioCtxRef.current);
+                              const source = audioCtxRef.current.createBufferSource();
+                              source.buffer = buffer;
+                              source.connect(audioCtxRef.current.destination);
+                              
+                              const currentTime = audioCtxRef.current.currentTime;
+                              if (nextStartTimeRef.current < currentTime) {
+                                  nextStartTimeRef.current = currentTime;
+                              }
+                              
+                              source.start(nextStartTimeRef.current);
+                              nextStartTimeRef.current += buffer.duration;
+                              
+                              setStatus('speaking');
+                              source.onended = () => {
+                                  // Heuristic: if no next audio scheduled within 200ms, assume listening
+                                  if (audioCtxRef.current && audioCtxRef.current.currentTime >= nextStartTimeRef.current - 0.2) {
+                                      setStatus('listening');
+                                  }
+                              };
+                          } catch (e) {
+                              console.error("Decoding error", e);
+                          }
+                      }
+                      
+                      // 2. Interruption / Turn logic
+                      if (msg.serverContent?.turnComplete) {
+                          // setStatus('listening'); // Handled by audio ended
+                      }
+                  },
+                  onclose: () => {
+                      console.log("Live Session Closed");
+                      if (mountedRef.current && archLevel === 1) {
+                          // Try Fallback if unexpected close
+                          fallbackToLevel2();
+                      }
+                  },
+                  onerror: (err: any) => {
+                      console.error("Live Error", err);
+                      if (mountedRef.current) fallbackToLevel2();
+                  }
               }
           });
 
@@ -231,12 +283,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           // Deduct initial credit for connection
           await consumeCredit();
 
-          setStatus('connected');
-          setArchLevel(1);
-
-          // Setup Audio Pipeline
+          // Setup Audio Pipeline (Microphone Input)
           await setupLiveAudioInput(session);
-          setupLiveAudioOutput(session);
 
       } catch (e) {
           console.warn("Level 1 (Live) failed, falling back to Level 2 (TTS).", e);
@@ -247,62 +295,51 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const setupLiveAudioInput = async (session: any) => {
       if (!audioCtxRef.current) return;
       
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: {
-          sampleRate: 16000,
-          channelCount: 1,
-          echoCancellation: true
-      }});
-      streamRef.current = stream;
+      try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: {
+              sampleRate: 16000,
+              channelCount: 1,
+              echoCancellation: true
+          }});
+          streamRef.current = stream;
 
-      const source = audioCtxRef.current.createMediaStreamSource(stream);
-      const processor = audioCtxRef.current.createScriptProcessor(4096, 1, 1);
-      
-      processor.onaudioprocess = (e) => {
-          if (status === 'listening' || status === 'connected' || status === 'speaking') {
-              const inputData = e.inputBuffer.getChannelData(0);
-              // Calculate volume for visualizer
-              let sum = 0;
-              for(let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
-              setAudioLevel(Math.sqrt(sum / inputData.length) * 100);
+          const source = audioCtxRef.current.createMediaStreamSource(stream);
+          const processor = audioCtxRef.current.createScriptProcessor(4096, 1, 1);
+          
+          processor.onaudioprocess = (e) => {
+              if (status === 'listening' || status === 'connected' || status === 'speaking') {
+                  const inputData = e.inputBuffer.getChannelData(0);
+                  // Calculate volume for visualizer
+                  let sum = 0;
+                  for(let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
+                  setAudioLevel(Math.sqrt(sum / inputData.length) * 100);
 
-              const base64Data = floatTo16BitPCM(inputData);
-              session.sendRealtimeInput({
-                  mimeType: "audio/pcm;rate=16000",
-                  data: base64Data
-              });
-          }
-      };
+                  const base64Data = floatTo16BitPCM(inputData);
+                  
+                  // Ensure session is open before sending
+                  // Note: In real usage, rely on promise or state check. 
+                  // Here we assume it's fine if we are in this callback context.
+                  session.sendRealtimeInput({
+                      mimeType: "audio/pcm;rate=16000",
+                      data: base64Data
+                  });
+              }
+          };
 
-      source.connect(processor);
-      processor.connect(audioCtxRef.current.destination); // Required for script processor to run
-      processorRef.current = processor;
-  };
-
-  const setupLiveAudioOutput = (session: any) => {
-      // We rely on the callback passed to connect in the real SDK, 
-      // but here we simulate the stream handler based on the provided examples.
-      // NOTE: The actual SDK implementation might vary, adapting to "onmessage".
-      
-      // Since the standard SDK `connect` returns a session that we interact with,
-      // we assume we passed callbacks or listen to events. 
-      // For this implementation, let's assume `session.receive()` logic or similar iterator.
-      
-      // MOCKING the stream receiver loop for the provided architecture:
-      // In a real implementation, we would pass `callbacks: { onMessage: ... }` to connect.
-      // Fixing the previous `ai.live.connect` call to include callbacks:
-      
-      // RE-CONNECTION with Callbacks (Conceptual Fix)
-      // Since we can't easily re-write the `connect` above without breaking flow, 
-      // we assume `session` emits events or we iterate.
-      
-      // Let's attach a listener if the object supports it, otherwise fallback.
-      // Assuming `session` is an async iterable or has `on` method.
-      // If not supported by current SDK version types, we fallback to L2 immediately.
+          source.connect(processor);
+          processor.connect(audioCtxRef.current.destination); // Required for script processor to run
+          processorRef.current = processor;
+      } catch (e) {
+          console.error("Mic Error", e);
+          notify("Erreur micro. Vérifiez les permissions.", "error");
+          fallbackToLevel2();
+      }
   };
 
   // --- LEVEL 2: FALLBACK TTS (Turn-based) ---
 
   const fallbackToLevel2 = () => {
+      if (archLevel === 2) return; // Already in Level 2
       console.log("Activating Level 2: TTS Fallback");
       cleanup(); // Clean Live resources
       setArchLevel(2);
