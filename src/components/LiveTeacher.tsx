@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Mic, MicOff, Wifi, AlertTriangle, Settings2, Globe, RefreshCcw, Activity, Phone } from 'lucide-react';
+import { X, Mic, MicOff, AlertTriangle, Activity, Phone, Settings2 } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -22,8 +21,11 @@ const getApiKeys = () => {
     return rawKey.split(',').map(k => k.trim()).filter(k => k.length >= 10);
 };
 
-// PCM Utils
-function base64ToAudioBuffer(base64: string, ctx: AudioContext): Promise<AudioBuffer> {
+// --- AUDIO UTILS ---
+
+// Convert Base64 (from Gemini) to AudioBuffer (for Browser)
+// Gemini sends 24kHz audio.
+async function base64ToAudioBuffer(base64: string, ctx: AudioContext): Promise<AudioBuffer> {
     const binaryString = atob(base64);
     const len = binaryString.length;
     const bytes = new Uint8Array(len);
@@ -35,23 +37,29 @@ function base64ToAudioBuffer(base64: string, ctx: AudioContext): Promise<AudioBu
     for (let i = 0; i < pcm16.length; i++) {
         float32[i] = pcm16[i] / 32768.0; 
     }
-    // Gemini Output is 24kHz
+    
+    // Create a buffer at 24kHz (Gemini native rate)
+    // The AudioContext (running at 16k or 48k) will handle resampling automatically during playback
     const buffer = ctx.createBuffer(1, float32.length, 24000);
     buffer.copyToChannel(float32, 0);
-    return Promise.resolve(buffer);
+    return buffer;
 }
 
+// Convert Browser Input (Float32) to PCM16 Base64 (for Gemini)
 function floatTo16BitPCM(input: Float32Array) {
     const output = new Int16Array(input.length);
     for (let i = 0; i < input.length; i++) {
         const s = Math.max(-1, Math.min(1, input[i]));
         output[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
     }
+    
     const bytes = new Uint8Array(output.buffer);
     let binary = '';
     const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
+    // Chunk processing to avoid stack overflow on large buffers
+    const chunk = 8192;
+    for (let i = 0; i < len; i += chunk) {
+        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, Math.min(i + chunk, len))));
     }
     return btoa(binary);
 }
@@ -107,15 +115,13 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   const handleBilling = async () => {
       const success = await storageService.deductCredits(user.id, CREDIT_COST_PER_MINUTE);
       if (success) {
-          // Sync user credits
           const updated = await storageService.getUserById(user.id);
           if (updated) onUpdateUser(updated);
           notify(`-5 Crédits (1 min)`, 'info');
       } else {
-          // Not enough credits, kill session
           notify("Crédits épuisés. Fin de l'appel.", 'error');
           onShowPayment();
-          onClose(); // Force exit
+          onClose(); 
       }
   };
 
@@ -125,11 +131,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           liveSessionRef.current = null;
       }
       if (processorRef.current) {
-          processorRef.current.disconnect();
+          try { processorRef.current.disconnect(); } catch(e){}
           processorRef.current = null;
       }
       if (sourceNodeRef.current) {
-          sourceNodeRef.current.disconnect();
+          try { sourceNodeRef.current.disconnect(); } catch(e){}
           sourceNodeRef.current = null;
       }
       if (mediaStreamRef.current) {
@@ -143,7 +149,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   };
 
   const handleStart = async () => {
-      // Check initial credits (need at least 5 for 1 minute)
       const allowed = await storageService.canRequest(user.id, CREDIT_COST_PER_MINUTE);
       if (!allowed) {
           notify("Il faut 5 crédits minimum pour démarrer.", 'error');
@@ -152,15 +157,16 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       }
 
       setStatus('connecting');
-      setSubStatus("Initialisation audio...");
+      setSubStatus("Initialisation audio (16kHz)...");
       setErrorMessage('');
 
       try {
-          // Init Audio Context (Must be user gesture)
-          // Gemini Live Output is 24kHz. Setting context to 24000 simplifies things, 
-          // but browsers usually prefer 44.1/48k. We'll use default and let AudioBuffer resampling handle it.
+          // --- CRITICAL AUDIO SETUP ---
+          // We force 16kHz for the AudioContext. 
+          // This ensures the browser handles resampling from the hardware mic (e.g. 48k) to 16k transparently.
+          // Gemini Live LOVES 16kHz input.
           const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          const ctx = new AudioContextClass(); // Default rate (e.g. 48000)
+          const ctx = new AudioContextClass({ sampleRate: 16000 });
           
           await ctx.resume();
           audioCtxRef.current = ctx;
@@ -178,32 +184,30 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       } catch (e: any) {
           console.error("Start Error", e);
           setStatus('error');
-          setErrorMessage(e.message || "Erreur de démarrage");
+          setErrorMessage(e.message || "Erreur de démarrage (Micro/Réseau)");
           fullCleanup();
       }
   };
 
-  // Connection Logic with Key Rotation
   const connectWithRotation = async (ctx: AudioContext) => {
       const keys = getApiKeys();
       if (keys.length === 0) throw new Error("Aucune clé API configurée.");
 
       let connected = false;
-      let lastError;
 
       for (const apiKey of keys) {
           try {
-              console.log("Trying connection with key ending in...", apiKey.slice(-4));
+              console.log("Connecting to Gemini Live...");
               const ai = new GoogleGenAI({ apiKey });
               
               const sysPrompt = `
-                Tu es un professeur de langue expert et bienveillant.
+                Tu es un professeur de langue.
                 Langue cible: ${targetLang}.
                 Niveau élève: ${level}.
-                Ton: Encouraging, naturel, conversationnel.
-                INSTRUCTION: Parle UNIQUEMENT pour enseigner ou converser dans la langue cible.
-                Si l'élève fait une erreur, corrige-le gentiment puis continue.
-                IMPORTANT: Salue l'élève immédiatement et brièvement pour commencer.
+                Instructions:
+                1. Parle UNIQUEMENT dans la langue cible (${targetLang}).
+                2. Sois bref et encourageant.
+                3. COMMENCE PAR DIRE BONJOUR ET DEMANDER COMMENT ÇA VA.
               `;
 
               const session = await ai.live.connect({
@@ -225,16 +229,18 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       },
                       onmessage: async (msg: any) => {
                           if (!mountedRef.current) return;
-                          // Audio Output
+                          
+                          // Audio Output Processing
                           const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                           if (audioData) {
                               setSubStatus("Le prof parle...");
                               await playAudioChunk(audioData, ctx);
                           }
-                          // Turn Complete
+                          
+                          // Turn Management
                           if (msg.serverContent?.turnComplete) {
                               setSubStatus("À vous...");
-                              // Ensure we track time correctly for gapless playback
+                              // Sync time for gapless
                               if (ctx.currentTime > nextStartTimeRef.current) {
                                   nextStartTimeRef.current = ctx.currentTime;
                               }
@@ -256,33 +262,31 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               liveSessionRef.current = session;
               connected = true;
               
-              // Start Audio Capture AFTER connection is established
-              // This prevents the race condition where 'session' is undefined
+              // Start Capture AFTER session is ready
               await startAudioCapture(ctx, session);
-
-              break; // Success, stop rotation
+              break; 
 
           } catch (e: any) {
-              console.warn("Key failed:", e);
-              lastError = e;
-              continue; // Try next key
+              console.warn("Key failed, trying next...", e);
+              continue;
           }
       }
 
       if (!connected) {
-          throw new Error("Service indisponible (Toutes les clés ont échoué).");
+          throw new Error("Service indisponible (Connexion échouée).");
       }
   };
 
   const startAudioCapture = async (ctx: AudioContext, session: any) => {
       try {
+          // Request mic. We don't force sampleRate here (some browsers fail), 
+          // we rely on the AudioContext being 16kHz to handle the flow.
           const stream = await navigator.mediaDevices.getUserMedia({
               audio: {
                   channelCount: 1,
                   echoCancellation: true,
                   noiseSuppression: true,
-                  autoGainControl: true,
-                  sampleRate: 16000 // Request ideal rate for speech
+                  autoGainControl: true
               }
           });
           mediaStreamRef.current = stream;
@@ -290,7 +294,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           const source = ctx.createMediaStreamSource(stream);
           sourceNodeRef.current = source;
           
-          // Use ScriptProcessor for wide compatibility (AudioWorklet is better but requires external file)
+          // Buffer size 4096 is safe for 16kHz (approx 250ms chunks)
           const processor = ctx.createScriptProcessor(4096, 1, 1);
           processorRef.current = processor;
 
@@ -299,29 +303,28 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               
               const inputData = e.inputBuffer.getChannelData(0);
               
-              // Visualizer
+              // Calculate volume for visualizer
               let sum = 0;
               for(let i=0; i<inputData.length; i++) sum += inputData[i] * inputData[i];
               const rms = Math.sqrt(sum / inputData.length);
-              setAudioLevel(Math.min(100, rms * 500));
+              setAudioLevel(Math.min(100, rms * 800));
 
-              // Convert & Send
-              // We send even low volume to ensure 'presence' and avoid aggressive gating
+              // Convert Float32 -> Int16 PCM Base64
               const base64Data = floatTo16BitPCM(inputData);
+              
               try {
-                  // Send at current context rate, Gemini Live adapts
+                  // SENDING: We explicitly tell Gemini this is 16kHz PCM
                   session.sendRealtimeInput({
-                      mimeType: `audio/pcm;rate=${ctx.sampleRate}`,
+                      mimeType: "audio/pcm;rate=16000",
                       data: base64Data
                   });
               } catch(err) {
-                  // Ignore if closed
-                  console.warn("Send failed", err);
+                  // Session might be closing/closed
               }
           };
 
           source.connect(processor);
-          processor.connect(ctx.destination); // Essential for ScriptProcessor to run in some browsers
+          processor.connect(ctx.destination); // Required for script processor to run
 
       } catch (e: any) {
           console.error("Mic setup failed", e);
@@ -331,10 +334,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
   const playAudioChunk = async (base64: string, ctx: AudioContext) => {
       try {
-          // Ensure AudioContext is running
-          if (ctx.state === 'suspended') {
-              await ctx.resume();
-          }
+          if (ctx.state === 'suspended') await ctx.resume();
 
           const buffer = await base64ToAudioBuffer(base64, ctx);
           const source = ctx.createBufferSource();
@@ -342,8 +342,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           source.connect(ctx.destination);
           
           const now = ctx.currentTime;
-          // Gapless playback logic
-          // If next start time is way in the past (lag), reset to now
+          // Playback scheduling logic
           if (nextStartTimeRef.current < now) {
               nextStartTimeRef.current = now;
           }
