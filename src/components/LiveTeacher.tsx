@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Volume2 } from 'lucide-react';
+import { X, Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Volume2, Activity } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -39,7 +39,7 @@ const pcmToAudioBuffer = (base64: string, ctx: AudioContext) => {
     return buffer;
 };
 
-// 2. Rééchantillonnage (Downsampling) : 48kHz -> 16kHz
+// 2. Rééchantillonnage (Downsampling) : 44.1/48kHz -> 16kHz
 const downsampleBuffer = (buffer: Float32Array, inputRate: number, outputRate: number) => {
     if (inputRate === outputRate) return buffer;
     
@@ -85,6 +85,7 @@ const floatTo16BitPCM = (input: Float32Array) => {
 };
 
 const getApiKey = () => {
+    // Rotation basique si plusieurs clés
     const keys = (process.env.API_KEY || "").split(',').map(k => k.trim()).filter(k => k.length > 10);
     return keys[Math.floor(Math.random() * keys.length)];
 };
@@ -95,17 +96,21 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   const [volume, setVolume] = useState(0); // Pour la visualisation
   const [isMuted, setIsMuted] = useState(false);
   const [duration, setDuration] = useState(0);
+  const [teacherSpeaking, setTeacherSpeaking] = useState(false);
   
   // Refs pour gestion mémoire et audio
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
-  const wsSessionRef = useRef<any>(null); // Session Gemini
   const nextStartTimeRef = useRef(0); // Pour coller les morceaux audio sans trous
   const isMountedRef = useRef(true);
+  const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   useEffect(() => {
       isMountedRef.current = true;
+      // Démarrage auto
+      startSession();
+      
       return () => {
           isMountedRef.current = false;
           handleHangup();
@@ -119,6 +124,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           interval = setInterval(() => {
               setDuration(d => {
                   const next = d + 1;
+                  // Facturation chaque minute
                   if (next > 0 && next % 60 === 0) handleBilling();
                   return next;
               });
@@ -139,8 +145,9 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
   const startSession = async () => {
       if (!(await storageService.canRequest(user.id, 5))) {
-          notify("Il faut 5 crédits minimum.", "error");
+          notify("Il faut 5 crédits minimum pour l'appel Live.", "error");
           onShowPayment();
+          onClose();
           return;
       }
 
@@ -148,12 +155,12 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       setSubStatus("Initialisation audio...");
 
       try {
-          // 1. Initialiser l'AudioContext
+          // 1. Initialiser l'AudioContext (Impératif sur click utilisateur ou au mount si autorisé)
           const AC = window.AudioContext || (window as any).webkitAudioContext;
-          const ctx = new AC(); 
+          const ctx = new AC(); // Pas de sampleRate forcé ici, on s'adapte au hardware
           await ctx.resume();
           audioContextRef.current = ctx;
-          nextStartTimeRef.current = ctx.currentTime;
+          nextStartTimeRef.current = ctx.currentTime + 0.1; // Buffer initial
 
           // 2. Connexion Gemini
           const apiKey = getApiKey();
@@ -163,10 +170,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           
           setSubStatus("Connexion IA...");
           
-          // Prompt système strict pour forcer l'interaction
-          const sysPrompt = `You are a friendly language teacher for ${user.preferences?.targetLanguage || 'English'} (Level: ${user.preferences?.level || 'Beginner'}). 
-          Introduce yourself briefly in 1 sentence and ask a simple question to start the conversation.
-          IMPORTANT: Speak immediately upon connection.`;
+          // Prompt système strict
+          const sysPrompt = `You are TeacherMada, a friendly language teacher helping user learn ${user.preferences?.targetLanguage || 'French'}.
+          Level: ${user.preferences?.level || 'Beginner'}.
+          Keep responses concise and conversational (1-2 sentences max).
+          Correction policy: Gently correct mistakes before answering.`;
 
           const session = await client.live.connect({
               model: LIVE_MODEL,
@@ -183,42 +191,46 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                           console.log(">>> LIVE CONNECTED");
                           setStatus('connected');
                           setSubStatus("En ligne");
-                          // Note: On ne peut pas envoyer de texte ici avec la version actuelle du SDK Live
-                          // On compte sur le systemInstruction pour déclencher la parole.
+                          
+                          // FORCE TEACHER TO SPEAK FIRST
+                          // On envoie un message texte "caché" pour déclencher la réponse audio
+                          session.send([{ text: "Introduce yourself briefly and ask me a simple question." }], true);
                       }
                   },
                   onmessage: async (msg: any) => {
                       // Audio du modèle
                       const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                       if (audioData) {
-                          setSubStatus("Teacher parle...");
+                          setTeacherSpeaking(true);
+                          setSubStatus("Le prof parle...");
                           await playAudioChunk(audioData, ctx);
                       }
                       
                       // Fin du tour
                       if (msg.serverContent?.turnComplete) {
+                          setTeacherSpeaking(false);
                           setSubStatus("À vous...");
-                          // Resynchronisation si latence
+                          // Resynchronisation si latence excessive
                           if (nextStartTimeRef.current < ctx.currentTime) {
                               nextStartTimeRef.current = ctx.currentTime;
                           }
                       }
                   },
                   onclose: () => {
-                      console.log("Session closed");
+                      console.log("Session closed remote");
                       handleHangup();
                   },
                   onerror: (err) => {
                       console.error("Session error", err);
-                      notify("Erreur de connexion", "error");
-                      handleHangup();
+                      // Ignore les erreurs mineures de fermeture
+                      if (isMountedRef.current) {
+                          // notify("Erreur de connexion live", "error");
+                      }
                   }
               }
           });
 
-          wsSessionRef.current = session;
-
-          // 3. Démarrer le Micro
+          // 3. Démarrer le Micro et le streaming vers l'IA
           await startMicrophone(ctx, session);
 
       } catch (e: any) {
@@ -236,26 +248,28 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   echoCancellation: true,
                   noiseSuppression: true,
                   autoGainControl: true,
-                  sampleRate: INPUT_SAMPLE_RATE // On demande, mais le navigateur peut ignorer
               }
           });
           mediaStreamRef.current = stream;
 
           const source = ctx.createMediaStreamSource(stream);
+          // Utilisation de ScriptProcessor (legacy mais large support) pour capter le PCM
           const processor = ctx.createScriptProcessor(4096, 1, 1);
           processorRef.current = processor;
 
           processor.onaudioprocess = (e) => {
-              if (isMuted || !wsSessionRef.current) return;
+              // Ne pas envoyer si on est en mute
+              if (isMuted) return;
 
               const inputData = e.inputBuffer.getChannelData(0);
               const actualSampleRate = e.inputBuffer.sampleRate;
 
-              // 1. Visualizer
+              // 1. Visualizer (RMS)
               let sum = 0;
+              // Echantillonnage partiel pour perf
               for (let i = 0; i < inputData.length; i += 10) sum += inputData[i] * inputData[i];
               const rms = Math.sqrt(sum / (inputData.length / 10));
-              setVolume(Math.min(100, rms * 500));
+              setVolume(Math.min(100, rms * 400)); // Amplification visuelle
 
               // 2. Downsampling CRITIQUE (ex: 48k -> 16k)
               // C'est ici que la magie opère pour que l'IA comprenne la voix
@@ -265,17 +279,23 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               const base64Audio = floatTo16BitPCM(downsampledData);
               
               try {
-                  session.sendRealtimeInput({
+                  // Envoi en temps réel
+                  session.sendRealtimeInput([{
                       mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
                       data: base64Audio
-                  });
+                  }]);
               } catch (err) {
-                  // Ignore erreurs si session fermée entre temps
+                  // Session fermée ou erreur réseau
               }
           };
 
           source.connect(processor);
-          processor.connect(ctx.destination); // Nécessaire pour activer le scriptProcessor
+          // Hack: le processor doit être connecté à la destination pour "tirer" le flux,
+          // mais on met le gain à 0 pour ne pas s'entendre soi-même (feedback loop).
+          const muteNode = ctx.createGain();
+          muteNode.gain.value = 0;
+          processor.connect(muteNode);
+          muteNode.connect(ctx.destination);
 
       } catch (e) {
           console.error("Mic Error", e);
@@ -293,13 +313,15 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           source.connect(ctx.destination);
 
           const now = ctx.currentTime;
-          // Gestion file d'attente
-          if (nextStartTimeRef.current < now) {
-              nextStartTimeRef.current = now + 0.05; // Petit buffer de sécurité
-          }
-
-          source.start(nextStartTimeRef.current);
-          nextStartTimeRef.current += buffer.duration;
+          // Gestion file d'attente "Gapless"
+          // Si le temps prévu est passé, on joue tout de suite
+          // Sinon on planifie à la suite du morceau précédent
+          const startTime = Math.max(now, nextStartTimeRef.current);
+          
+          source.start(startTime);
+          nextStartTimeRef.current = startTime + buffer.duration;
+          
+          activeSourceRef.current = source;
 
       } catch (e) {
           console.error("Playback Error", e);
@@ -307,9 +329,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   };
 
   const handleHangup = () => {
-      if (wsSessionRef.current) {
-          try { wsSessionRef.current.close(); } catch(e){}
-      }
       if (mediaStreamRef.current) {
           mediaStreamRef.current.getTracks().forEach(t => t.stop());
       }
@@ -320,7 +339,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           audioContextRef.current.close().catch(() => {});
       }
       
-      wsSessionRef.current = null;
       mediaStreamRef.current = null;
       processorRef.current = null;
       audioContextRef.current = null;
@@ -332,59 +350,17 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
   // --- RENDER UI ---
 
-  if (status === 'idle') {
-      return (
-          <div className="fixed inset-0 z-[150] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in font-sans">
-              <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-8 text-center shadow-2xl relative border border-slate-200 dark:border-slate-800">
-                  <button onClick={onClose} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-500 transition-colors"><X className="w-5 h-5"/></button>
-                  
-                  <div className="w-24 h-24 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mx-auto mb-6 relative">
-                      <div className="absolute inset-0 rounded-full border-2 border-indigo-500/20 animate-ping"></div>
-                      <Phone className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
-                  </div>
-                  
-                  <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-2">Appel Live</h2>
-                  <p className="text-slate-500 text-sm mb-6 px-4">
-                      Discutez naturellement avec l'IA. <br/>Correction et fluidité en temps réel.
-                  </p>
-                  
-                  <div className="flex flex-col gap-3">
-                      <button 
-                          onClick={startSession}
-                          className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-2"
-                      >
-                          <Phone className="w-5 h-5 fill-current" /> Démarrer (5 crédits)
-                      </button>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Coût : 1 crédit / minute après</p>
-                  </div>
-              </div>
-          </div>
-      );
-  }
-
-  if (status === 'error') {
-      return (
-          <div className="fixed inset-0 z-[150] bg-slate-900/90 flex items-center justify-center p-6 font-sans">
-              <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-8 text-center shadow-2xl border-2 border-red-500/50">
-                  <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-                  <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Erreur</h3>
-                  <p className="text-sm text-slate-500 mb-6">{subStatus}</p>
-                  <button onClick={onClose} className="w-full py-3 bg-slate-100 dark:bg-slate-800 font-bold rounded-xl">Fermer</button>
-              </div>
-          </div>
-      );
-  }
-
-  // INTERFACE D'APPEL ACTIF
   return (
       <div className="fixed inset-0 z-[150] bg-slate-950 flex flex-col font-sans overflow-hidden">
           
           {/* Header */}
           <div className="p-8 pt-12 text-center relative z-10">
-              <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full mb-4">
-                  {status === 'connecting' ? <Loader2 className="w-3 h-3 text-emerald-400 animate-spin"/> : <Wifi className="w-3 h-3 text-emerald-400"/>}
-                  <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">
-                      {status === 'connecting' ? 'CONNEXION...' : 'EN LIGNE'}
+              <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full backdrop-blur-md border mb-4 transition-all ${
+                  status === 'connected' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-400'
+              }`}>
+                  {status === 'connecting' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wifi className="w-3 h-3"/>}
+                  <span className="text-[10px] font-bold uppercase tracking-widest">
+                      {status === 'connecting' ? 'CONNEXION...' : status === 'connected' ? 'EN LIGNE' : 'ERREUR'}
                   </span>
               </div>
               <h2 className="text-3xl font-black text-white tracking-tight">{user.preferences?.targetLanguage}</h2>
@@ -395,24 +371,53 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
           {/* Visualizer Central */}
           <div className="flex-1 flex flex-col items-center justify-center relative w-full">
-              {/* Cercles qui pulsent selon le volume */}
+              {/* Cercles qui pulsent selon le volume ou l'activité du prof */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-48 h-48 rounded-full border border-indigo-500/30 transition-all duration-75" style={{ transform: `scale(${1 + volume/100})`, opacity: Math.min(1, volume/50) }}></div>
-                  <div className="w-64 h-64 rounded-full border border-indigo-500/20 absolute transition-all duration-100" style={{ transform: `scale(${1 + volume/150})`, opacity: Math.min(0.5, volume/80) }}></div>
+                  {/* Pulse Micro Utilisateur */}
+                  {!teacherSpeaking && (
+                      <>
+                        <div className="w-48 h-48 rounded-full border border-indigo-500/30 transition-all duration-75" style={{ transform: `scale(${1 + volume/100})`, opacity: Math.min(1, volume/50) }}></div>
+                        <div className="w-64 h-64 rounded-full border border-indigo-500/20 absolute transition-all duration-100" style={{ transform: `scale(${1 + volume/150})`, opacity: Math.min(0.5, volume/80) }}></div>
+                      </>
+                  )}
+                  {/* Pulse Professeur */}
+                  {teacherSpeaking && (
+                      <>
+                        <div className="w-56 h-56 rounded-full bg-emerald-500/10 animate-ping absolute"></div>
+                        <div className="w-48 h-48 rounded-full border-2 border-emerald-500/50 animate-pulse absolute"></div>
+                      </>
+                  )}
               </div>
 
               {/* Avatar */}
-              <div className="relative z-10 w-40 h-40 rounded-full bg-slate-900 border-4 border-indigo-500 shadow-[0_0_50px_rgba(99,102,241,0.3)] overflow-hidden">
+              <div className={`relative z-10 w-40 h-40 rounded-full bg-slate-900 border-4 shadow-[0_0_50px_rgba(99,102,241,0.3)] overflow-hidden transition-colors duration-300 ${teacherSpeaking ? 'border-emerald-500' : 'border-indigo-500'}`}>
                   <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-cover p-6" alt="AI Teacher" />
               </div>
 
               {/* Statut Textuel */}
-              <div className="mt-8 h-6">
-                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest animate-pulse">
+              <div className="mt-8 h-6 flex items-center gap-2">
+                  {teacherSpeaking ? (
+                      <Activity className="w-4 h-4 text-emerald-400 animate-bounce" />
+                  ) : (
+                      <div className={`w-2 h-2 rounded-full ${isMuted ? 'bg-red-500' : 'bg-indigo-500 animate-pulse'}`}></div>
+                  )}
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">
                       {subStatus}
                   </p>
               </div>
           </div>
+
+          {/* Erreur overlay */}
+          {status === 'error' && (
+              <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50">
+                  <div className="bg-slate-900 p-6 rounded-2xl border border-red-500/50 text-center max-w-xs">
+                      <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-3" />
+                      <h3 className="text-white font-bold mb-1">Erreur de connexion</h3>
+                      <p className="text-slate-400 text-xs mb-4">{subStatus}</p>
+                      <button onClick={onClose} className="w-full py-3 bg-white text-slate-900 font-bold rounded-xl">Quitter</button>
+                  </div>
+              </div>
+          )}
 
           {/* Contrôles */}
           <div className="p-10 pb-16 flex items-center justify-center gap-8 relative z-10">

@@ -1,8 +1,8 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, MicOff, Wifi, WifiOff, Lock, Keyboard, Check, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, AlertTriangle, Check } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession } from '../types';
-import { sendMessageStream, generateNextLessonPrompt, generateSpeech } from '../services/geminiService';
+import { sendMessageStream, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import MarkdownRenderer from './MarkdownRenderer';
 import LiveTeacher from './LiveTeacher';
@@ -20,7 +20,7 @@ interface Props {
   onChangeCourse: () => void;
 }
 
-// Helper to convert Raw PCM to AudioBuffer
+// Helper to convert Raw PCM to AudioBuffer (For TTS usage inside Chat)
 function pcmToAudioBuffer(data: Uint8Array, ctx: AudioContext, sampleRate: number = 24000) {
     const pcm16 = new Int16Array(data.buffer);
     const float32 = new Float32Array(pcm16.length);
@@ -183,8 +183,7 @@ const ChatInterface: React.FC<Props> = ({
   };
 
   const handleVoiceCallClick = async () => {
-      // Basic check before opening setup modal
-      const allowed = await storageService.canRequest(user.id, 5); // Check for 5 credits min for live
+      const allowed = await storageService.canRequest(user.id, 5); 
       if (!allowed) {
           notify("Il faut 5 crédits minimum pour l'appel Live.", "error");
           onShowPayment();
