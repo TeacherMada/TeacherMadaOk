@@ -195,11 +195,9 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       onopen: () => {
                           if (isMountedRef.current) {
                               setStatus('connected');
-                              setSubStatus("En Ligne");
-                              // Trigger auto start
-                              setTimeout(() => {
-                                  session.send([{ text: `Bonjour ! Introduce yourself in ${user.preferences?.targetLanguage} and start the class.` }]);
-                              }, 500);
+                              setSubStatus("C'est à vous !");
+                              // NO session.send() here to avoid TS Error. 
+                              // We rely on user speaking first or systemInstruction initializing (if model supports auto-start).
                           }
                       },
                       onmessage: async (msg: any) => {
