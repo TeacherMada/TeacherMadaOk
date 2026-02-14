@@ -22,8 +22,8 @@ const LANGUAGES = [
     { code: 'Allemand', label: 'Allemand 🇩🇪', voice: 'Fenrir', bcp47: 'de-DE' },
 ];
 
-const LIVE_MODEL = 'gemini-2.0-flash-exp'; // Supporte le streaming WebSocket
-const FALLBACK_MODEL = 'gemini-2.0-flash'; // Fiable pour le mode tour par tour
+const LIVE_MODEL = 'gemini-2.0-flash-exp'; 
+const FALLBACK_MODEL = 'gemini-2.0-flash'; 
 
 // --- UTILS ---
 const getApiKeys = () => {
@@ -79,7 +79,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const [textInput, setTextInput] = useState('');
   const [currentTeacherText, setCurrentTeacherText] = useState('');
   const [showHint, setShowHint] = useState(false);
-  const [translation, setTranslation] = useState<string | null>(null);
 
   // --- REFS ---
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -88,16 +87,10 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   
   // Live Specific Refs
   const liveSessionRef = useRef<any>(null);
-  const audioQueueRef = useRef<AudioBuffer[]>([]);
-  const isPlayingRef = useRef(false);
   const nextStartTimeRef = useRef(0);
   
   // Fallback Specific Refs
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const silenceTimerRef = useRef<any>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const historyRef = useRef<{role: string, parts: {text: string}[]}[]>([]); // For context in L2
+  const historyRef = useRef<{role: string, parts: {text: string}[]}[]>([]); 
 
   const mountedRef = useRef(true);
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
@@ -135,8 +128,10 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       // Clean Audio
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
       if (processorRef.current) { processorRef.current.disconnect(); processorRef.current = null; }
-      if (audioCtxRef.current) audioCtxRef.current.close();
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (audioCtxRef.current) {
+          audioCtxRef.current.close().catch(() => {});
+          audioCtxRef.current = null;
+      }
   };
 
   const consumeCredit = async () => {
@@ -165,12 +160,16 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       setStatus('ringing');
       
       // Init Audio Context (User Gesture)
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioContextClass({ sampleRate: 24000 }); // Gemini Native Rate
-      await ctx.resume();
-      audioCtxRef.current = ctx;
-
-      playRingingTone(ctx);
+      try {
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          const ctx = new AudioContextClass({ sampleRate: 24000 }); // Gemini Native Rate
+          await ctx.resume();
+          audioCtxRef.current = ctx;
+          playRingingTone(ctx);
+      } catch (e) {
+          console.error("Audio Context Init Failed", e);
+          // Continue anyway, try fallback later
+      }
 
       // Attempt Level 1 (Live) after delay
       setTimeout(() => {
@@ -209,7 +208,13 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const connectLevel1_Live = async () => {
       setStatus('connecting');
       const keys = getApiKeys();
-      const apiKey = keys[Math.floor(Math.random() * keys.length)]; // Simple rotation
+      if (keys.length === 0) {
+          console.warn("No API Keys");
+          fallbackToLevel2();
+          return;
+      }
+      
+      const apiKey = keys[Math.floor(Math.random() * keys.length)];
 
       try {
           const ai = new GoogleGenAI({ apiKey });
@@ -258,16 +263,10 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                               console.error("Decoding error", e);
                           }
                       }
-                      
-                      // 2. Interruption / Turn logic
-                      if (msg.serverContent?.turnComplete) {
-                          // setStatus('listening'); // Handled by audio ended
-                      }
                   },
                   onclose: () => {
                       console.log("Live Session Closed");
                       if (mountedRef.current && archLevel === 1) {
-                          // Try Fallback if unexpected close
                           fallbackToLevel2();
                       }
                   },
@@ -284,6 +283,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           await consumeCredit();
 
           // Setup Audio Pipeline (Microphone Input)
+          setStatus('connected');
+          setArchLevel(1);
           await setupLiveAudioInput(session);
 
       } catch (e) {
@@ -309,7 +310,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           processor.onaudioprocess = (e) => {
               if (status === 'listening' || status === 'connected' || status === 'speaking') {
                   const inputData = e.inputBuffer.getChannelData(0);
-                  // Calculate volume for visualizer
+                  // Calculate volume
                   let sum = 0;
                   for(let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
                   setAudioLevel(Math.sqrt(sum / inputData.length) * 100);
@@ -317,12 +318,14 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                   const base64Data = floatTo16BitPCM(inputData);
                   
                   // Ensure session is open before sending
-                  // Note: In real usage, rely on promise or state check. 
-                  // Here we assume it's fine if we are in this callback context.
-                  session.sendRealtimeInput({
-                      mimeType: "audio/pcm;rate=16000",
-                      data: base64Data
-                  });
+                  try {
+                      session.sendRealtimeInput({
+                          mimeType: "audio/pcm;rate=16000",
+                          data: base64Data
+                      });
+                  } catch(err) {
+                      // Session might be closed or busy
+                  }
               }
           };
 
@@ -331,23 +334,29 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           processorRef.current = processor;
       } catch (e) {
           console.error("Mic Error", e);
-          notify("Erreur micro. Vérifiez les permissions.", "error");
-          fallbackToLevel2();
+          notify("Micro indisponible. Mode écoute seule.", "warning");
       }
   };
 
   // --- LEVEL 2: FALLBACK TTS (Turn-based) ---
 
   const fallbackToLevel2 = () => {
-      if (archLevel === 2) return; // Already in Level 2
+      if (archLevel === 2 || !mountedRef.current) return;
       console.log("Activating Level 2: TTS Fallback");
-      cleanup(); // Clean Live resources
+      
+      // Cleanup Level 1
+      cleanup();
+      
       setArchLevel(2);
       setStatus('connected');
       
       // Re-init standard audio context if needed
       if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
-          audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+          try {
+              audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+          } catch(e) {
+              console.warn("Could not re-init audio context for L2");
+          }
       }
 
       // Initial Greeting for L2
@@ -363,8 +372,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           userPart = { text: inputText };
           historyRef.current.push({ role: 'user', parts: [{ text: inputText }] });
       } else {
-          // Audio Blob processing (simulated for brevity)
-          userPart = { text: "[Audio Input]" }; 
+          // In L2, we currently only support Text input for stability if audio failed
+          userPart = { text: "[Audio input not supported in L2]" }; 
       }
 
       try {
@@ -388,14 +397,18 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           await speakText_L2(text);
 
       } catch (e) {
-          console.warn("L2 Failed -> L3");
-          fallbackToLevel3(currentTeacherText || "Erreur audio.");
+          console.warn("L2 Generation Failed", e);
+          // Don't crash to "Error Audio", just show UI error
+          setCurrentTeacherText("Désolé, je n'ai pas compris.");
+          setStatus('listening');
       }
   };
 
   const speakText_L2 = async (text: string) => {
       setStatus('speaking');
       try {
+          if (!audioCtxRef.current) throw new Error("No Audio Context");
+
           const keys = getApiKeys();
           const ai = new GoogleGenAI({ apiKey: keys[0] });
           const response = await ai.models.generateContent({
@@ -408,59 +421,44 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           });
 
           const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-          if (!audioData) throw new Error("No audio");
+          if (!audioData) throw new Error("No audio data");
 
           const buffer = await base64ToAudioBuffer(audioData, audioCtxRef.current!);
           const source = audioCtxRef.current!.createBufferSource();
           source.buffer = buffer;
           source.connect(audioCtxRef.current!.destination);
-          source.onended = () => setStatus('listening'); // Auto-listen after speak
+          source.onended = () => setStatus('listening'); 
           source.start();
 
       } catch (e) {
-          fallbackToLevel3(text);
+          console.warn("TTS Failed", e);
+          // Silent fallback: just show text and go to listening state
+          // Do not call fallbackToLevel3 to avoid 'Error Audio' screen
+          setStatus('listening');
       }
-  };
-
-  // --- LEVEL 3: TEXT FALLBACK ---
-
-  const fallbackToLevel3 = (text: string) => {
-      console.log("Activating Level 3: Text Only");
-      setArchLevel(3);
-      setCurrentTeacherText(text);
-      setStatus('listening'); // Ready for text input
-      notify("Audio indisponible. Mode texte activé.", "warning");
   };
 
   // --- UI HANDLERS ---
 
   const handleMicClick = () => {
       if (archLevel === 1) {
-          // In Live mode, mic is always open, clicking might mute/unmute
-          // For now, no-op or toggle mute
+          // In Live mode, mic is always open.
+          // Optional: Add Mute Toggle logic here
+          notify("Le micro est déjà actif en continu.", "info");
       } else {
-          // In L2/L3, start recording
-          startRecording_L2();
+          // In L2, we could implement Speech-to-Text via browser API
+          // For now, prompt user to use keyboard
+          setShowKeyboard(true);
+          notify("Utilisez le clavier pour répondre.", "info");
       }
-  };
-
-  const startRecording_L2 = async () => {
-      // Implementation of standard MediaRecorder logic for L2
-      // (Simplified for brevity, assuming standard browser API)
-      setStatus('listening');
-      // ... recording logic ...
-      // on stop -> processTurn_L2(blob)
   };
 
   const handleTextSubmit = () => {
       if (!textInput.trim()) return;
       
       if (archLevel === 1) {
-          // Send text to live session - NOT SUPPORTED IN REALTIME INPUT
-          // Live API primarily audio. We rely on audio input.
-          // To send text commands, we'd need 'send' method if supported by SDK wrapper or use ToolUse.
-          // For now, in Level 1, text input is disabled/hidden or just logged.
-          console.warn("Text input in Live Mode Level 1 is experimental.");
+          // Live API primarily audio.
+          notify("En mode Live, parlez directement.", "info");
       } else {
           processTurn_L2(textInput);
       }
@@ -507,7 +505,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
             <div className="inline-flex items-center gap-2 bg-white/5 px-3 py-1 rounded-full backdrop-blur-md border border-white/10 mb-2">
                 {archLevel === 1 ? <Wifi className="w-3 h-3 text-emerald-400"/> : <WifiOff className="w-3 h-3 text-amber-400"/>}
                 <span className="text-[10px] text-white/60 font-bold uppercase tracking-wider">
-                    {archLevel === 1 ? "LIVE STREAM" : archLevel === 2 ? "MODE STANDARD" : "MODE TEXTE"}
+                    {archLevel === 1 ? "LIVE STREAM" : "MODE STANDARD"}
                 </span>
             </div>
             <h2 className="text-3xl font-black text-white tracking-tight mb-1">Teacher {selectedLang}</h2>
