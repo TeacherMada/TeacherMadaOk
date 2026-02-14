@@ -91,24 +91,6 @@ Bienvenue dans la documentation officielle de **TeacherMada**. Ce document déta
 
 ---
 
-## 📑 Table des Matières
-
-1.  [Introduction & Concept](#1-introduction--concept)
-2.  [Premiers Pas (Installation & Compte)](#2-premiers-pas-installation--compte)
-3.  [Configuration Initiale (Onboarding)](#3-configuration-initiale-onboarding)
-4.  [L'Interface Principale (Le Chat)](#4-linterface-principale-le-chat)
-5.  [Live Teacher (Appel Vocal IA)](#5-live-teacher-appel-vocal-ia)
-6.  [Modules d'Apprentissage](#6-modules-dapprentissage)
-    *   [Jeux de Rôle (Dialogues)](#jeux-de-rôle)
-    *   [Exercices Générés](#exercices)
-7.  [Espace Personnel (Dashboard)](#7-espace-personnel-dashboard)
-8.  [Système de Crédits & Paiements](#8-système-de-crédits--paiements)
-9.  [Assistant Guide (Chatbot Aide)](#9-assistant-guide-chatbot-aide)
-10. [À propos](#10-À-propos)
-<!--11. [Architecture Technique (Pour Développeurs/IA)](#11-architecture-technique)-->
-
----
-
 ## 1. Introduction & Concept
 
 **TeacherMada** est une plateforme moderne d’apprentissage des langues conçue pour aider chaque apprenant à parler, comprendre et maîtriser une langue étrangère de manière progressive, pratique et efficace.
@@ -248,7 +230,7 @@ Accessible en cliquant sur l'avatar en haut à droite. C'est le panneau de contr
     *   Mode Sombre/Clair.
     *   Modifier le mot de passe.
 5.  **Sauvegarde :**
-    *   **Exporter :** Télécharge un fichier `.json` contenant toute la progression (utile si changement de téléphone).
+    *   **Exporter :** Télécharge un fichier .json contenant toute la progression (utile si changement de téléphone).
     *   **Importer :** Restaure la progression depuis un fichier.
 
 ---
