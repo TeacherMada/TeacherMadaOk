@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Phone, Keyboard, Send, Lock, Loader2, ChevronDown, Lightbulb, Languages, Sparkles, Mic, Volume2, Wifi, WifiOff, Activity, AlertTriangle, Settings2, Globe } from 'lucide-react';
+import { X, Phone, Keyboard, Send, Lock, Loader2, ChevronDown, Lightbulb, Languages, Sparkles, Mic, Volume2, Wifi, WifiOff, Activity, AlertTriangle, Settings2, Globe, RefreshCcw } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -22,7 +22,8 @@ const LANGUAGES = [
     { code: 'Allemand', label: 'Allemand 🇩🇪', voice: 'Fenrir', bcp47: 'de-DE' },
 ];
 
-const LIVE_MODEL = 'gemini-2.0-flash-exp'; 
+// Mise à jour du modèle vers la version Native Audio Preview requise pour le Live API
+const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025'; 
 
 // --- UTILS ---
 const getApiKeys = () => {
@@ -68,13 +69,13 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const [archLevel, setArchLevel] = useState<1 | 2 | 3>(1);
   
   // UI States
-  const [status, setStatus] = useState<'setup' | 'ringing' | 'connecting' | 'connected' | 'speaking' | 'listening' | 'processing'>('setup');
+  const [status, setStatus] = useState<'setup' | 'ringing' | 'connecting' | 'connected' | 'speaking' | 'listening' | 'processing' | 'error'>('setup');
+  const [errorMessage, setErrorMessage] = useState<string>('');
   const [duration, setDuration] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
   const [selectedLang, setSelectedLang] = useState(user.preferences?.targetLanguage?.split(' ')[0] || 'Anglais');
   
   // Interaction
-  const [currentTeacherText, setCurrentTeacherText] = useState('');
   const [showHint, setShowHint] = useState(false);
 
   // --- REFS ---
@@ -100,7 +101,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
   useEffect(() => {
       let interval: any;
-      if (status !== 'setup' && status !== 'ringing' && status !== 'connecting') {
+      if (status === 'connected' || status === 'speaking' || status === 'listening') {
           interval = setInterval(() => {
               setDuration(d => {
                   // Live Mode Cost: 1 Credit per minute
@@ -118,10 +119,17 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       // Clean Live
       if (liveSessionRef.current) {
           try { liveSessionRef.current.close(); } catch(e){}
+          liveSessionRef.current = null;
       }
       // Clean Audio
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
-      if (processorRef.current) { processorRef.current.disconnect(); processorRef.current = null; }
+      streamRef.current = null;
+      
+      if (processorRef.current) { 
+          processorRef.current.disconnect(); 
+          processorRef.current = null; 
+      }
+      
       if (audioCtxRef.current) {
           audioCtxRef.current.close().catch(() => {});
           audioCtxRef.current = null;
@@ -136,7 +144,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       } else {
           notify("Crédits épuisés.", "error");
           onShowPayment();
-          onClose();
+          setStatus('error');
+          setErrorMessage("Crédits épuisés");
           return false;
       }
   };
@@ -152,6 +161,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       }
 
       setStatus('ringing');
+      setErrorMessage('');
       
       // Init Audio Context (User Gesture)
       try {
@@ -187,13 +197,14 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   };
 
   const getSystemPrompt = () => `
-    CONTEXTE: Appel téléphonique Vocal Live.
+    CONTEXTE: Appel vocal en direct.
     RÔLE: Professeur de langue natif (${selectedLang}).
     TON: Amical, encourageant, conversationnel.
+    INSTRUCTION CLÉ: Tu dois parler le PREMIER dès la connexion.
+    MESSAGE D'ACCUEIL: "Bonjour ! Je suis ton professeur ${selectedLang}. Comment vas-tu aujourd'hui ?"
     RÈGLES:
     1. Réponses COURTES (max 15 mots).
     2. Pose toujours une question de relance.
-    3. IMPÉRATIF: PRENDS LA PAROLE IMMÉDIATEMENT (Dis "Bonjour, je suis ton prof ${selectedLang}, on commence ?").
   `;
 
   // --- LEVEL 1: GEMINI LIVE ONLY (TEST MODE) ---
@@ -226,6 +237,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                   onopen: () => {
                       console.log(">>> LIVE SESSION ESTABLISHED <<<");
                       setStatus('connected');
+                      // Wait a bit then check if we are receiving data
                   },
                   onmessage: async (msg: any) => {
                       // 1. Audio Output
@@ -257,15 +269,19 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                           }
                       }
                   },
-                  onclose: () => {
-                      console.log("Live Session Closed");
-                      notify("Session Live fermée par le serveur.", "info");
-                      onClose(); // Close app, DO NOT FALLBACK
+                  onclose: (e) => {
+                      console.log("Live Session Closed", e);
+                      if (mountedRef.current) {
+                          setStatus('error');
+                          setErrorMessage("La session a été fermée par le serveur.");
+                      }
                   },
                   onerror: (err: any) => {
                       console.error("Live Error", err);
-                      notify(`Erreur Live API: ${err.message || 'Inconnue'}`, "error");
-                      // DO NOT FALLBACK - We want to see the error
+                      if (mountedRef.current) {
+                          setStatus('error');
+                          setErrorMessage(`Erreur Live API: ${err.message || 'Inconnue'}`);
+                      }
                   }
               }
           });
@@ -282,9 +298,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
       } catch (e: any) {
           console.error("Live Connection Exception:", e);
-          notify(`Echec Connexion Live: ${e.message}`, "error");
-          setStatus('setup');
-          // DO NOT FALLBACK
+          setStatus('error');
+          setErrorMessage(`Echec Connexion: ${e.message || "Erreur réseau"}`);
       }
   };
 
@@ -305,29 +320,31 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           const processor = audioCtxRef.current.createScriptProcessor(4096, 1, 1);
           
           processor.onaudioprocess = (e) => {
-              if (status === 'listening' || status === 'connected' || status === 'speaking') {
-                  const inputData = e.inputBuffer.getChannelData(0);
-                  // Calculate volume
-                  let sum = 0;
-                  for(let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
-                  setAudioLevel(Math.sqrt(sum / inputData.length) * 100);
+              // Only send if we are in a valid state
+              if (status === 'error' || !liveSessionRef.current) return;
 
-                  const base64Data = floatTo16BitPCM(inputData);
-                  
-                  // Ensure session is open before sending
-                  try {
-                      session.sendRealtimeInput({
-                          mimeType: "audio/pcm;rate=16000",
-                          data: base64Data
-                      });
-                  } catch(err) {
-                      // Session might be closed or busy
-                  }
+              const inputData = e.inputBuffer.getChannelData(0);
+              
+              // Calculate volume for visualizer
+              let sum = 0;
+              for(let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
+              setAudioLevel(Math.sqrt(sum / inputData.length) * 100);
+
+              const base64Data = floatTo16BitPCM(inputData);
+              
+              try {
+                  // Use the ref to ensure we are sending to the active session
+                  liveSessionRef.current.sendRealtimeInput({
+                      mimeType: "audio/pcm;rate=16000",
+                      data: base64Data
+                  });
+              } catch(err) {
+                  // Session might be closed or busy, ignore safe errors
               }
           };
 
           source.connect(processor);
-          processor.connect(audioCtxRef.current.destination); // Required for script processor to run
+          processor.connect(audioCtxRef.current.destination);
           processorRef.current = processor;
       } catch (e) {
           console.error("Mic Error", e);
@@ -337,9 +354,9 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
   // --- UI HANDLERS ---
 
-  const handleMicClick = () => {
-      // Mute toggle visualization
-      notify("Micro actif (streaming continu)", "info");
+  const handleRetry = () => {
+      cleanup();
+      handleStartCall();
   };
 
   // --- RENDER ---
@@ -353,8 +370,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                     <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce-slight">
                         <Settings2 className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
                     </div>
-                    <h2 className="text-2xl font-black text-slate-900 dark:text-white">Live Test Mode</h2>
-                    <p className="text-slate-500 text-sm mt-1">Appel Vocal (Strict Live API)</p>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white">Live Voice v2</h2>
+                    <p className="text-slate-500 text-sm mt-1">Modèle: Gemini 2.5 Audio</p>
                 </div>
                 <div className="space-y-4">
                     <div>
@@ -366,7 +383,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                         </div>
                     </div>
                     <button onClick={handleStartCall} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-2xl shadow-lg shadow-emerald-500/30 transform active:scale-95 transition-all flex items-center justify-center gap-2 mt-4">
-                        <Phone className="w-5 h-5 fill-current" /> TESTER LIVE (1 Crd)
+                        <Phone className="w-5 h-5 fill-current" /> APPEL LIVE (1 Crd)
                     </button>
                 </div>
             </div>
@@ -374,14 +391,39 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       );
   }
 
+  // --- ERROR STATE ---
+  if (status === 'error') {
+      return (
+        <div className="fixed inset-0 z-[100] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in font-sans">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-8 shadow-2xl border-2 border-red-500/50 relative text-center">
+                <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <AlertTriangle className="w-8 h-8 text-red-500" />
+                </div>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white mb-2">Connexion Interrompue</h2>
+                <p className="text-slate-500 dark:text-slate-300 text-sm mb-6">{errorMessage}</p>
+                
+                <div className="flex gap-3">
+                    <button onClick={onClose} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-colors">
+                        Quitter
+                    </button>
+                    <button onClick={handleRetry} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
+                        <RefreshCcw className="w-4 h-4" /> Réessayer
+                    </button>
+                </div>
+            </div>
+        </div>
+      );
+  }
+
+  // --- ACTIVE CALL STATE ---
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-sans overflow-hidden">
         {/* Header */}
         <div className="relative z-10 p-8 pt-10 text-center">
-            <div className="inline-flex items-center gap-2 bg-red-500/20 px-3 py-1 rounded-full backdrop-blur-md border border-red-500/50 mb-2">
-                <Wifi className="w-3 h-3 text-red-400 animate-pulse"/>
-                <span className="text-[10px] text-red-100 font-bold uppercase tracking-wider">
-                    MODE TEST: LIVE ONLY
+            <div className="inline-flex items-center gap-2 bg-emerald-500/20 px-3 py-1 rounded-full backdrop-blur-md border border-emerald-500/50 mb-2">
+                <Wifi className="w-3 h-3 text-emerald-400 animate-pulse"/>
+                <span className="text-[10px] text-emerald-100 font-bold uppercase tracking-wider">
+                    GEMINI LIVE 2.5
                 </span>
             </div>
             <h2 className="text-3xl font-black text-white tracking-tight mb-1">Teacher {selectedLang}</h2>
@@ -392,24 +434,39 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
 
         {/* Visualizer */}
         <div className="relative flex-1 flex flex-col items-center justify-center w-full mb-10">
-            <div className={`w-40 h-40 rounded-full bg-slate-900 border-4 shadow-2xl flex items-center justify-center overflow-hidden transition-all duration-500 relative z-20 ${status === 'speaking' ? 'border-emerald-500 scale-105' : 'border-white/10'}`}>
+            {/* Avatar Pulse Ring */}
+            <div className={`absolute w-60 h-60 rounded-full border border-white/5 animate-ping opacity-20 ${status === 'speaking' ? 'block' : 'hidden'}`}></div>
+            <div className={`absolute w-80 h-80 rounded-full border border-white/5 animate-ping opacity-10 animation-delay-500 ${status === 'speaking' ? 'block' : 'hidden'}`}></div>
+
+            <div className={`w-40 h-40 rounded-full bg-slate-900 border-4 shadow-2xl flex items-center justify-center overflow-hidden transition-all duration-500 relative z-20 ${status === 'speaking' ? 'border-emerald-500 scale-110 shadow-emerald-500/50' : 'border-white/10'}`}>
                 <img src={TEACHER_AVATAR} className={`w-full h-full object-cover p-5 ${status === 'ringing' ? 'animate-bounce-slight' : ''}`} alt="Teacher" />
             </div>
             
-            {/* Audio Wave */}
+            {/* Audio Wave Visualization */}
             <div className="h-24 flex items-center justify-center gap-1.5 mt-8 w-full max-w-xs">
                 {status === 'listening' || archLevel === 1 ? (
-                    [...Array(5)].map((_, i) => (
-                        <div key={i} className="w-2 bg-indigo-500 rounded-full transition-all duration-75" style={{ height: `${Math.max(10, audioLevel * (1 + Math.random()))}px` }}></div>
+                    [...Array(7)].map((_, i) => (
+                        <div 
+                            key={i} 
+                            className={`w-2 rounded-full transition-all duration-75 ${status === 'speaking' ? 'bg-emerald-500' : 'bg-indigo-500'}`} 
+                            style={{ 
+                                height: `${Math.max(8, audioLevel * (status === 'speaking' ? 2 : 1) * (1 + Math.random()))}px`,
+                                opacity: Math.max(0.3, audioLevel / 50) 
+                            }}
+                        ></div>
                     ))
                 ) : <div className="h-1 w-20 bg-white/5 rounded-full"></div>}
             </div>
+            
+            <p className="text-white/50 text-xs font-bold uppercase tracking-widest mt-4">
+                {status === 'speaking' ? "Le prof parle..." : status === 'listening' ? "À vous..." : "Connexion..."}
+            </p>
         </div>
 
-        {/* Input Controls */}
+        {/* Controls */}
         <div className="grid grid-cols-3 gap-8 w-full max-w-xs mx-auto items-center mb-12 relative z-10">
             <button onClick={() => setShowHint(!showHint)} className="flex flex-col items-center gap-2 group">
-                <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center text-white"><Lightbulb className="w-6 h-6"/></div>
+                <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors"><Lightbulb className="w-6 h-6"/></div>
                 <span className="text-[10px] text-white/50 font-bold uppercase">Aide</span>
             </button>
             <button onClick={onClose} className="flex flex-col items-center gap-2 group hover:scale-105 transition-transform">
@@ -417,7 +474,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
             </button>
             <button className="flex flex-col items-center gap-2 group opacity-50 cursor-not-allowed">
                 <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center text-white"><Keyboard className="w-6 h-6"/></div>
-                <span className="text-[10px] text-white/50 font-bold uppercase">Clavier Off</span>
+                <span className="text-[10px] text-white/50 font-bold uppercase">Clavier</span>
             </button>
         </div>
     </div>
