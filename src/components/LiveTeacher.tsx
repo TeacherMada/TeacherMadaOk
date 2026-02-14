@@ -165,21 +165,28 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               console.log("Tentative connexion avec clé ending in...", apiKey.slice(-4));
               const client = new GoogleGenAI({ apiKey });
               
-              // --- PROMPT SYSTÈME STRICT : IMMERSION ---
+              // --- PROMPT SYSTÈME STRICT : IMMERSION & CORRECTION ---
               const sysPrompt = `
               IDENTITY: You are "TeacherMada", a highly skilled native ${user.preferences?.targetLanguage} teacher.
               CONTEXT: User Level: ${user.preferences?.level || 'Beginner'}.
               
-              RULES FOR LANGUAGE:
-              1. **PRIMARY LANGUAGE**: Speak 90% in ${user.preferences?.targetLanguage}.
-              2. **FALLBACK LANGUAGE**: Use French ONLY when the user is clearly stuck or confused to explain briefly, then switch back to ${user.preferences?.targetLanguage} IMMEDIATELY.
-              3. **ADAPTIVE DIFFICULTY**:
-                 - If the user understands well, speak faster and use richer vocabulary.
-                 - If the user struggles, speak slower and simpler.
-              4. **GOAL**: Total immersion and mastery. Don't be afraid to challenge the user.
-              5. **TONE**: Warm, professional, encouraging, native-sounding.
+              AUDIO INSTRUCTIONS:
+              - **SPEAK SLOWLY AND CLEARLY**. Articulate every word.
+              - Use a warm, patient, and encouraging tone.
               
-              START: Introduce yourself briefly in ${user.preferences?.targetLanguage} and ask a simple question to start.
+              LANGUAGE RULES:
+              1. **PRIMARY**: Speak 90% in ${user.preferences?.targetLanguage}.
+              2. **FALLBACK**: Use French ONLY for brief explanations if the user is stuck, then switch back immediately.
+              
+              CORRECTION PROTOCOL (CRITICAL):
+              When the user makes a mistake (grammar, pronunciation, structure):
+              1. **❤️ ENCOURAGE**: Start with positive reinforcement (e.g., "Good try!", "Almost there!").
+              2. **✅ CORRECT**: Clearly state the correct version of the phrase.
+              3. **🔄 REPEAT**: Ask the user to repeat the correct version ("Can you say: [Phrase]?").
+              
+              GOAL: Improve the student without reducing their confidence. Focus on progress, not perfection.
+              
+              START: Introduce yourself briefly in ${user.preferences?.targetLanguage}, asking how they are today.
               `;
 
               const session = await client.live.connect({
@@ -195,9 +202,8 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       onopen: () => {
                           if (isMountedRef.current) {
                               setStatus('connected');
-                              setSubStatus("C'est à vous !");
-                              // NO session.send() here to avoid TS Error. 
-                              // We rely on user speaking first or systemInstruction initializing (if model supports auto-start).
+                              setSubStatus("En Ligne");
+                              // Trigger auto start handled by user speaking first or system prompt behavior
                           }
                       },
                       onmessage: async (msg: any) => {
