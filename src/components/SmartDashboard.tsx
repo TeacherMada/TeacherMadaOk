@@ -3,7 +3,6 @@ import React, { useState, useMemo } from 'react';
 import { UserProfile, ChatMessage, ExplanationLanguage, UserPreferences } from '../types';
 import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck, Upload, Library, TrendingUp, Star, CreditCard, Plus, AlertTriangle } from 'lucide-react';
 import { storageService } from '../services/storageService';
-import { extractVocabulary } from '../services/geminiService';
 import { toast } from './Toaster';
 
 interface Props {
@@ -82,31 +81,6 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
           setTimeout(() => window.location.reload(), 1500);
       } else {
           toast.error("Fichier invalide ou corrompu.");
-      }
-  };
-
-  const handleExtract = async () => {
-      // Check Credits
-      if (!(await storageService.canRequest(user.id))) {
-          toast.error("Crédits insuffisants pour l'extraction IA.");
-          onShowPayment();
-          return;
-      }
-
-      // Use passed messages or fallback to storage
-      const history = messages.length > 0 ? messages : storageService.getChatHistory(user.preferences!.targetLanguage);
-      if (history.length < 2) {
-        toast.info("Parlez un peu plus avant d'extraire des mots.");
-        return;
-      }
-      
-      try {
-        const newWords = await extractVocabulary(history);
-        const updated = { ...user, vocabulary: [...newWords, ...user.vocabulary].slice(0, 100) };
-        onUpdateUser(updated);
-        toast.success(`${newWords.length} mots ajoutés à votre boîte !`);
-      } catch (e) {
-          toast.error("Erreur lors de l'extraction.");
       }
   };
 
@@ -252,12 +226,6 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                         </div>
                     </div>
 
-                    {/* Vocab Extraction Action */}
-                    <button onClick={handleExtract} className="w-full py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl flex items-center justify-center gap-3 shadow-sm hover:shadow-md transition-all group">
-                        <Sparkles className="w-5 h-5 text-indigo-500 group-hover:scale-110 transition-transform" />
-                        <span className="font-bold text-sm text-slate-700 dark:text-slate-200">Extraire Mots Clés (IA)</span>
-                    </button>
-
                     {/* Settings List */}
                     <div className="space-y-1">
                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 ml-1">Préférences</h3>
@@ -364,3 +332,4 @@ const SettingsItem = ({ icon, title, value, onClick }: any) => (
 );
 
 export default SmartDashboard;
+    
