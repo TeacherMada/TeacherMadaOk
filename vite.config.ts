@@ -1,3 +1,4 @@
+
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -18,6 +19,16 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom', 'react-markdown', 'remark-gfm'],
+            'vendor-ui': ['lucide-react'],
+            'vendor-ai': ['@google/genai'],
+            'vendor-db': ['@supabase/supabase-js'],
+          }
+        }
+      }
     }
   }
 })

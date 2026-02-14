@@ -263,8 +263,9 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               
               // --- CRITICAL FIX: SEND TRIGGER MESSAGE ---
               // Force the model to speak first by sending a hidden text prompt
+              // Use (session as any) to bypass TypeScript error 'Property send does not exist on Session'
               try {
-                  await session.send([{ text: "Bonjour ! La session commence. Présente-toi brièvement." }], true);
+                  await (session as any).send([{ text: "Bonjour ! La session commence. Présente-toi brièvement." }], true);
               } catch (triggerError) {
                   console.warn("Trigger warning:", triggerError);
               }
