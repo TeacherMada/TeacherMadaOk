@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { UserProfile, ChatMessage, ExplanationLanguage, UserPreferences } from '../types';
-import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck, Upload, Library, TrendingUp, Star, CreditCard, Plus, AlertTriangle } from 'lucide-react';
+import { X, LogOut, Sun, Moon, Book, Trophy, Volume2, Sparkles, Loader2, Trash2, Settings, User, ChevronRight, Save, Globe, Download, ShieldCheck, Upload, Library, TrendingUp, Star, CreditCard, Plus, AlertTriangle, MessageCircle, Phone, Brain, ArrowRight } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { toast } from './Toaster';
 
@@ -14,10 +14,16 @@ interface Props {
   toggleTheme: () => void;
   messages: ChatMessage[];
   onOpenAdmin: () => void;
-  onShowPayment: () => void; // New Prop
+  onShowPayment: () => void;
+  onStartPractice: () => void; // Added
+  onStartExercise: () => void; // Added
+  onStartVoice: () => void;    // Added
 }
 
-const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, messages, onOpenAdmin, onShowPayment }) => {
+const SmartDashboard: React.FC<Props> = ({ 
+    user, onClose, onLogout, isDarkMode, toggleTheme, onUpdateUser, messages, 
+    onOpenAdmin, onShowPayment, onStartPractice, onStartExercise, onStartVoice 
+}) => {
   const [activeTab, setActiveTab] = useState<'menu' | 'edit'>('menu');
   const [isImporting, setIsImporting] = useState(false);
   
@@ -27,22 +33,6 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
 
   // Low Credit Check
   const isLowCredits = user.credits < 2;
-
-  // --- SMART PROGRESS CALCULATION ---
-  const progressData = useMemo(() => {
-      const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'HSK 1', 'HSK 2', 'HSK 3', 'HSK 4', 'HSK 5', 'HSK 6'];
-      const currentLevel = user.preferences?.level || 'A1';
-      const currentIndex = levels.indexOf(currentLevel);
-      const nextLevel = currentIndex < levels.length - 1 ? levels[currentIndex + 1] : 'Expert';
-      
-      const points = (user.stats.lessonsCompleted * 10) + (user.stats.exercisesCompleted * 5) + (user.stats.dialoguesCompleted * 8);
-      const threshold = 500;
-      
-      // Calculate real progress based on assumption that 1 lesson = 2% (from ChatInterface logic)
-      const lessonBasedPercentage = Math.min((user.stats.lessonsCompleted + 1) * 2, 100);
-      
-      return { percentage: lessonBasedPercentage, nextLevel, currentLevel };
-  }, [user.stats, user.preferences?.level]);
 
   const handleSaveProfile = async () => {
       if (!editName.trim()) return;
@@ -134,7 +124,7 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                     onClick={() => setActiveTab('menu')} 
                     className={`flex-1 pb-3 text-sm font-bold transition-all relative ${activeTab === 'menu' ? 'text-indigo-600 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
                 >
-                    Dashboard
+                    Espace Personnel
                     {activeTab === 'menu' && <div className="absolute bottom-[-2px] left-0 w-full h-[2px] bg-indigo-600 dark:bg-white rounded-t-full"></div>}
                 </button>
             </div>
@@ -147,7 +137,7 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
             {activeTab === 'menu' && (
                 <div className="space-y-6 animate-fade-in">
                     
-                    {/* Wallet Card (New) */}
+                    {/* Wallet Card */}
                     <div className={`p-6 rounded-3xl text-white shadow-xl relative overflow-hidden group transition-all duration-300 ${
                         isLowCredits 
                         ? 'bg-red-600 shadow-red-500/30 animate-pulse ring-4 ring-red-400/50' 
@@ -179,55 +169,56 @@ const SmartDashboard: React.FC<Props> = ({ user, onClose, onLogout, isDarkMode, 
                         </div>
                     </div>
 
-                    {/* Progress Card Enhanced */}
-                    <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-6 rounded-3xl shadow-sm relative overflow-hidden">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                                <TrendingUp className="w-5 h-5 text-indigo-500" /> Progression Globale
-                            </h3>
-                        </div>
-                        
-                        <div className="relative pt-2 pb-6">
-                            {/* Path Line */}
-                            <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-100 dark:bg-slate-700 -z-0"></div>
+                    {/* NEW ACTION BUTTONS (Replacing Progress) */}
+                    <div className="space-y-3">
+                        <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Apprentissage</h3>
+                        <div className="grid grid-cols-1 gap-3">
                             
-                            <div className="flex justify-between items-center relative z-10">
-                                {/* Start Node */}
-                                <div className="flex flex-col items-center gap-2">
-                                    <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-black shadow-lg shadow-indigo-500/30">
-                                        {progressData.currentLevel}
+                            <button onClick={onStartPractice} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 hover:border-indigo-200 dark:hover:border-indigo-800 shadow-sm hover:shadow-md transition-all group">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-full bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center text-violet-600 dark:text-violet-400">
+                                        <MessageCircle className="w-6 h-6" />
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="font-bold text-slate-900 dark:text-white group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">Jeux de Rôle</div>
+                                        <div className="text-xs text-slate-500">Situations réelles</div>
                                     </div>
                                 </div>
+                                <ArrowRight className="w-5 h-5 text-slate-300 group-hover:text-violet-500 transition-colors" />
+                            </button>
 
-                                {/* Dynamic Center Progress */}
-                                <div className="absolute top-1/2 left-0 h-1 bg-indigo-500 transition-all duration-1000" style={{width: `${progressData.percentage}%`}}></div>
-                                <div 
-                                    className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-4 border-indigo-500 rounded-full shadow-md transition-all duration-1000"
-                                    style={{left: `${progressData.percentage}%`}}
-                                >
-                                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
-                                        {progressData.percentage}%
+                            <button onClick={onStartVoice} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 hover:border-emerald-200 dark:hover:border-emerald-800 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+                                <div className="absolute inset-0 bg-emerald-500/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                                <div className="flex items-center gap-4 relative z-10">
+                                    <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 animate-pulse">
+                                        <Phone className="w-6 h-6" />
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">Appel Vocal</div>
+                                        <div className="text-xs text-slate-500">TeacherMada Live</div>
                                     </div>
                                 </div>
+                                <ArrowRight className="w-5 h-5 text-slate-300 group-hover:text-emerald-500 transition-colors relative z-10" />
+                            </button>
 
-                                {/* End Node */}
-                                <div className="flex flex-col items-center gap-2">
-                                    <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center text-xs font-bold">
-                                        {progressData.nextLevel}
+                            <button onClick={onStartExercise} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 hover:border-amber-200 dark:hover:border-amber-800 shadow-sm hover:shadow-md transition-all group">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                                        <Brain className="w-6 h-6" />
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="font-bold text-slate-900 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">Exercices</div>
+                                        <div className="text-xs text-slate-500">Quiz & Pratique</div>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
+                                <ArrowRight className="w-5 h-5 text-slate-300 group-hover:text-amber-500 transition-colors" />
+                            </button>
 
-                        <div className="mt-2 flex gap-4 text-xs font-medium text-slate-500 dark:text-slate-400 justify-center bg-slate-50 dark:bg-slate-900/50 p-3 rounded-2xl">
-                            <div className="flex items-center gap-1.5"><Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500"/> {user.stats.lessonsCompleted} Leçons</div>
-                            <div className="w-px h-4 bg-slate-200 dark:bg-slate-700"></div>
-                            <div className="flex items-center gap-1.5"><Star className="w-3.5 h-3.5 text-emerald-500 fill-emerald-500"/> {user.stats.exercisesCompleted} Exercices</div>
                         </div>
                     </div>
 
                     {/* Settings List */}
-                    <div className="space-y-1">
+                    <div className="space-y-1 pt-4">
                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 ml-1">Préférences</h3>
                         
                         <SettingsItem 
@@ -332,4 +323,3 @@ const SettingsItem = ({ icon, title, value, onClick }: any) => (
 );
 
 export default SmartDashboard;
-    

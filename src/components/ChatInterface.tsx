@@ -5,7 +5,6 @@ import { UserProfile, ChatMessage, LearningSession } from '../types';
 import { sendMessageStream, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import MarkdownRenderer from './MarkdownRenderer';
-import LiveTeacher from './LiveTeacher';
 
 interface Props {
   user: UserProfile;
@@ -15,6 +14,7 @@ interface Props {
   onUpdateUser: (u: UserProfile) => void;
   onStartPractice: () => void;
   onStartExercise: () => void;
+  onStartVoiceCall: () => void; // Added prop
   notify: (m: string, t?: string) => void;
   onShowPayment: () => void;
   onChangeCourse: () => void;
@@ -39,7 +39,8 @@ const ChatInterface: React.FC<Props> = ({
   onExit, 
   onUpdateUser, 
   onStartPractice, 
-  onStartExercise, 
+  onStartExercise,
+  onStartVoiceCall, 
   notify, 
   onShowPayment,
   onChangeCourse
@@ -48,8 +49,6 @@ const ChatInterface: React.FC<Props> = ({
   const [messages, setMessages] = useState<ChatMessage[]>(session.messages);
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  
-  const [showVoiceCall, setShowVoiceCall] = useState(false);
   
   // Audio Playback State (TTS)
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
@@ -127,7 +126,6 @@ const ChatInterface: React.FC<Props> = ({
           return;
       }
       
-      // STRICT CREDIT CHECK FOR AUDIO
       const canPlay = await storageService.canRequest(user.id);
       if (!canPlay) {
           notify("Crédit insuffisant (1 audio = 1 Crédit).", "error");
@@ -189,7 +187,7 @@ const ChatInterface: React.FC<Props> = ({
           onShowPayment();
           return;
       }
-      setShowVoiceCall(true);
+      onStartVoiceCall();
   };
 
   // Progress Data
@@ -216,7 +214,6 @@ const ChatInterface: React.FC<Props> = ({
   const processMessage = async (text: string, isAuto: boolean = false) => {
     if (isStreaming) return;
     
-    // STRICT CHECK BEFORE SENDING
     const canRequest = await storageService.canRequest(user.id);
     if (!canRequest) {
         notify("Crédits insuffisants (1 requête = 1 crédit).", "error");
@@ -247,15 +244,13 @@ const ChatInterface: React.FC<Props> = ({
         }
       }
       
-      // Update Session
       const newMessages = [...newHistory, { id: aiMsgId, role: 'model' as const, text: fullText, timestamp: Date.now() }];
       storageService.saveSession({ ...session, messages: newMessages, progress: (messages.length / 20) * 100 });
 
-      // Handle Lesson Completion (Auto)
       if (isAuto) {
           const newStats = { ...user.stats, lessonsCompleted: (user.stats.lessonsCompleted || 0) + 1 };
           const updated = { ...user, stats: newStats };
-          await storageService.saveUserProfile(updated); // Credits already deducted in service
+          await storageService.saveUserProfile(updated);
       }
 
     } catch (e) {
@@ -290,16 +285,6 @@ const ChatInterface: React.FC<Props> = ({
   return (
     <div className="flex flex-col h-[100dvh] bg-[#F0F2F5] dark:bg-[#0B0F19] font-sans transition-colors duration-300 overflow-hidden" onClick={() => setShowTopMenu(false)}>
       
-      {showVoiceCall && (
-          <LiveTeacher 
-              user={user} 
-              onClose={() => setShowVoiceCall(false)} 
-              onUpdateUser={onUpdateUser} 
-              notify={notify}
-              onShowPayment={onShowPayment}
-          />
-      )}
-
       {/* --- HEADER --- */}
       <header className="fixed top-0 left-0 w-full z-30 bg-white/80 dark:bg-[#131825]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm safe-top">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -426,12 +411,14 @@ const ChatInterface: React.FC<Props> = ({
             </div>
 
             <div className={`flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border transition-all shadow-inner ${isLowCredits ? 'border-red-500/50' : 'border-transparent focus-within:border-indigo-500/30'}`}>
-                {/* LOCKED PHONE BUTTON */}
+                
+                {/* MAGNIFICENT GLOWING PHONE BUTTON */}
                 <button 
                     onClick={handleVoiceCallClick}
-                    className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center bg-slate-200 dark:bg-slate-700 text-slate-500 hover:text-indigo-600 transition-all"
+                    className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)] animate-pulse hover:scale-110 transition-transform active:scale-95 border-2 border-white/20"
+                    title="Démarrer Appel Vocal"
                 >
-                    <Phone className="w-5 h-5" />
+                    <Phone className="w-5 h-5 fill-current" />
                 </button>
 
                 <textarea

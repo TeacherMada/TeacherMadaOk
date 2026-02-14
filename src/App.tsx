@@ -10,6 +10,7 @@ import DialogueSession from './components/DialogueSession';
 import PaymentModal from './components/PaymentModal';
 import AdminDashboard from './components/AdminDashboard';
 import TutorialAgent from './components/TutorialAgent';
+import LiveTeacher from './components/LiveTeacher'; // Import ajouté
 import { UserProfile, LearningSession, ExerciseItem, UserStats, LearningMode } from './types';
 import { storageService } from './services/storageService';
 import { generateExerciseFromHistory } from './services/geminiService';
@@ -43,6 +44,7 @@ const App: React.FC = () => {
   const [showDashboard, setShowDashboard] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showVoiceCall, setShowVoiceCall] = useState(false); // State remonté
   
   // Modes
   const [activeMode, setActiveMode] = useState<'chat' | 'exercise' | 'practice'>('chat');
@@ -63,14 +65,11 @@ const App: React.FC = () => {
     const unsubscribe = storageService.subscribeToUserUpdates((updatedUser) => {
         setUser((currentUser) => {
             // FIX: Sticky Preferences Protection
-            // Si l'utilisateur courant a des préférences mais que la mise à jour (ex: crédit) 
-            // les a perdues, on force la conservation des préférences actuelles.
             if (currentUser && currentUser.id === updatedUser.id) {
                 if (currentUser.preferences && (!updatedUser.preferences || !updatedUser.preferences.targetLanguage)) {
                     return { ...updatedUser, preferences: currentUser.preferences };
                 }
             }
-            // Sinon, on prend la mise à jour telle quelle
             return updatedUser;
         });
     });
@@ -89,12 +88,9 @@ const App: React.FC = () => {
           if (user) {
               const updated = await storageService.getUserById(user.id);
               if (updated) {
-                  // Additional Check: Don't overwrite if remote is missing critical data
                   if (user.preferences && (!updated.preferences || !updated.preferences.targetLanguage)) {
-                      // Remote is incomplete, stick with local
                       return;
                   }
-                  
                   if (
                       updated.credits !== user.credits || 
                       updated.isSuspended !== user.isSuspended ||
@@ -127,16 +123,12 @@ const App: React.FC = () => {
 
   const handleChangeCourse = async () => {
       if (!user) return;
-      
       const currentLang = user.preferences?.targetLanguage;
       const currentHistory = user.preferences?.history || {};
-      
       if (currentLang) {
           currentHistory[currentLang] = user.stats;
       }
-
       const emptyStats: UserStats = { lessonsCompleted: 0, exercisesCompleted: 0, dialoguesCompleted: 0 };
-
       const updatedUser: UserProfile = {
           ...user,
           stats: emptyStats,
@@ -147,7 +139,6 @@ const App: React.FC = () => {
               history: currentHistory
           }
       };
-
       setUser(updatedUser);
       await storageService.saveUserProfile(updatedUser);
       setCurrentSession(null);
@@ -155,16 +146,13 @@ const App: React.FC = () => {
 
   const handleOnboardingComplete = async (prefs: any) => {
     if (!user) return;
-
     const selectedLang = prefs.targetLanguage;
     const history = user.preferences?.history || {};
-    
     const restoredStats = history[selectedLang] || { 
         lessonsCompleted: 0, 
         exercisesCompleted: 0, 
         dialoguesCompleted: 0 
     };
-
     const updated = { 
         ...user, 
         stats: restoredStats,
@@ -173,10 +161,8 @@ const App: React.FC = () => {
             history: history
         } 
     };
-
     setUser(updated);
     await storageService.saveUserProfile(updated);
-    
     const session = storageService.getOrCreateSession(user.id, updated.preferences!);
     setCurrentSession(session);
   };
@@ -214,13 +200,11 @@ const App: React.FC = () => {
               ...user.stats,
               exercisesCompleted: (user.stats.exercisesCompleted || 0) + 1
           };
-          
           const currentLang = user.preferences?.targetLanguage;
           const currentHistory = user.preferences?.history || {};
           if (currentLang) {
               currentHistory[currentLang] = newStats;
           }
-
           const updatedUser = { 
               ...user, 
               stats: newStats,
@@ -229,7 +213,6 @@ const App: React.FC = () => {
                   history: currentHistory
               }
           };
-
           await storageService.saveUserProfile(updatedUser);
           setUser(updatedUser);
           toast.success(`Exercice terminé ! Score : ${score}/${total}`);
@@ -237,9 +220,24 @@ const App: React.FC = () => {
       setActiveMode('chat');
   };
 
+  // Handlers pour le Dashboard
+  const handleStartVoiceCall = () => {
+      setShowDashboard(false);
+      setShowVoiceCall(true);
+  };
+
+  const handleStartPractice = () => {
+      setShowDashboard(false);
+      setActiveMode('practice');
+  };
+
+  const handleStartExerciseFromDash = () => {
+      setShowDashboard(false);
+      startExercise();
+  };
+
   const needsOnboarding = !user?.preferences || !user?.preferences?.targetLanguage;
 
-  // Determine Context for Tutorial Agent
   const getAgentContext = () => {
       if (!user) return "Page d'Accueil (Visiteur non connecté) - Présentation de TeacherMada";
       if (needsOnboarding) return "Configuration du Profil (Langue/Niveau)";
@@ -248,6 +246,7 @@ const App: React.FC = () => {
       if (showDashboard) return "Profil Utilisateur & Statistiques";
       if (activeMode === 'exercise') return "Session d'Exercices (Quiz)";
       if (activeMode === 'practice') return "Session de Dialogue (Roleplay)";
+      if (showVoiceCall) return "Appel Vocal en Direct (TeacherMada Live)";
       return `Chat Principal - Apprentissage du ${user.preferences?.targetLanguage || 'Language'}`;
   };
 
@@ -270,7 +269,6 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-sans transition-colors duration-300">
       <Toaster />
 
-      {/* Tutorial Agent available everywhere (Guest or User), except Admin */}
       {!showAdmin && (
           <TutorialAgent user={user || GUEST_USER} context={getAgentContext()} />
       )}
@@ -280,6 +278,19 @@ const App: React.FC = () => {
               <Loader2 className="w-12 h-12 animate-spin mb-4 text-indigo-500" />
               <p className="font-bold text-lg">Un prof prépare vos exercices...</p>
           </div>
+      )}
+
+      {/* Live Voice Call Overlay */}
+      {showVoiceCall && user && (
+          <LiveTeacher 
+              user={user} 
+              onClose={() => setShowVoiceCall(false)} 
+              onUpdateUser={(updated) => {
+                  setUser(prev => prev ? { ...updated, preferences: prev.preferences } : updated);
+              }} 
+              notify={notify}
+              onShowPayment={() => setShowPayment(true)}
+          />
       )}
 
       {!user && !showAuth && (
@@ -306,26 +317,21 @@ const App: React.FC = () => {
 
       {user && !needsOnboarding && currentSession && (
         <>
-          {activeMode === 'chat' && (
+          {activeMode === 'chat' && !showVoiceCall && (
               <ChatInterface 
                 user={user} 
                 session={currentSession} 
                 onShowProfile={() => setShowDashboard(true)}
                 onExit={() => setCurrentSession(null)}
                 onUpdateUser={(updated) => {
-                    // Direct update protection also here
-                    setUser(prev => {
-                        if (prev && prev.preferences && !updated.preferences) {
-                            return { ...updated, preferences: prev.preferences };
-                        }
-                        return updated;
-                    });
+                    setUser(prev => prev ? { ...updated, preferences: prev.preferences } : updated);
                 }}
                 onStartPractice={() => setActiveMode('practice')}
                 onStartExercise={startExercise}
                 notify={notify}
                 onShowPayment={() => setShowPayment(true)}
                 onChangeCourse={handleChangeCourse}
+                onStartVoiceCall={() => setShowVoiceCall(true)}
               />
           )}
 
@@ -342,13 +348,7 @@ const App: React.FC = () => {
                   user={user}
                   onClose={() => setActiveMode('chat')}
                   onUpdateUser={(updated) => {
-                      // FIX: Apply sticky preferences protection here as well
-                      setUser(prev => {
-                          if (prev && prev.preferences && !updated.preferences) {
-                              return { ...updated, preferences: prev.preferences };
-                          }
-                          return updated;
-                      });
+                      setUser(prev => prev ? { ...updated, preferences: prev.preferences } : updated);
                   }}
                   notify={notify}
                   onShowPayment={() => setShowPayment(true)}
@@ -366,6 +366,9 @@ const App: React.FC = () => {
               messages={currentSession.messages}
               onOpenAdmin={() => { setShowDashboard(false); setShowAdmin(true); }}
               onShowPayment={() => { setShowDashboard(false); setShowPayment(true); }}
+              onStartPractice={handleStartPractice}
+              onStartExercise={handleStartExerciseFromDash}
+              onStartVoice={handleStartVoiceCall}
             />
           )}
 
@@ -378,8 +381,7 @@ const App: React.FC = () => {
         </>
       )}
 
-      {/* Session Resume Screen */}
-      {user && !needsOnboarding && !currentSession && !showAdmin && (
+      {user && !needsOnboarding && !currentSession && !showAdmin && !showVoiceCall && (
         <div className="h-screen flex flex-col items-center justify-center p-6 bg-white dark:bg-slate-900 animate-fade-in">
            <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center text-white mb-8 shadow-2xl shadow-indigo-500/40">
              <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-12 h-12" />
@@ -409,4 +411,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-    

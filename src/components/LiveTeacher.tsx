@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Sparkles, Clock, Coins } from 'lucide-react';
+import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Sparkles, Clock, Coins, Globe, Zap } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -17,7 +17,7 @@ interface LiveTeacherProps {
 const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
-const COST_PER_MINUTE = 5; // 5 crédits par minute
+const COST_PER_MINUTE = 5; 
 
 // --- UTILS AUDIO ---
 const pcmToAudioBuffer = (base64: string, ctx: AudioContext) => {
@@ -75,7 +75,7 @@ const floatTo16BitPCM = (input: Float32Array) => {
 const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [subStatus, setSubStatus] = useState('');
-  const [volume, setVolume] = useState(0); // 0 to 100
+  const [volume, setVolume] = useState(0); 
   const [isMuted, setIsMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [teacherSpeaking, setTeacherSpeaking] = useState(false);
@@ -114,23 +114,18 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   }, [duration]);
 
   const processBilling = async () => {
-      // Déduction en temps réel
       const success = await storageService.deductCredits(user.id, COST_PER_MINUTE);
-      
       if (success) {
-          // Mise à jour visuelle des crédits
           const updatedUser = await storageService.getUserById(user.id);
           if (updatedUser) onUpdateUser(updatedUser);
-          notify(`- ${COST_PER_MINUTE} Crédits (1 min)`, "info");
+          notify(`- ${COST_PER_MINUTE} Crédits`, "info");
       } else {
-          // Stop immédiat si plus de crédits
           notify("Crédits épuisés ! Fin de l'appel.", "error");
           handleHangup();
       }
   };
 
   const startSession = async () => {
-      // Vérification initiale : Il faut au moins de quoi payer la 1ère minute
       if (!(await storageService.canRequest(user.id, COST_PER_MINUTE))) {
           notify(`Il faut ${COST_PER_MINUTE} crédits minimum pour démarrer.`, "error");
           onShowPayment();
@@ -142,7 +137,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       setSubStatus("Initialisation Audio...");
 
       try {
-          // 1. Audio Setup
           const AC = window.AudioContext || (window as any).webkitAudioContext;
           const ctx = new AC(); 
           await ctx.resume();
@@ -151,7 +145,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
           setSubStatus("Recherche serveur...");
           
-          // 2. Rotation des Clés API
           const keys = (process.env.API_KEY || "").split(',').map(k => k.trim()).filter(k => k.length > 10);
           if (keys.length === 0) throw new Error("Aucune clé API configurée");
 
@@ -167,21 +160,26 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   const connectWithRetry = async (keys: string[], ctx: AudioContext) => {
       let lastError = null;
 
-      // Boucle de rotation
       for (const apiKey of keys) {
           try {
               console.log("Tentative connexion avec clé ending in...", apiKey.slice(-4));
               const client = new GoogleGenAI({ apiKey });
               
+              // --- PROMPT SYSTÈME STRICT : IMMERSION ---
               const sysPrompt = `
-              You are "TeacherMada", a professional language tutor.
-              Language: ${user.preferences?.targetLanguage || 'French'}.
-              User Level: ${user.preferences?.level || 'Beginner'}.
+              IDENTITY: You are "TeacherMada", a highly skilled native ${user.preferences?.targetLanguage} teacher.
+              CONTEXT: User Level: ${user.preferences?.level || 'Beginner'}.
               
-              INSTRUCTIONS:
-              - Be warm, patient, and natural.
-              - Correct mistakes gently.
-              - Wait for the user to speak first.
+              RULES FOR LANGUAGE:
+              1. **PRIMARY LANGUAGE**: Speak 90% in ${user.preferences?.targetLanguage}.
+              2. **FALLBACK LANGUAGE**: Use French ONLY when the user is clearly stuck or confused to explain briefly, then switch back to ${user.preferences?.targetLanguage} IMMEDIATELY.
+              3. **ADAPTIVE DIFFICULTY**:
+                 - If the user understands well, speak faster and use richer vocabulary.
+                 - If the user struggles, speak slower and simpler.
+              4. **GOAL**: Total immersion and mastery. Don't be afraid to challenge the user.
+              5. **TONE**: Warm, professional, encouraging, native-sounding.
+              
+              START: Introduce yourself briefly in ${user.preferences?.targetLanguage} and ask a simple question to start.
               `;
 
               const session = await client.live.connect({
@@ -197,8 +195,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       onopen: () => {
                           if (isMountedRef.current) {
                               setStatus('connected');
-                              setSubStatus("C'est à vous ! Dites Bonjour.");
-                              // PAS DE session.send() automatique. L'utilisateur parle en premier.
+                              setSubStatus("En Ligne");
+                              // Trigger auto start
+                              setTimeout(() => {
+                                  session.send([{ text: `Bonjour ! Introduce yourself in ${user.preferences?.targetLanguage} and start the class.` }]);
+                              }, 500);
                           }
                       },
                       onmessage: async (msg: any) => {
@@ -227,25 +228,14 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   }
               });
 
-              // Si on arrive ici, la connexion est réussie
               await startMicrophone(ctx, session);
-              
-              // Déduction immédiate de la première minute (Optionnel, ici on attend la fin de la 1ere minute via le timer)
-              // Mais pour éviter les abus, on peut déduire à la connexion :
-              // await processBilling(); 
-              // -> On garde la logique du timer (déduction à 60s) pour laisser une minute "gratuite" ou de test, 
-              // ou déduire à 60s pour payer la minute passée.
-              
-              return; // Sortie de la boucle et de la fonction
+              return;
 
           } catch (e: any) {
               console.warn("Echec connexion clé", apiKey.slice(-4), e);
               lastError = e;
-              // On continue à la prochaine clé
           }
       }
-
-      // Si on arrive ici, toutes les clés ont échoué
       throw lastError || new Error("Serveurs saturés (Toutes clés HS)");
   };
 
@@ -270,7 +260,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
               const inputData = e.inputBuffer.getChannelData(0);
               
-              // Visualizer fluidité
               let sum = 0;
               for (let i = 0; i < inputData.length; i += 10) sum += inputData[i] * inputData[i];
               const rms = Math.sqrt(sum / (inputData.length / 10));
@@ -333,13 +322,13 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   };
 
   // UI SCALING
-  const scale = 1 + (volume / 25); 
+  const scale = 1 + (volume / 20); 
 
   return (
-      <div className="fixed inset-0 z-[150] bg-[#0B0F19] flex flex-col font-sans overflow-hidden">
+      <div className="fixed inset-0 z-[150] bg-[#050505] flex flex-col font-sans overflow-hidden">
           
           {/* Background Ambient Glow */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none animate-pulse-slow"></div>
+          <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-[150px] pointer-events-none transition-colors duration-1000 ${teacherSpeaking ? 'bg-emerald-900/40' : 'bg-indigo-900/30'}`}></div>
 
           {/* Header */}
           <div className="p-8 pt-12 text-center relative z-10 flex flex-col items-center">
@@ -356,18 +345,15 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               
               <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight drop-shadow-md">TeacherMada</h2>
               <div className="flex items-center gap-2 mt-2 text-indigo-400 font-medium">
-                  <Sparkles className="w-4 h-4" />
-                  <span className="text-sm">{user.preferences?.targetLanguage || 'Apprentissage'} • Niveau {user.preferences?.level}</span>
+                  <Globe className="w-4 h-4" />
+                  <span className="text-sm">Immersion {user.preferences?.targetLanguage} • {user.preferences?.level}</span>
               </div>
               
-              {/* Timer & Cost */}
+              {/* Timer Only */}
               <div className="flex items-center gap-3 mt-4">
-                  <p className="text-slate-500 font-mono text-xs tracking-widest bg-slate-900/50 px-3 py-1 rounded-lg border border-slate-800 flex items-center gap-2">
+                  <p className="text-slate-500 font-mono text-xs tracking-widest bg-slate-900/80 px-3 py-1 rounded-lg border border-slate-800 flex items-center gap-2">
                       <Clock className="w-3 h-3"/>
                       {Math.floor(duration/60).toString().padStart(2,'0')}:{(duration%60).toString().padStart(2,'0')}
-                  </p>
-                  <p className="text-amber-500 font-bold text-xs bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/20 flex items-center gap-1">
-                      <Coins className="w-3 h-3"/> {COST_PER_MINUTE} Crd/min
                   </p>
               </div>
           </div>
@@ -375,42 +361,45 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           {/* Visualizer Central */}
           <div className="flex-1 flex flex-col items-center justify-center relative w-full mb-10">
               
-              {/* Effets d'Ondes Visuelles (User Speaking) */}
+              {/* Effets d'Ondes Visuelles (User Speaking) - Concentric Circles */}
               {!teacherSpeaking && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="absolute w-48 h-48 rounded-full border border-indigo-500/40 transition-transform duration-75 ease-out" 
-                             style={{ transform: `scale(${scale})`, opacity: Math.min(1, volume * 0.1) }}></div>
-                        <div className="absolute w-64 h-64 rounded-full border border-indigo-500/20 transition-transform duration-100 ease-out" 
-                             style={{ transform: `scale(${scale * 0.9})`, opacity: Math.min(0.6, volume * 0.08) }}></div>
-                        <div className="absolute w-80 h-80 rounded-full border border-indigo-500/10 transition-transform duration-200 ease-out" 
+                        <div className="absolute w-48 h-48 rounded-full border border-indigo-500/60 transition-transform duration-75 ease-out" 
+                             style={{ transform: `scale(${scale})`, opacity: Math.min(1, volume * 0.15) }}></div>
+                        <div className="absolute w-64 h-64 rounded-full border border-indigo-500/40 transition-transform duration-100 ease-out" 
+                             style={{ transform: `scale(${scale * 0.9})`, opacity: Math.min(0.6, volume * 0.1) }}></div>
+                        <div className="absolute w-80 h-80 rounded-full border border-indigo-500/20 transition-transform duration-200 ease-out" 
                              style={{ transform: `scale(${scale * 0.8})`, opacity: Math.min(0.3, volume * 0.05) }}></div>
+                        <div className="absolute w-96 h-96 rounded-full border border-indigo-500/10 transition-transform duration-300 ease-out" 
+                             style={{ transform: `scale(${scale * 0.7})`, opacity: Math.min(0.2, volume * 0.03) }}></div>
                   </div>
               )}
 
-              {/* Effets Pulsation (Teacher Speaking) */}
+              {/* Effets Pulsation (Teacher Speaking) - Glowing Aura */}
               {teacherSpeaking && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="absolute w-52 h-52 rounded-full bg-emerald-500/10 animate-ping"></div>
-                        <div className="absolute w-60 h-60 rounded-full border-2 border-emerald-500/20 animate-pulse"></div>
+                        <div className="absolute w-52 h-52 rounded-full bg-emerald-500/20 animate-ping"></div>
+                        <div className="absolute w-64 h-64 rounded-full border-2 border-emerald-500/30 animate-pulse"></div>
+                        <div className="absolute w-80 h-80 rounded-full bg-emerald-500/5 blur-2xl animate-pulse"></div>
                   </div>
               )}
 
               {/* Avatar Central */}
-              <div className={`relative z-20 w-44 h-44 rounded-full bg-[#0F1422] flex items-center justify-center transition-all duration-500 shadow-2xl ${
+              <div className={`relative z-20 w-48 h-48 rounded-full bg-[#0F1422] flex items-center justify-center transition-all duration-500 shadow-2xl ${
                   teacherSpeaking 
-                  ? 'scale-105 border-4 border-emerald-500 shadow-[0_0_60px_rgba(16,185,129,0.3)]' 
+                  ? 'scale-110 border-4 border-emerald-500 shadow-[0_0_80px_rgba(16,185,129,0.4)]' 
                   : 'border-4 border-indigo-500/30 shadow-[0_0_40px_rgba(99,102,241,0.15)]'
               }`}>
-                  <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-28 h-28 object-contain" alt="AI Teacher" />
+                  <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-32 h-32 object-contain drop-shadow-lg" alt="AI Teacher" />
                   
                   {/* Status Indicator inside Avatar */}
-                  <div className={`absolute bottom-4 right-4 w-6 h-6 rounded-full border-4 border-[#0F1422] flex items-center justify-center transition-colors ${teacherSpeaking ? 'bg-emerald-500' : 'bg-indigo-500'}`}>
-                      {teacherSpeaking ? <Activity className="w-3 h-3 text-white animate-bounce" /> : <Mic className="w-3 h-3 text-white" />}
+                  <div className={`absolute bottom-4 right-4 w-7 h-7 rounded-full border-4 border-[#0F1422] flex items-center justify-center transition-colors ${teacherSpeaking ? 'bg-emerald-500' : 'bg-indigo-500'}`}>
+                      {teacherSpeaking ? <Activity className="w-3.5 h-3.5 text-white animate-bounce" /> : <Mic className="w-3.5 h-3.5 text-white" />}
                   </div>
               </div>
 
               {/* Status Textuel Dynamique */}
-              <div className="mt-14 h-8 flex items-center gap-3 px-6 py-2 rounded-2xl bg-white/5 backdrop-blur-md border border-white/10 transition-all duration-300">
+              <div className="mt-16 h-10 flex items-center gap-3 px-6 py-2 rounded-full bg-white/5 backdrop-blur-md border border-white/10 transition-all duration-300 shadow-xl">
                   {teacherSpeaking ? (
                       <>
                         <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
