@@ -16,18 +16,17 @@ interface LiveTeacherProps {
 // --- CONFIGURATION ---
 const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const CREDIT_COST_PER_MINUTE = 5;
-const INPUT_SAMPLE_RATE = 16000; // Standard for Speech-to-Text
-const OUTPUT_SAMPLE_RATE = 24000; // Native Gemini Audio Output
+const OUTPUT_SAMPLE_RATE = 24000; // Native Gemini Output
 
-// Helper to get keys from env and clean them
+// Helper: Get API Keys
 const getApiKeys = () => {
     const rawKey = process.env.API_KEY || "";
     return rawKey.split(',').map(k => k.trim()).filter(k => k.length >= 10);
 };
 
-// --- AUDIO UTILS (Raw PCM Handling) ---
+// --- AUDIO UTILS ---
 
-// Base64 -> AudioBuffer
+// PCM Base64 -> AudioBuffer
 async function base64ToAudioBuffer(base64: string, ctx: AudioContext): Promise<AudioBuffer> {
     const binaryString = atob(base64);
     const len = binaryString.length;
@@ -46,7 +45,7 @@ async function base64ToAudioBuffer(base64: string, ctx: AudioContext): Promise<A
     return buffer;
 }
 
-// Float32 (Browser Mic) -> Base64 PCM16 (Gemini Input)
+// Float32 -> PCM16 Base64
 function floatTo16BitPCM(input: Float32Array) {
     const output = new Int16Array(input.length);
     for (let i = 0; i < input.length; i++) {
@@ -57,7 +56,6 @@ function floatTo16BitPCM(input: Float32Array) {
     const bytes = new Uint8Array(output.buffer);
     let binary = '';
     const len = bytes.byteLength;
-    // Chunk processing for large buffers to avoid stack overflow
     const chunk = 8192;
     for (let i = 0; i < len; i += chunk) {
         binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, Math.min(i + chunk, len))));
@@ -66,7 +64,7 @@ function floatTo16BitPCM(input: Float32Array) {
 }
 
 const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
-  // UI State
+  // State
   const [status, setStatus] = useState<'setup' | 'connecting' | 'connected' | 'error'>('setup');
   const [subStatus, setSubStatus] = useState(''); 
   const [duration, setDuration] = useState(0);
@@ -77,16 +75,13 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   // Visualizer
   const [bars, setBars] = useState<number[]>([10, 15, 10, 20, 10]);
 
-  // Audio References
+  // Refs
   const audioCtxRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const liveSessionRef = useRef<any>(null);
-  
-  // Playback Queue Management
   const nextStartTimeRef = useRef(0);
   const mountedRef = useRef(true);
-  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
 
   const targetLang = user.preferences?.targetLanguage || 'Anglais';
   const level = user.preferences?.level || 'Débutant';
@@ -101,17 +96,13 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       };
   }, []);
 
-  // Timer & Billing Logic
   useEffect(() => {
       let interval: any;
       if (status === 'connected') {
-          interval = setInterval(async () => {
+          interval = setInterval(() => {
               setDuration(d => {
                   const newD = d + 1;
-                  // Deduct credits every minute
-                  if (newD > 0 && newD % 60 === 0) {
-                      handleBilling();
-                  }
+                  if (newD > 0 && newD % 60 === 0) handleBilling();
                   return newD;
               });
           }, 1000);
@@ -119,7 +110,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       return () => clearInterval(interval);
   }, [status]);
 
-  // Visualizer Animation
+  // Visualizer Loop
   useEffect(() => {
       let animFrame: number;
       const animate = () => {
@@ -137,9 +128,9 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       if (success) {
           const updated = await storageService.getUserById(user.id);
           if (updated) onUpdateUser(updated);
-          notify(`-5 Crédits (1 min)`, 'info');
+          notify(`-5 Crédits`, 'info');
       } else {
-          notify("Crédits épuisés. Fin de l'appel.", 'error');
+          notify("Crédits épuisés.", 'error');
           stopSession(); 
       }
   };
@@ -150,13 +141,10 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   };
 
   const fullCleanup = () => {
-      // 1. Close Gemini Session
       if (liveSessionRef.current) {
           try { liveSessionRef.current.close(); } catch(e){}
           liveSessionRef.current = null;
       }
-      
-      // 2. Stop Audio Input
       if (processorRef.current) {
           try { processorRef.current.disconnect(); } catch(e){}
           processorRef.current = null;
@@ -165,26 +153,17 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           mediaStreamRef.current.getTracks().forEach(t => t.stop());
           mediaStreamRef.current = null;
       }
-
-      // 3. Stop Audio Output (Active Sources)
-      activeSourcesRef.current.forEach(source => {
-          try { source.stop(); } catch(e){}
-      });
-      activeSourcesRef.current = [];
-
-      // 4. Close Context
       if (audioCtxRef.current) {
           audioCtxRef.current.close().catch(() => {});
           audioCtxRef.current = null;
       }
   };
 
-  // --- START LOGIC ---
+  // --- CONNECTION ---
 
   const handleStart = async () => {
-      const allowed = await storageService.canRequest(user.id, CREDIT_COST_PER_MINUTE);
-      if (!allowed) {
-          notify("Il faut 5 crédits minimum pour démarrer.", 'error');
+      if (!(await storageService.canRequest(user.id, CREDIT_COST_PER_MINUTE))) {
+          notify("Crédits insuffisants (min 5).", 'error');
           onShowPayment();
           return;
       }
@@ -194,60 +173,44 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       setErrorMessage('');
 
       try {
-          // 1. Initialize Audio Context (Must be user gesture)
           const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          if (!AudioContextClass) throw new Error("Navigateur non compatible.");
-          
           const ctx = new AudioContextClass({ sampleRate: OUTPUT_SAMPLE_RATE });
           await ctx.resume();
           audioCtxRef.current = ctx;
           nextStartTimeRef.current = ctx.currentTime;
 
-          // 2. Billing Initial Deduction
-          const success = await storageService.deductCredits(user.id, CREDIT_COST_PER_MINUTE);
-          if (!success) throw new Error("Crédits insuffisants");
-          const u = await storageService.getUserById(user.id);
-          if (u) onUpdateUser(u);
-
-          setSubStatus("Connexion Serveur...");
+          await storageService.deductCredits(user.id, CREDIT_COST_PER_MINUTE);
           
-          // 3. Connect with Rotation
+          setSubStatus("Connexion IA...");
           await connectWithRotation(ctx);
 
       } catch (e: any) {
           console.error("Start Error", e);
           setStatus('error');
-          setErrorMessage(e.message || "Impossible de démarrer.");
+          setErrorMessage(e.message || "Erreur technique");
           fullCleanup();
       }
   };
 
-  // --- GEMINI CONNECTION ROTATION ---
-
   const connectWithRotation = async (ctx: AudioContext, retryIndex = 0) => {
       const keys = getApiKeys();
-      if (keys.length === 0) throw new Error("Aucune clé API configurée.");
+      if (keys.length === 0) throw new Error("Clé API manquante.");
       
-      // Round-robin selection
       const apiKey = keys[retryIndex % keys.length];
-      const isLastTry = retryIndex >= keys.length * 2; // Allow 2 full loops
-
-      if (isLastTry) {
-          throw new Error("Tous les serveurs sont occupés. Réessayez.");
-      }
+      if (retryIndex >= keys.length * 2) throw new Error("Serveurs occupés.");
 
       try {
-          console.log(`Connecting with key index ${retryIndex % keys.length}...`);
           const ai = new GoogleGenAI({ apiKey });
           
-          const sysPrompt = `You are a friendly language teacher helping a student learn ${targetLang} (Level: ${level}). 
-          Speak briefly (1-2 sentences max). Correct mistakes gently. 
-          IMPORTANT: Start IMMEDIATELY by introducing yourself in ${targetLang} and asking a simple question.`;
+          // Instruction stricte pour forcer l'IA à parler
+          const sysPrompt = `Act as a language teacher for ${targetLang} (${level}). 
+          IMPORTANT: Speak IMMEDIATELY. Say a short greeting and ask a simple question to start.
+          Keep responses concise (1-2 sentences).`;
 
           const session = await ai.live.connect({
               model: LIVE_MODEL,
               config: {
-                  responseModalities: [Modality.AUDIO], // Audio output only
+                  responseModalities: [Modality.AUDIO],
                   systemInstruction: { parts: [{ text: sysPrompt }] },
                   speechConfig: {
                       voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
@@ -255,76 +218,56 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               },
               callbacks: {
                   onopen: () => {
-                      console.log(">>> Live Connected <<<");
                       if (mountedRef.current) {
                           setStatus('connected');
-                          setSubStatus("Connecté");
-                          // FORCE START: Send a dummy message to trigger the model to speak first
-                          setTimeout(() => {
-                              session.send([{ text: "Hello teacher, please start the lesson now." }]);
-                          }, 100);
+                          setSubStatus("Connecté - Dites Bonjour !");
                       }
                   },
                   onmessage: async (msg: any) => {
                       if (!mountedRef.current) return;
                       
-                      // 1. Audio Output Handling
                       const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                       if (audioData) {
-                          setSubStatus("TeacherMada parle...");
-                          setAudioLevel(prev => Math.max(prev, 60)); // Visual boost
+                          setSubStatus("Teacher parle...");
+                          setAudioLevel(prev => Math.max(prev, 60));
                           await queueAudioChunk(audioData, ctx);
                       }
                       
-                      // 2. Turn Complete
                       if (msg.serverContent?.turnComplete) {
                           setSubStatus("À vous...");
-                          // Reset timer sync to avoid lag buildup
+                          // Reset sync if laggy
                           if (nextStartTimeRef.current < ctx.currentTime) {
                               nextStartTimeRef.current = ctx.currentTime;
                           }
                       }
                   },
-                  onclose: (e) => {
-                      console.log("Session closed", e);
-                      // Only treat as error if not intentional closure
+                  onclose: () => {
                       if (mountedRef.current && status === 'connected') {
-                          notify("Connexion interrompue.", 'info');
+                          notify("Session terminée.", 'info');
                           onClose();
                       }
                   },
-                  onerror: (e) => {
-                      console.error("Session Error", e);
-                      // Try next key if this one fails during session
-                      if (mountedRef.current) {
-                          notify("Changement de serveur...", 'info');
-                          fullCleanup(); // Clean current
-                          handleStart(); // Restart fully (simplified retry)
-                      }
-                  }
+                  onerror: (e) => console.error("Live Error", e)
               }
           });
 
           liveSessionRef.current = session;
-          
-          // Start Input Stream immediately
           await startMicrophone(ctx, session);
 
-      } catch (e: any) {
-          console.warn(`Key failed (idx ${retryIndex})`, e);
-          // Recursively try next key
+      } catch (e) {
+          console.warn(`Retry connection...`, e);
           await connectWithRotation(ctx, retryIndex + 1);
       }
   };
 
-  // --- AUDIO INPUT (MIC) ---
+  // --- AUDIO I/O ---
 
   const startMicrophone = async (ctx: AudioContext, session: any) => {
       try {
           const stream = await navigator.mediaDevices.getUserMedia({
               audio: {
                   channelCount: 1,
-                  sampleRate: INPUT_SAMPLE_RATE,
+                  sampleRate: 16000,
                   echoCancellation: true,
                   noiseSuppression: true,
                   autoGainControl: true
@@ -333,7 +276,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           mediaStreamRef.current = stream;
           
           const source = ctx.createMediaStreamSource(stream);
-          // ScriptProcessor is deprecated but reliable for raw PCM extraction in this context without extra files
           const processor = ctx.createScriptProcessor(4096, 1, 1);
           processorRef.current = processor;
 
@@ -342,41 +284,33 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               
               const inputData = e.inputBuffer.getChannelData(0);
               
-              // 1. Calculate RMS for Visualizer
+              // Visualizer logic
               let sum = 0;
               for(let i=0; i<inputData.length; i++) sum += inputData[i] * inputData[i];
               const rms = Math.sqrt(sum / inputData.length);
               setAudioLevel(Math.min(100, rms * 500)); 
 
-              // 2. Downsample/Convert & Send
-              // Note: We are capturing at system rate (often 48k) but Gemini wants PCM. 
-              // Sending Float32 converted to PCM16 is standard.
+              // Send to Gemini
               const base64Data = floatTo16BitPCM(inputData);
-              
               try {
                   session.sendRealtimeInput({
-                      mimeType: `audio/pcm;rate=${e.inputBuffer.sampleRate}`, // Dynamic rate
+                      mimeType: `audio/pcm;rate=${e.inputBuffer.sampleRate}`,
                       data: base64Data
                   });
-              } catch(err) {
-                  // Session might be closing
-              }
+              } catch(err) {}
           };
 
           source.connect(processor);
-          processor.connect(ctx.destination); // Required for script processor to run
+          processor.connect(ctx.destination);
 
-      } catch (e: any) {
-          console.error("Mic setup failed", e);
-          throw new Error("Microphone inaccessible. Vérifiez les permissions.");
+      } catch (e) {
+          console.error("Mic Error", e);
+          throw new Error("Microphone inaccessible.");
       }
   };
 
-  // --- AUDIO OUTPUT (SPEAKER) ---
-
   const queueAudioChunk = async (base64: string, ctx: AudioContext) => {
       try {
-          // Keep context alive
           if (ctx.state === 'suspended') await ctx.resume();
 
           const buffer = await base64ToAudioBuffer(base64, ctx);
@@ -384,24 +318,13 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           source.buffer = buffer;
           source.connect(ctx.destination);
           
-          // Gapless Scheduling
           const now = ctx.currentTime;
-          // If next start time is in the past (lag), reset to now + tiny buffer
-          if (nextStartTimeRef.current < now) {
-              nextStartTimeRef.current = now + 0.05; 
-          }
+          if (nextStartTimeRef.current < now) nextStartTimeRef.current = now + 0.05;
           
           source.start(nextStartTimeRef.current);
           nextStartTimeRef.current += buffer.duration;
-          
-          // Track source for cleanup
-          activeSourcesRef.current.push(source);
-          source.onended = () => {
-              activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
-          };
-
       } catch (e) {
-          console.error("Playback error", e);
+          console.error("Playback Error", e);
       }
   };
 
@@ -425,7 +348,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                           <Wifi className="w-4 h-4"/> Mode Audio Natif
                       </div>
                       <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">
-                          Streaming vocal ultra-rapide. Parlez librement, l'IA vous écoute et vous répond instantanément.
+                          Streaming vocal temps réel. Parlez librement.
                           <br/><strong>Coût : 5 Crédits / minute.</strong>
                       </p>
                   </div>
@@ -451,17 +374,12 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       );
   }
 
-  // CONNECTED VIEW
   return (
       <div className="fixed inset-0 z-[150] bg-slate-950 flex flex-col font-sans overflow-hidden">
           {/* Header */}
           <div className="relative z-10 p-8 pt-12 text-center">
               <div className="inline-flex items-center gap-2 bg-slate-800/80 px-4 py-1.5 rounded-full border border-slate-700 mb-3 backdrop-blur-md">
-                  {status === 'connecting' ? (
-                      <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
-                  ) : (
-                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                  )}
+                  {status === 'connecting' ? <Loader2 className="w-3 h-3 text-amber-500 animate-spin" /> : <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>}
                   <span className="text-[10px] font-black uppercase text-white tracking-widest">
                       {status === 'connecting' ? 'CONNEXION...' : `${Math.floor(duration/60)}:${(duration%60).toString().padStart(2,'0')}`}
                   </span>
@@ -470,9 +388,8 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               <p className="text-indigo-400 text-xs font-bold uppercase tracking-widest mt-1">{level}</p>
           </div>
 
-          {/* Avatar / Visualizer */}
+          {/* Visualizer */}
           <div className="flex-1 flex flex-col items-center justify-center relative w-full mb-20">
-              {/* Ripple Effect based on audio level */}
               {audioLevel > 10 && (
                   <>
                       <div className="absolute w-48 h-48 bg-indigo-500/20 rounded-full animate-ping" style={{ animationDuration: '1s' }}></div>
@@ -484,42 +401,25 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-full h-full object-cover p-8" alt="Teacher" />
               </div>
 
-              {/* Dynamic Visualizer Bars */}
               <div className="h-20 flex items-center justify-center gap-1.5 mt-12">
                   {bars.map((height, i) => (
-                      <div 
-                          key={i} 
-                          className="w-2.5 rounded-full bg-white transition-all duration-75"
-                          style={{
-                              height: `${height}px`,
-                              opacity: status === 'connecting' ? 0.2 : 0.8 + (height/100)
-                          }}
-                      ></div>
+                      <div key={i} className="w-2.5 rounded-full bg-white transition-all duration-75" style={{ height: `${height}px`, opacity: 0.8 + (height/100) }}></div>
                   ))}
               </div>
               
-              <p className="text-white/50 text-xs font-bold uppercase tracking-widest mt-6 animate-pulse">
-                  {subStatus}
-              </p>
+              <p className="text-white/50 text-xs font-bold uppercase tracking-widest mt-6 animate-pulse">{subStatus}</p>
           </div>
 
           {/* Controls */}
           <div className="p-10 pb-16 flex justify-center items-center gap-10 bg-gradient-to-t from-slate-950 to-transparent">
-              <button 
-                  onClick={() => setIsMicMuted(!isMicMuted)} 
-                  className={`p-5 rounded-full transition-all shadow-lg ${isMicMuted ? 'bg-white text-slate-900' : 'bg-slate-800 text-white hover:bg-slate-700 border border-slate-700'}`}
-              >
+              <button onClick={() => setIsMicMuted(!isMicMuted)} className={`p-5 rounded-full transition-all shadow-lg ${isMicMuted ? 'bg-white text-slate-900' : 'bg-slate-800 text-white hover:bg-slate-700 border border-slate-700'}`}>
                   {isMicMuted ? <MicOff className="w-6 h-6"/> : <Mic className="w-6 h-6"/>}
               </button>
               
-              <button 
-                  onClick={stopSession} 
-                  className="w-20 h-20 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(239,68,68,0.4)] transition-transform hover:scale-105"
-              >
+              <button onClick={stopSession} className="w-20 h-20 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(239,68,68,0.4)] transition-transform hover:scale-105">
                   <Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" />
               </button>
               
-              {/* Status Indicator */}
               <button className={`p-5 rounded-full cursor-not-allowed border border-slate-700 opacity-50 ${status === 'connected' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-slate-800 text-slate-500'}`}>
                   <Wifi className="w-6 h-6"/>
               </button>
