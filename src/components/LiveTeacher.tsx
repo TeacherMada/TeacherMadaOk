@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Sparkles } from 'lucide-react';
+import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Sparkles, User } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -90,9 +90,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   const nextStartTimeRef = useRef(0);
   const isMountedRef = useRef(true);
 
-  // Animation Refs
-  const visualizerRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
       isMountedRef.current = true;
       startSession();
@@ -151,25 +148,23 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           
           setSubStatus("Connexion IA...");
           
-          // --- PROMPT SYSTÈME AVANCÉ ---
+          // --- PROMPT SYSTÈME TEACHER MADA ---
           const sysPrompt = `
-          IDENTITY: You are "TeacherMada", a highly professional, warm, and natural language tutor.
-          TARGET LANGUAGE: ${user.preferences?.targetLanguage || 'French'}.
-          USER LEVEL: ${user.preferences?.level || 'Beginner'}.
+          You are "TeacherMada", a professional, warm, and highly skilled language teacher.
           
-          STYLE & TONE:
-          - Voice: Use a natural, conversational prosody. Be enthusiastic but patient.
-          - Emotion: Show empathy. If the user struggles, be encouraging. If they succeed, be genuinely happy.
-          - Role: Simulate a real voice call with a human tutor. Avoid robotic phrasing.
+          CONTEXT:
+          - Target Language: ${user.preferences?.targetLanguage || 'French'}.
+          - User Level: ${user.preferences?.level || 'Beginner'}.
+          - User Name: ${user.username}.
           
-          PEDAGOGY:
-          1. Start by introducing yourself briefly and warmly.
-          2. Ask a simple open question to gauge the user's mood or readiness.
-          3. Guide the conversation step-by-step.
-          4. Gentle Correction: Do not interrupt. Wait for the user to finish, then gently suggest a better way to say it before continuing.
-          
-          CRITICAL INSTRUCTION:
-          You MUST speak first immediately upon connection. Introduce yourself and welcome the student.
+          INSTRUCTIONS:
+          1. **START IMMEDIATELY**: As soon as connected, greet the user warmly and introduce yourself as TeacherMada. Ask a simple question to start.
+          2. **TONE**: Be encouraging, patient, and natural. Like a real human tutor on a voice call. Use emotion.
+          3. **METHOD**: 
+             - Guide the conversation step-by-step.
+             - If the user makes a mistake, correct them gently and naturally before moving on.
+             - Adjust your speed and vocabulary to their level (${user.preferences?.level}).
+          4. **Keep it conversational**: Short to medium responses. Don't lecture for too long.
           `;
 
           const session = await client.live.connect({
@@ -187,10 +182,12 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                           setStatus('connected');
                           setSubStatus("En ligne");
                           
-                          // FORCE TEACHER TO SPEAK FIRST
-                          // Envoi d'un message textuel caché pour déclencher la réponse audio immédiate
-                          // @ts-ignore - 'send' exists on session but might be missing in type definition depending on version
-                          session.send([{ text: "Bonjour ! Introduce yourself as TeacherMada and ask me how I am doing today." }], true);
+                          // --- CRITICAL: FORCE TEACHER TO SPEAK FIRST ---
+                          // We send a dummy text message to trigger the model's response immediately.
+                          // The model interprets this as the "start signal".
+                          setTimeout(() => {
+                              session.send([{ text: "Bonjour ! Introduce yourself as TeacherMada and ask me how I am doing today to start the class." }]);
+                          }, 500);
                       }
                   },
                   onmessage: async (msg: any) => {
@@ -250,11 +247,10 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               
               // Visualizer fluidité
               let sum = 0;
-              // Sampling plus large pour éviter performance hit
               for (let i = 0; i < inputData.length; i += 10) sum += inputData[i] * inputData[i];
               const rms = Math.sqrt(sum / (inputData.length / 10));
               
-              // Lissage visuel pour éviter les sauts brusques
+              // Lissage visuel
               setVolume(v => v * 0.8 + (rms * 100) * 0.2);
 
               const downsampledData = downsampleBuffer(inputData, e.inputBuffer.sampleRate, INPUT_SAMPLE_RATE);
@@ -312,14 +308,13 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       if (isMountedRef.current && status !== 'error') onClose();
   };
 
-  // UI HELPERS
-  // Mapping du volume (0-100) vers une échelle CSS (1.0 - 2.5)
-  const scale = 1 + (volume / 20); 
+  // UI SCALING
+  const scale = 1 + (volume / 25); 
 
   return (
       <div className="fixed inset-0 z-[150] bg-[#0B0F19] flex flex-col font-sans overflow-hidden">
           
-          {/* Background Ambient Glow - Animated */}
+          {/* Background Ambient Glow */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none animate-pulse-slow"></div>
 
           {/* Header */}
@@ -331,7 +326,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               }`}>
                   {status === 'connecting' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wifi className="w-3 h-3"/>}
                   <span className="text-[10px] font-black uppercase tracking-widest">
-                      {status === 'connecting' ? 'CONNEXION...' : status === 'connected' ? 'APPEL EN COURS' : 'ERREUR'}
+                      {status === 'connecting' ? 'CONNEXION...' : status === 'connected' ? 'EN DIRECT' : 'ERREUR'}
                   </span>
               </div>
               
@@ -351,14 +346,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               {/* Effets d'Ondes Visuelles (User Speaking) */}
               {!teacherSpeaking && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        {/* Cercle 1 - Réactif */}
                         <div className="absolute w-48 h-48 rounded-full border border-indigo-500/40 transition-transform duration-75 ease-out" 
                              style={{ transform: `scale(${scale})`, opacity: Math.min(1, volume * 0.1) }}></div>
-                        {/* Cercle 2 - Echo */}
-                        <div className="absolute w-60 h-60 rounded-full border border-indigo-500/20 transition-transform duration-150 ease-out" 
+                        <div className="absolute w-64 h-64 rounded-full border border-indigo-500/20 transition-transform duration-100 ease-out" 
                              style={{ transform: `scale(${scale * 0.9})`, opacity: Math.min(0.6, volume * 0.08) }}></div>
-                        {/* Cercle 3 - Large */}
-                        <div className="absolute w-80 h-80 rounded-full border border-indigo-500/10 transition-transform duration-300 ease-out" 
+                        <div className="absolute w-80 h-80 rounded-full border border-indigo-500/10 transition-transform duration-200 ease-out" 
                              style={{ transform: `scale(${scale * 0.8})`, opacity: Math.min(0.3, volume * 0.05) }}></div>
                   </div>
               )}
@@ -367,30 +359,26 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               {teacherSpeaking && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <div className="absolute w-52 h-52 rounded-full bg-emerald-500/10 animate-ping"></div>
-                        <div className="absolute w-64 h-64 rounded-full border-2 border-emerald-500/20 animate-pulse"></div>
+                        <div className="absolute w-60 h-60 rounded-full border-2 border-emerald-500/20 animate-pulse"></div>
                   </div>
               )}
 
               {/* Avatar Central */}
               <div className={`relative z-20 w-44 h-44 rounded-full bg-[#0F1422] flex items-center justify-center transition-all duration-500 shadow-2xl ${
                   teacherSpeaking 
-                  ? 'scale-110 border-4 border-emerald-500 shadow-[0_0_60px_rgba(16,185,129,0.4)]' 
+                  ? 'scale-105 border-4 border-emerald-500 shadow-[0_0_60px_rgba(16,185,129,0.3)]' 
                   : 'border-4 border-indigo-500/30 shadow-[0_0_40px_rgba(99,102,241,0.15)]'
               }`}>
                   <img src="https://i.ibb.co/B2XmRwmJ/logo.png" className="w-28 h-28 object-contain" alt="AI Teacher" />
                   
-                  {/* Status Dot on Avatar */}
+                  {/* Status Indicator inside Avatar */}
                   <div className={`absolute bottom-4 right-4 w-6 h-6 rounded-full border-4 border-[#0F1422] flex items-center justify-center transition-colors ${teacherSpeaking ? 'bg-emerald-500' : 'bg-indigo-500'}`}>
-                      {teacherSpeaking ? (
-                          <Activity className="w-3 h-3 text-white animate-bounce" />
-                      ) : (
-                          <div className="w-2 h-2 bg-white rounded-full"></div>
-                      )}
+                      {teacherSpeaking ? <Activity className="w-3 h-3 text-white animate-bounce" /> : <Mic className="w-3 h-3 text-white" />}
                   </div>
               </div>
 
               {/* Status Textuel Dynamique */}
-              <div className="mt-16 h-8 flex items-center gap-3 px-6 py-2 rounded-2xl bg-white/5 backdrop-blur-md border border-white/10 transition-all duration-500">
+              <div className="mt-14 h-8 flex items-center gap-3 px-6 py-2 rounded-2xl bg-white/5 backdrop-blur-md border border-white/10 transition-all duration-300">
                   {teacherSpeaking ? (
                       <>
                         <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
@@ -398,7 +386,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       </>
                   ) : (
                       <>
-                        <Mic className={`w-4 h-4 ${isMuted ? 'text-red-500' : 'text-indigo-400'}`} />
+                        <div className={`w-2 h-2 rounded-full ${isMuted ? 'bg-red-500' : 'bg-indigo-500 animate-pulse'}`}></div>
                         <span className="text-indigo-100 text-xs font-bold uppercase tracking-wide">
                             {isMuted ? "Micro coupé" : "Je vous écoute..."}
                         </span>
