@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Sparkles, User } from 'lucide-react';
+import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Sparkles } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -79,7 +79,7 @@ const getApiKey = () => {
 const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [subStatus, setSubStatus] = useState('');
-  const [volume, setVolume] = useState(0); // 0 to 100
+  const [volume, setVolume] = useState(0); // 0 to 100 representing mic input
   const [isMuted, setIsMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [teacherSpeaking, setTeacherSpeaking] = useState(false);
@@ -148,9 +148,9 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           
           setSubStatus("Connexion IA...");
           
-          // --- PROMPT SYSTÈME TEACHER MADA ---
+          // --- CONFIGURATION PERSONA TEACHER MADA ---
           const sysPrompt = `
-          You are "TeacherMada", a professional, warm, and highly skilled language teacher.
+          IDENTITY: You are "TeacherMada", a professional, warm, and highly skilled language teacher.
           
           CONTEXT:
           - Target Language: ${user.preferences?.targetLanguage || 'French'}.
@@ -158,13 +158,12 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           - User Name: ${user.username}.
           
           INSTRUCTIONS:
-          1. **START IMMEDIATELY**: As soon as connected, greet the user warmly and introduce yourself as TeacherMada. Ask a simple question to start.
-          2. **TONE**: Be encouraging, patient, and natural. Like a real human tutor on a voice call. Use emotion.
-          3. **METHOD**: 
+          1. **START IMMEDIATELY**: Introduce yourself warmly as TeacherMada and ask a simple opening question to start the conversation based on the user's level.
+          2. **TONE**: Be encouraging, patient, and natural. Use emotion (laugh gently if appropriate, be empathetic). Sound like a native speaker.
+          3. **METHODOLOGY**: 
              - Guide the conversation step-by-step.
-             - If the user makes a mistake, correct them gently and naturally before moving on.
-             - Adjust your speed and vocabulary to their level (${user.preferences?.level}).
-          4. **Keep it conversational**: Short to medium responses. Don't lecture for too long.
+             - If the user makes a mistake, correct them gently ("C'est très bien, on dit plutôt...") before moving on.
+             - Keep responses concise (1-3 sentences) to allow the student to speak more.
           `;
 
           const session = await client.live.connect({
@@ -183,11 +182,9 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                           setSubStatus("En ligne");
                           
                           // --- CRITICAL: FORCE TEACHER TO SPEAK FIRST ---
-                          // We send a dummy text message to trigger the model's response immediately.
-                          // The model interprets this as the "start signal".
-                          setTimeout(() => {
-                              session.send([{ text: "Bonjour ! Introduce yourself as TeacherMada and ask me how I am doing today to start the class." }]);
-                          }, 500);
+                          // We send a text message to the model to trigger its first turn immediately.
+                          // @ts-ignore
+                          session.send([{ text: "Bonjour ! Introduce yourself as TeacherMada and start the class." }]);
                       }
                   },
                   onmessage: async (msg: any) => {
@@ -200,7 +197,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       
                       if (msg.serverContent?.turnComplete) {
                           setTeacherSpeaking(false);
-                          setSubStatus("Je vous écoute...");
+                          setSubStatus("À vous...");
                           if (nextStartTimeRef.current < ctx.currentTime) {
                               nextStartTimeRef.current = ctx.currentTime;
                           }
@@ -245,7 +242,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
               const inputData = e.inputBuffer.getChannelData(0);
               
-              // Visualizer fluidité
+              // Calcul du volume pour l'animation (RMS)
               let sum = 0;
               for (let i = 0; i < inputData.length; i += 10) sum += inputData[i] * inputData[i];
               const rms = Math.sqrt(sum / (inputData.length / 10));
@@ -308,8 +305,8 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       if (isMountedRef.current && status !== 'error') onClose();
   };
 
-  // UI SCALING
-  const scale = 1 + (volume / 25); 
+  // --- UI SCALING ---
+  const scale = 1 + (volume / 20); 
 
   return (
       <div className="fixed inset-0 z-[150] bg-[#0B0F19] flex flex-col font-sans overflow-hidden">
@@ -326,7 +323,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               }`}>
                   {status === 'connecting' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wifi className="w-3 h-3"/>}
                   <span className="text-[10px] font-black uppercase tracking-widest">
-                      {status === 'connecting' ? 'CONNEXION...' : status === 'connected' ? 'EN DIRECT' : 'ERREUR'}
+                      {status === 'connecting' ? 'CONNEXION...' : status === 'connected' ? 'APPEL EN COURS' : 'ERREUR'}
                   </span>
               </div>
               
