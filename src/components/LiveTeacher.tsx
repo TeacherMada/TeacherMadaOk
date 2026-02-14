@@ -220,13 +220,6 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                           setSubStatus("Connecté");
                           
                           await startAudioCapture(ctx, session);
-                          
-                          // Trigger initial speech
-                          setTimeout(() => {
-                              if (mountedRef.current && session) {
-                                  session.send([{ text: "Bonjour ! Présente-toi." }]);
-                              }
-                          }, 500);
                       },
                       onmessage: async (msg: any) => {
                           if (!mountedRef.current) return;
