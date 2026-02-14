@@ -195,26 +195,28 @@ export const storageService = {
       localStorage.setItem(SUPPORT_QUOTA_KEY, JSON.stringify(data));
   },
 
-  canRequest: async (userId: string): Promise<boolean> => {
+  canRequest: async (userId: string, minCredits: number = 1): Promise<boolean> => {
       const user = await storageService.getUserById(userId);
       if (!user) return false;
       if (user.role === 'admin') return true;
       if (user.isSuspended) return false;
       
-      // STRICT RULE: 1 Request = 1 Credit. No free main app usage if credits are 0.
-      return user.credits > 0;
+      return user.credits >= minCredits;
   },
 
   consumeCredit: async (userId: string): Promise<boolean> => {
+      return storageService.deductCredits(userId, 1);
+  },
+
+  deductCredits: async (userId: string, amount: number): Promise<boolean> => {
       const user = await storageService.getUserById(userId);
       if (!user) return false;
       if (user.role === 'admin') return true;
       if (user.isSuspended) return false;
 
-      // STRICT CHECK
-      if (user.credits <= 0) return false;
+      if (user.credits < amount) return false;
 
-      const newCredits = user.credits - 1;
+      const newCredits = Math.max(0, user.credits - amount);
       
       // Optimistic update
       const updatedUser = { ...user, credits: newCredits };
