@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Sparkles } from 'lucide-react';
+import { Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Activity, Volume2, Sparkles, Clock, Coins } from 'lucide-react';
 import { UserProfile } from '../types';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
@@ -17,6 +17,7 @@ interface LiveTeacherProps {
 const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
+const COST_PER_MINUTE = 5; // 5 crédits par minute
 
 // --- UTILS AUDIO ---
 const pcmToAudioBuffer = (base64: string, ctx: AudioContext) => {
@@ -71,15 +72,10 @@ const floatTo16BitPCM = (input: Float32Array) => {
     return btoa(binary);
 };
 
-const getApiKey = () => {
-    const keys = (process.env.API_KEY || "").split(',').map(k => k.trim()).filter(k => k.length > 10);
-    return keys[Math.floor(Math.random() * keys.length)];
-};
-
 const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [subStatus, setSubStatus] = useState('');
-  const [volume, setVolume] = useState(0); // 0 to 100 representing mic input
+  const [volume, setVolume] = useState(0); // 0 to 100
   const [isMuted, setIsMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [teacherSpeaking, setTeacherSpeaking] = useState(false);
@@ -99,126 +95,158 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       };
   }, []);
 
+  // --- TIMER & BILLING LOGIC ---
   useEffect(() => {
       let interval: any;
       if (status === 'connected') {
           interval = setInterval(() => {
-              setDuration(d => {
-                  const next = d + 1;
-                  if (next > 0 && next % 60 === 0) handleBilling();
-                  return next;
-              });
+              setDuration(d => d + 1);
           }, 1000);
       }
       return () => clearInterval(interval);
   }, [status]);
 
-  const handleBilling = async () => {
-      const u = await storageService.deductCreditOrUsage(user.id);
-      if (u) {
-          onUpdateUser(u);
+  // Billing Effect : Triggered every 60s
+  useEffect(() => {
+      if (duration > 0 && duration % 60 === 0) {
+          processBilling();
+      }
+  }, [duration]);
+
+  const processBilling = async () => {
+      // Déduction en temps réel
+      const success = await storageService.deductCredits(user.id, COST_PER_MINUTE);
+      
+      if (success) {
+          // Mise à jour visuelle des crédits
+          const updatedUser = await storageService.getUserById(user.id);
+          if (updatedUser) onUpdateUser(updatedUser);
+          notify(`- ${COST_PER_MINUTE} Crédits (1 min)`, "info");
       } else {
-          notify("Crédits épuisés !", "error");
+          // Stop immédiat si plus de crédits
+          notify("Crédits épuisés ! Fin de l'appel.", "error");
           handleHangup();
       }
   };
 
   const startSession = async () => {
-      if (!(await storageService.canRequest(user.id, 5))) {
-          notify("Il faut 5 crédits minimum pour l'appel Live.", "error");
+      // Vérification initiale : Il faut au moins de quoi payer la 1ère minute
+      if (!(await storageService.canRequest(user.id, COST_PER_MINUTE))) {
+          notify(`Il faut ${COST_PER_MINUTE} crédits minimum pour démarrer.`, "error");
           onShowPayment();
           onClose();
           return;
       }
 
       setStatus('connecting');
-      setSubStatus("Initialisation...");
+      setSubStatus("Initialisation Audio...");
 
       try {
+          // 1. Audio Setup
           const AC = window.AudioContext || (window as any).webkitAudioContext;
           const ctx = new AC(); 
           await ctx.resume();
           audioContextRef.current = ctx;
           nextStartTimeRef.current = ctx.currentTime + 0.1;
 
-          const apiKey = getApiKey();
-          if (!apiKey) throw new Error("Clé API manquante");
+          setSubStatus("Recherche serveur...");
+          
+          // 2. Rotation des Clés API
+          const keys = (process.env.API_KEY || "").split(',').map(k => k.trim()).filter(k => k.length > 10);
+          if (keys.length === 0) throw new Error("Aucune clé API configurée");
 
-          const client = new GoogleGenAI({ apiKey });
-          
-          setSubStatus("Connexion IA...");
-          
-          // --- CONFIGURATION PERSONA TEACHER MADA ---
-          const sysPrompt = `
-          IDENTITY: You are "TeacherMada", a professional, warm, and highly skilled language teacher.
-          
-          CONTEXT:
-          - Target Language: ${user.preferences?.targetLanguage || 'French'}.
-          - User Level: ${user.preferences?.level || 'Beginner'}.
-          - User Name: ${user.username}.
-          
-          INSTRUCTIONS:
-          1. **START IMMEDIATELY**: Introduce yourself warmly as TeacherMada and ask a simple opening question to start the conversation based on the user's level.
-          2. **TONE**: Be encouraging, patient, and natural. Use emotion (laugh gently if appropriate, be empathetic). Sound like a native speaker.
-          3. **METHODOLOGY**: 
-             - Guide the conversation step-by-step.
-             - If the user makes a mistake, correct them gently ("C'est très bien, on dit plutôt...") before moving on.
-             - Keep responses concise (1-3 sentences) to allow the student to speak more.
-          `;
-
-          const session = await client.live.connect({
-              model: LIVE_MODEL,
-              config: {
-                  responseModalities: [Modality.AUDIO],
-                  systemInstruction: { parts: [{ text: sysPrompt }] },
-                  speechConfig: {
-                      voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
-                  }
-              },
-              callbacks: {
-                  onopen: () => {
-                      if (isMountedRef.current) {
-                          setStatus('connected');
-                          setSubStatus("En ligne");
-                          
-                          // --- CRITICAL: FORCE TEACHER TO SPEAK FIRST ---
-                          // We send a text message to the model to trigger its first turn immediately.
-                          // @ts-ignore
-                          session.send([{ text: "Bonjour ! Introduce yourself as TeacherMada and start the class." }]);
-                      }
-                  },
-                  onmessage: async (msg: any) => {
-                      const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-                      if (audioData) {
-                          setTeacherSpeaking(true);
-                          setSubStatus("TeacherMada parle...");
-                          await playAudioChunk(audioData, ctx);
-                      }
-                      
-                      if (msg.serverContent?.turnComplete) {
-                          setTeacherSpeaking(false);
-                          setSubStatus("À vous...");
-                          if (nextStartTimeRef.current < ctx.currentTime) {
-                              nextStartTimeRef.current = ctx.currentTime;
-                          }
-                      }
-                  },
-                  onclose: () => {
-                      console.log("Session closed remote");
-                      handleHangup();
-                  },
-                  onerror: (err) => {
-                      console.error("Session error", err);
-                  }
-              }
-          });
-
-          await startMicrophone(ctx, session);
+          await connectWithRetry(keys, ctx);
 
       } catch (e: any) {
+          console.error("Fatal Error", e);
           setStatus('error');
-          setSubStatus("Erreur technique");
+          setSubStatus(e.message || "Erreur technique");
       }
+  };
+
+  const connectWithRetry = async (keys: string[], ctx: AudioContext) => {
+      let lastError = null;
+
+      // Boucle de rotation
+      for (const apiKey of keys) {
+          try {
+              console.log("Tentative connexion avec clé ending in...", apiKey.slice(-4));
+              const client = new GoogleGenAI({ apiKey });
+              
+              const sysPrompt = `
+              You are "TeacherMada", a professional language tutor.
+              Language: ${user.preferences?.targetLanguage || 'French'}.
+              User Level: ${user.preferences?.level || 'Beginner'}.
+              
+              INSTRUCTIONS:
+              - Be warm, patient, and natural.
+              - Correct mistakes gently.
+              - Wait for the user to speak first.
+              `;
+
+              const session = await client.live.connect({
+                  model: LIVE_MODEL,
+                  config: {
+                      responseModalities: [Modality.AUDIO],
+                      systemInstruction: { parts: [{ text: sysPrompt }] },
+                      speechConfig: {
+                          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
+                      }
+                  },
+                  callbacks: {
+                      onopen: () => {
+                          if (isMountedRef.current) {
+                              setStatus('connected');
+                              setSubStatus("C'est à vous ! Dites Bonjour.");
+                              // PAS DE session.send() automatique. L'utilisateur parle en premier.
+                          }
+                      },
+                      onmessage: async (msg: any) => {
+                          const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+                          if (audioData) {
+                              setTeacherSpeaking(true);
+                              setSubStatus("TeacherMada parle...");
+                              await playAudioChunk(audioData, ctx);
+                          }
+                          
+                          if (msg.serverContent?.turnComplete) {
+                              setTeacherSpeaking(false);
+                              setSubStatus("Je vous écoute...");
+                              if (nextStartTimeRef.current < ctx.currentTime) {
+                                  nextStartTimeRef.current = ctx.currentTime;
+                              }
+                          }
+                      },
+                      onclose: () => {
+                          console.log("Session closed remote");
+                          handleHangup();
+                      },
+                      onerror: (err) => {
+                          console.error("Session error", err);
+                      }
+                  }
+              });
+
+              // Si on arrive ici, la connexion est réussie
+              await startMicrophone(ctx, session);
+              
+              // Déduction immédiate de la première minute (Optionnel, ici on attend la fin de la 1ere minute via le timer)
+              // Mais pour éviter les abus, on peut déduire à la connexion :
+              // await processBilling(); 
+              // -> On garde la logique du timer (déduction à 60s) pour laisser une minute "gratuite" ou de test, 
+              // ou déduire à 60s pour payer la minute passée.
+              
+              return; // Sortie de la boucle et de la fonction
+
+          } catch (e: any) {
+              console.warn("Echec connexion clé", apiKey.slice(-4), e);
+              lastError = e;
+              // On continue à la prochaine clé
+          }
+      }
+
+      // Si on arrive ici, toutes les clés ont échoué
+      throw lastError || new Error("Serveurs saturés (Toutes clés HS)");
   };
 
   const startMicrophone = async (ctx: AudioContext, session: any) => {
@@ -242,12 +270,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
               const inputData = e.inputBuffer.getChannelData(0);
               
-              // Calcul du volume pour l'animation (RMS)
+              // Visualizer fluidité
               let sum = 0;
               for (let i = 0; i < inputData.length; i += 10) sum += inputData[i] * inputData[i];
               const rms = Math.sqrt(sum / (inputData.length / 10));
               
-              // Lissage visuel
               setVolume(v => v * 0.8 + (rms * 100) * 0.2);
 
               const downsampledData = downsampleBuffer(inputData, e.inputBuffer.sampleRate, INPUT_SAMPLE_RATE);
@@ -305,8 +332,8 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       if (isMountedRef.current && status !== 'error') onClose();
   };
 
-  // --- UI SCALING ---
-  const scale = 1 + (volume / 20); 
+  // UI SCALING
+  const scale = 1 + (volume / 25); 
 
   return (
       <div className="fixed inset-0 z-[150] bg-[#0B0F19] flex flex-col font-sans overflow-hidden">
@@ -323,7 +350,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               }`}>
                   {status === 'connecting' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wifi className="w-3 h-3"/>}
                   <span className="text-[10px] font-black uppercase tracking-widest">
-                      {status === 'connecting' ? 'CONNEXION...' : status === 'connected' ? 'APPEL EN COURS' : 'ERREUR'}
+                      {status === 'connecting' ? 'CONNEXION...' : status === 'connected' ? 'EN LIGNE' : 'ERREUR'}
                   </span>
               </div>
               
@@ -332,9 +359,17 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   <Sparkles className="w-4 h-4" />
                   <span className="text-sm">{user.preferences?.targetLanguage || 'Apprentissage'} • Niveau {user.preferences?.level}</span>
               </div>
-              <p className="text-slate-500 font-mono text-xs mt-4 tracking-widest bg-slate-900/50 px-3 py-1 rounded-lg border border-slate-800">
-                  {Math.floor(duration/60).toString().padStart(2,'0')}:{(duration%60).toString().padStart(2,'0')}
-              </p>
+              
+              {/* Timer & Cost */}
+              <div className="flex items-center gap-3 mt-4">
+                  <p className="text-slate-500 font-mono text-xs tracking-widest bg-slate-900/50 px-3 py-1 rounded-lg border border-slate-800 flex items-center gap-2">
+                      <Clock className="w-3 h-3"/>
+                      {Math.floor(duration/60).toString().padStart(2,'0')}:{(duration%60).toString().padStart(2,'0')}
+                  </p>
+                  <p className="text-amber-500 font-bold text-xs bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/20 flex items-center gap-1">
+                      <Coins className="w-3 h-3"/> {COST_PER_MINUTE} Crd/min
+                  </p>
+              </div>
           </div>
 
           {/* Visualizer Central */}
@@ -385,7 +420,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       <>
                         <div className={`w-2 h-2 rounded-full ${isMuted ? 'bg-red-500' : 'bg-indigo-500 animate-pulse'}`}></div>
                         <span className="text-indigo-100 text-xs font-bold uppercase tracking-wide">
-                            {isMuted ? "Micro coupé" : "Je vous écoute..."}
+                            {isMuted ? "Micro coupé" : subStatus || "C'est à vous..."}
                         </span>
                       </>
                   )}
@@ -399,8 +434,8 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
                           <AlertCircle className="w-8 h-8 text-red-500" />
                       </div>
-                      <h3 className="text-white font-black text-lg mb-2">Connexion Interrompue</h3>
-                      <p className="text-slate-400 text-xs mb-6 font-medium leading-relaxed">{subStatus || "Vérifiez votre connexion internet."}</p>
+                      <h3 className="text-white font-black text-lg mb-2">Appel Terminé</h3>
+                      <p className="text-slate-400 text-xs mb-6 font-medium leading-relaxed">{subStatus || "Vérifiez vos crédits ou votre connexion."}</p>
                       <button onClick={onClose} className="w-full py-3.5 bg-white text-slate-900 font-bold rounded-2xl hover:scale-[1.02] transition-transform">Fermer</button>
                   </div>
               </div>
