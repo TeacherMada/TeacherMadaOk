@@ -22,7 +22,10 @@ const SUPPORT_MODELS = [
 
 // Ordre de priorité des modèles (Audio / TTS)
 const AUDIO_MODELS = [
-    'gemini-2.5-flash-preview-tts'
+    'gemini-2.5-flash-preview-tts',
+    'gemini-3-flash-preview',
+    'gemini-2.5-pro',
+    'gemini-3-pro-preview'
     // Fallback models could be added here if Google releases new TTS endpoints
 ];
 
