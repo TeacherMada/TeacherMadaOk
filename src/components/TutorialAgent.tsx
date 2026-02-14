@@ -1,10 +1,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, X, Send, LifeBuoy, Sparkles, Book } from 'lucide-react';
+import { Bot, X, Send, LifeBuoy, Sparkles } from 'lucide-react';
 import { UserProfile } from '../types';
 import { generateSupportResponse } from '../services/geminiService';
 import MarkdownRenderer from './MarkdownRenderer';
-import AppGuide from './AppGuide';
 
 interface TutorialAgentProps {
   user: UserProfile;
@@ -19,7 +18,6 @@ interface SupportMessage {
 
 const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [showGuide, setShowGuide] = useState(false); // State for Guide Modal
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -32,7 +30,7 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
         { 
           id: 'welcome', 
           role: 'assistant', 
-          text: `Bonjour ${user.username} ! 👋\nJe suis l'assistant TeacherMada. \n\nVous êtes sur : **${context}**.\n\nUne question sur les fonctionnalités ou les crédits ?` 
+          text: `Bonjour ${user.username} ! 👋\nJe suis l'assistant TeacherMada. \n\nJe connais tout sur l'application. Une question sur les crédits, les cours ou le mode Live ?` 
         }
       ]);
     }
@@ -78,9 +76,6 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
 
   return (
     <>
-      {/* Guide Modal */}
-      {showGuide && <AppGuide onClose={() => setShowGuide(false)} />}
-
       {/* Floating Action Button (FAB) - MOVED UP ~20px (bottom-24 -> bottom-32) */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
@@ -115,13 +110,6 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
                 </div>
             </div>
             <div className="flex items-center gap-1">
-                <button 
-                    onClick={() => { setShowGuide(true); setIsOpen(false); }}
-                    className="p-1.5 hover:bg-white/20 rounded-full transition-colors flex flex-col items-center"
-                    title="Ouvrir le Guide Complet"
-                >
-                    <Book className="w-5 h-5" />
-                </button>
                 <button 
                     onClick={() => setIsOpen(false)}
                     className="p-1.5 hover:bg-white/20 rounded-full transition-colors"
