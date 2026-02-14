@@ -22,7 +22,6 @@ const LANGUAGES = [
     { code: 'Allemand', label: 'Allemand 🇩🇪', voice: 'Fenrir', bcp47: 'de-DE' },
 ];
 
-// Mise à jour du modèle vers la version Native Audio Preview requise pour le Live API
 const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025'; 
 
 // --- UTILS ---
@@ -86,6 +85,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   // Live Specific Refs
   const liveSessionRef = useRef<any>(null);
   const nextStartTimeRef = useRef(0);
+  const scheduledAudioRef = useRef<boolean>(false);
   
   const mountedRef = useRef(true);
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
@@ -163,16 +163,17 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       setStatus('ringing');
       setErrorMessage('');
       
-      // Init Audio Context (User Gesture)
+      // Init Audio Context (User Gesture) - ESSENTIAL
       try {
           const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          const ctx = new AudioContextClass({ sampleRate: 24000 }); // Gemini Native Rate
-          await ctx.resume();
+          // Gemini returns 24000Hz. We use strict sampleRate to avoid resampling issues.
+          const ctx = new AudioContextClass({ sampleRate: 24000 }); 
+          await ctx.resume(); // Force resume immediately
           audioCtxRef.current = ctx;
           playRingingTone(ctx);
       } catch (e) {
           console.error("Audio Context Init Failed", e);
-          notify("Erreur initialisation Audio. Vérifiez votre navigateur.", "error");
+          notify("Erreur audio navigateur.", "error");
       }
 
       // Attempt Level 1 (Live) after delay
@@ -180,7 +181,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           if (mountedRef.current) {
               connectLevel1_Live();
           }
-      }, 2000);
+      }, 1500);
   };
 
   const playRingingTone = (ctx: AudioContext) => {
@@ -197,14 +198,10 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   };
 
   const getSystemPrompt = () => `
-    CONTEXTE: Appel vocal en direct.
+    CONTEXTE: Appel vocal.
     RÔLE: Professeur de langue natif (${selectedLang}).
-    TON: Amical, encourageant, conversationnel.
-    INSTRUCTION CLÉ: Tu dois parler le PREMIER dès la connexion.
-    MESSAGE D'ACCUEIL: "Bonjour ! Je suis ton professeur ${selectedLang}. Comment vas-tu aujourd'hui ?"
-    RÈGLES:
-    1. Réponses COURTES (max 15 mots).
-    2. Pose toujours une question de relance.
+    TON: Amical et très bref.
+    IMPORTANT: Tu dois parler COURT (max 1 phrase).
   `;
 
   // --- LEVEL 1: GEMINI LIVE ONLY (TEST MODE) ---
@@ -237,19 +234,34 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                   onopen: () => {
                       console.log(">>> LIVE SESSION ESTABLISHED <<<");
                       setStatus('connected');
-                      // Wait a bit then check if we are receiving data
+                      
+                      // CRITICAL FIX: Trigger the model to speak immediately by sending a hidden text prompt
+                      // If we just wait, sometimes the 'systemInstruction' isn't enough to trigger an initial turn.
+                      setTimeout(() => {
+                          if (liveSessionRef.current) {
+                              console.log("Sending trigger message...");
+                              liveSessionRef.current.send([{ text: `Bonjour ! Je suis prêt pour le cours de ${selectedLang}. Présente-toi.` }]);
+                          }
+                      }, 500);
                   },
                   onmessage: async (msg: any) => {
-                      // 1. Audio Output
+                      // 1. Audio Output Processing
                       const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                       if (audioData && audioCtxRef.current) {
                           try {
+                              // Ensure context is running (sometimes browsers suspend it automatically)
+                              if (audioCtxRef.current.state === 'suspended') {
+                                  await audioCtxRef.current.resume();
+                              }
+
                               const buffer = await base64ToAudioBuffer(audioData, audioCtxRef.current);
                               const source = audioCtxRef.current.createBufferSource();
                               source.buffer = buffer;
                               source.connect(audioCtxRef.current.destination);
                               
+                              // Gapless playback logic
                               const currentTime = audioCtxRef.current.currentTime;
+                              // If nextStartTime is in the past, reset it to now to avoid huge delays
                               if (nextStartTimeRef.current < currentTime) {
                                   nextStartTimeRef.current = currentTime;
                               }
@@ -258,14 +270,17 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                               nextStartTimeRef.current += buffer.duration;
                               
                               setStatus('speaking');
+                              scheduledAudioRef.current = true;
+
                               source.onended = () => {
-                                  // Heuristic: if no next audio scheduled within 200ms, assume listening
-                                  if (audioCtxRef.current && audioCtxRef.current.currentTime >= nextStartTimeRef.current - 0.2) {
+                                  // Simple heuristic: if we are near the end of the scheduled buffer, we are listening
+                                  if (audioCtxRef.current && Math.abs(audioCtxRef.current.currentTime - nextStartTimeRef.current) < 0.1) {
                                       setStatus('listening');
+                                      scheduledAudioRef.current = false;
                                   }
                               };
                           } catch (e) {
-                              console.error("Decoding error", e);
+                              console.error("Audio Decode Error", e);
                           }
                       }
                   },
@@ -273,7 +288,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                       console.log("Live Session Closed", e);
                       if (mountedRef.current) {
                           setStatus('error');
-                          setErrorMessage("La session a été fermée par le serveur.");
+                          setErrorMessage("La session a été fermée.");
                       }
                   },
                   onerror: (err: any) => {
@@ -307,6 +322,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
       if (!audioCtxRef.current) return;
       
       try {
+          // Note: Input sample rate 16000Hz is standard for STT
           const stream = await navigator.mediaDevices.getUserMedia({ audio: {
               sampleRate: 16000,
               channelCount: 1,
@@ -320,26 +336,30 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           const processor = audioCtxRef.current.createScriptProcessor(4096, 1, 1);
           
           processor.onaudioprocess = (e) => {
-              // Only send if we are in a valid state
+              // Only stream if the user is supposed to be speaking (not while the bot is speaking generally)
+              // But for full duplex we stream always. Gemini handles echo cancellation well usually.
               if (status === 'error' || !liveSessionRef.current) return;
 
               const inputData = e.inputBuffer.getChannelData(0);
               
-              // Calculate volume for visualizer
+              // Visualizer volume calculation
               let sum = 0;
               for(let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
-              setAudioLevel(Math.sqrt(sum / inputData.length) * 100);
+              const vol = Math.sqrt(sum / inputData.length) * 100;
+              setAudioLevel(vol);
+
+              // Don't send silence to save bandwidth/confusion
+              if (vol < 1) return;
 
               const base64Data = floatTo16BitPCM(inputData);
               
               try {
-                  // Use the ref to ensure we are sending to the active session
                   liveSessionRef.current.sendRealtimeInput({
                       mimeType: "audio/pcm;rate=16000",
                       data: base64Data
                   });
               } catch(err) {
-                  // Session might be closed or busy, ignore safe errors
+                  // Session busy or closed
               }
           };
 
@@ -370,8 +390,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                     <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce-slight">
                         <Settings2 className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
                     </div>
-                    <h2 className="text-2xl font-black text-slate-900 dark:text-white">Live Voice v2</h2>
-                    <p className="text-slate-500 text-sm mt-1">Modèle: Gemini 2.5 Audio</p>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white">Live Voice v2.1</h2>
+                    <p className="text-slate-500 text-sm mt-1">Native Audio (Fixé)</p>
                 </div>
                 <div className="space-y-4">
                     <div>
@@ -383,7 +403,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                         </div>
                     </div>
                     <button onClick={handleStartCall} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-2xl shadow-lg shadow-emerald-500/30 transform active:scale-95 transition-all flex items-center justify-center gap-2 mt-4">
-                        <Phone className="w-5 h-5 fill-current" /> APPEL LIVE (1 Crd)
+                        <Phone className="w-5 h-5 fill-current" /> DÉMARRER LIVE
                     </button>
                 </div>
             </div>
@@ -399,7 +419,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                 <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
                     <AlertTriangle className="w-8 h-8 text-red-500" />
                 </div>
-                <h2 className="text-xl font-black text-slate-900 dark:text-white mb-2">Connexion Interrompue</h2>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white mb-2">Erreur Live</h2>
                 <p className="text-slate-500 dark:text-slate-300 text-sm mb-6">{errorMessage}</p>
                 
                 <div className="flex gap-3">
@@ -428,7 +448,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
             </div>
             <h2 className="text-3xl font-black text-white tracking-tight mb-1">Teacher {selectedLang}</h2>
             <p className="text-indigo-300 text-sm font-medium font-mono tracking-widest">
-                {status === 'ringing' ? "Appel entrant..." : status === 'connecting' ? "Connexion WebSocket..." : `${Math.floor(duration/60)}:${(duration%60).toString().padStart(2,'0')}`}
+                {status === 'ringing' ? "Initialisation..." : status === 'connecting' ? "Négociation Audio..." : `${Math.floor(duration/60)}:${(duration%60).toString().padStart(2,'0')}`}
             </p>
         </div>
 
@@ -459,7 +479,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
             </div>
             
             <p className="text-white/50 text-xs font-bold uppercase tracking-widest mt-4">
-                {status === 'speaking' ? "Le prof parle..." : status === 'listening' ? "À vous..." : "Connexion..."}
+                {status === 'speaking' ? "Le prof parle..." : status === 'listening' ? "Je vous écoute..." : "Connexion..."}
             </p>
         </div>
 
