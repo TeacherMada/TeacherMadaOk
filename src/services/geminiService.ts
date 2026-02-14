@@ -4,67 +4,122 @@ import { UserProfile, ChatMessage, VocabularyItem, ExerciseItem } from "../types
 import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
 import { storageService } from "./storageService";
 
-// --- API KEY MANAGEMENT ---
+// --- CONFIGURATION DE LA ROTATION ---
+
+// Ordre de priorité des modèles (Textes & Raisonnement)
+const TEXT_MODELS = [
+    'gemini-3-flash-preview',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash'
+];
+
+// Ordre de priorité des modèles (Support / Tâches simples)
+const SUPPORT_MODELS = [
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash'
+];
+
+// Ordre de priorité des modèles (Audio / TTS)
+const AUDIO_MODELS = [
+    'gemini-2.5-flash-preview-tts'
+    // Fallback models could be added here if Google releases new TTS endpoints
+];
+
+// Récupération des clés API
 const getApiKeys = () => {
   const rawKey = process.env.API_KEY || "";
-  return rawKey.split(',').map(k => k.trim()).filter(k => k.length > 0);
+  return rawKey.split(',').map(k => k.trim()).filter(k => k.length > 10);
 };
 
-// Internal helper for API calls with retry logic
-const generateWithRetry = async (model: string, params: any) => {
-    const keys = getApiKeys();
-    if (keys.length === 0) throw new Error("Clé API manquante.");
+// --- MOTEUR DE ROTATION INTELLIGENT ---
 
-    const shuffledKeys = [...keys].sort(() => 0.5 - Math.random());
-    const maxAttempts = Math.min(3, keys.length);
+/**
+ * Exécute une requête standard (non-streaming) avec rotation complète :
+ * 1. Itère sur chaque CLÉ API.
+ * 2. Pour chaque clé, itère sur chaque MODÈLE de la liste.
+ * 3. Ne change de clé que si tous les modèles ont échoué.
+ */
+const executeWithRotation = async (
+    modelList: string[], 
+    requestFn: (ai: GoogleGenAI, model: string) => Promise<any>
+): Promise<any> => {
+    const keys = getApiKeys();
+    if (keys.length === 0) throw new Error("Aucune clé API configurée.");
+
     let lastError;
 
-    for (let i = 0; i < maxAttempts; i++) {
-        try {
-            const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
-            return await ai.models.generateContent({ model, ...params });
-        } catch (e: any) {
-            console.warn(`API attempt ${i+1} failed:`, e.message);
-            lastError = e;
+    // ROTATION NIVEAU 1 : CLÉS API
+    for (const apiKey of keys) {
+        const ai = new GoogleGenAI({ apiKey });
+
+        // ROTATION NIVEAU 2 : MODÈLES
+        for (const model of modelList) {
+            try {
+                // Tentative d'exécution
+                const result = await requestFn(ai, model);
+                return result; // Succès immédiat
+            } catch (e: any) {
+                // Analyse de l'erreur pour les logs (sans exposer à l'UI)
+                const isQuota = e.status === 429 || e.status === 403;
+                const isServer = e.status >= 500;
+                
+                console.warn(
+                    `⚠️ Echec [Key: ...${apiKey.slice(-4)}] [Model: ${model}] - ${isQuota ? 'QUOTA/RATE' : isServer ? 'SERVER ERROR' : e.message}`
+                );
+                
+                lastError = e;
+                // On continue vers le modèle suivant pour cette clé
+                continue; 
+            }
         }
+        // Si on arrive ici, cette clé a échoué sur TOUS les modèles. On passe à la clé suivante.
     }
-    throw lastError;
+
+    // Si on arrive ici, tout a échoué.
+    console.error("🔥 CRITICAL: All keys and models exhausted.");
+    throw lastError || new Error("Service temporairement indisponible (Rotation épuisée).");
 };
 
-const streamWithRetry = async function* (model: string, params: any) {
+/**
+ * Exécute une requête de streaming avec la même logique de rotation.
+ */
+async function* streamWithRotation(
+    modelList: string[],
+    requestFn: (ai: GoogleGenAI, model: string) => Promise<any>
+) {
     const keys = getApiKeys();
     if (keys.length === 0) {
-        yield "⚠️ Erreur: Clé API manquante.";
+        yield "⚠️ Erreur technique : Clé API manquante.";
         return;
     }
 
-    const shuffledKeys = [...keys].sort(() => 0.5 - Math.random());
-    const maxAttempts = Math.min(3, keys.length);
+    for (const apiKey of keys) {
+        const ai = new GoogleGenAI({ apiKey });
 
-    for (let i = 0; i < maxAttempts; i++) {
-        try {
-            const ai = new GoogleGenAI({ apiKey: shuffledKeys[i] });
-            const responseStream = await ai.models.generateContentStream({ model, ...params });
-            
-            for await (const chunk of responseStream) {
-                yield chunk;
-            }
-            return; // Success
-        } catch (e: any) {
-            console.warn(`Stream attempt ${i+1} failed:`, e.message);
-            if (i === maxAttempts - 1) {
-                yield `⚠️ Erreur de connexion (${e.status || 'Reseau'}). Veuillez réessayer.`;
+        for (const model of modelList) {
+            try {
+                const stream = await requestFn(ai, model);
+                // Si on arrive ici, la connexion est établie.
+                // On pipe le stream vers l'appelant.
+                for await (const chunk of stream) {
+                    yield chunk;
+                }
+                return; // Succès total
+            } catch (e: any) {
+                console.warn(`⚠️ Stream Fail [Key: ...${apiKey.slice(-4)}] [Model: ${model}]`);
+                continue; // Modèle suivant
             }
         }
     }
-};
 
-// --- MODELS CONFIGURATION ---
-const TEXT_MODEL = 'gemini-3-flash-preview'; 
-const SUPPORT_MODEL = 'gemini-3-flash-preview'; // Switched to 3-flash for maximum stability
-const AUDIO_MODEL = 'gemini-2.5-flash-preview-tts'; 
+    // Fallback ultime si tout échoue
+    yield "⚠️ Désolé, le service est saturé. Veuillez réessayer dans un instant.";
+}
 
-// --- TUTORIAL AGENT (SUPPORT) ---
+// --- SERVICES EXPORTÉS ---
+
+// 1. TUTORIAL AGENT (SUPPORT)
 export const generateSupportResponse = async (
     userQuery: string,
     context: string,
@@ -72,42 +127,39 @@ export const generateSupportResponse = async (
     history: {role: string, text: string}[]
 ): Promise<string> => {
     
-    // Check Daily Quota for Support (100/day free)
     if (!storageService.canUseSupportAgent()) {
-        return "⛔ Quota journalier d'aide atteint (100/100). Revenez demain pour plus d'assistance gratuite.";
+        return "⛔ Quota journalier d'aide atteint (100/100). Revenez demain.";
     }
 
     const systemInstruction = SUPPORT_AGENT_PROMPT(context, user);
     
-    // Format history
     const contents = history.map(msg => ({
         role: msg.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: msg.text }]
     }));
-    
     contents.push({ role: 'user', parts: [{ text: userQuery }] });
 
     try {
-        const response = await generateWithRetry(SUPPORT_MODEL, {
-            contents: contents,
-            config: {
-                systemInstruction: systemInstruction,
-                maxOutputTokens: 1000, 
-                temperature: 0.5
-            }
+        const response = await executeWithRotation(SUPPORT_MODELS, async (ai, model) => {
+            return await ai.models.generateContent({
+                model,
+                contents,
+                config: {
+                    systemInstruction,
+                    maxOutputTokens: 1000, 
+                    temperature: 0.5
+                }
+            });
         });
         
-        // Count usage if successful
         storageService.incrementSupportUsage();
-        
         return response.text || "Je n'ai pas de réponse pour le moment.";
     } catch (e) {
-        console.error("Support Agent Error", e);
-        return "Désolé, je rencontre un problème technique momentané. Veuillez réessayer dans quelques secondes.";
+        return "Désolé, je rencontre un problème technique momentané. Veuillez réessayer.";
     }
 };
 
-// --- STREAMING MESSAGE (MAIN CHAT) ---
+// 2. MAIN CHAT (STREAMING)
 export async function* sendMessageStream(
   message: string,
   user: UserProfile,
@@ -115,13 +167,11 @@ export async function* sendMessageStream(
 ) {
   if (!user.preferences) throw new Error("Profil incomplet");
   
-  // 1. STRICT CHECK BEFORE CALLING AI
   if (!(await storageService.canRequest(user.id))) {
     yield "⛔ **Crédits épuisés.**\n\n1 Requête = 1 Crédit.\nVeuillez recharger votre compte pour continuer.";
     return;
   }
 
-  // Sanitize history
   const contents = history
     .filter(msg => msg.text && msg.text.trim().length > 0)
     .map(msg => ({
@@ -131,21 +181,24 @@ export async function* sendMessageStream(
   
   contents.push({ role: 'user', parts: [{ text: message }] });
 
-  // 2. CALL AI
-  const stream = streamWithRetry(TEXT_MODEL, {
-      contents: contents,
-      config: {
-        systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences),
-        temperature: 0.7,
-        maxOutputTokens: 2000,
-      }
+  const streamGenerator = streamWithRotation(TEXT_MODELS, async (ai, model) => {
+      return await ai.models.generateContentStream({
+          model,
+          contents,
+          config: {
+            systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!),
+            temperature: 0.7,
+            maxOutputTokens: 2000,
+          }
+      });
   });
 
   let hasYielded = false;
-  for await (const chunk of stream) {
+  for await (const chunk of streamGenerator) {
       if (typeof chunk === 'string') {
           yield chunk;
-          hasYielded = true; 
+          // Si c'est un message d'erreur du générateur, on ne compte pas comme succès
+          if (!chunk.startsWith('⚠️')) hasYielded = true;
       } else {
           const text = chunk.text;
           if (text) {
@@ -155,39 +208,35 @@ export async function* sendMessageStream(
       }
   }
 
-  // 3. CONSUME CREDIT ONLY IF SUCCESSFUL
   if (hasYielded) {
       await storageService.consumeCredit(user.id);
   }
 }
 
-// --- GEMINI TTS (Text-to-Speech) ---
+// 3. TEXT-TO-SPEECH (TTS) - AVEC FALLBACK SILENCIEUX
 export const generateSpeech = async (text: string, voiceName: string = 'Kore'): Promise<ArrayBuffer | null> => {
     const user = await storageService.getCurrentUser();
-    if (!user) return null;
-    
-    // Strict Credit Check for TTS
-    if (!(await storageService.canRequest(user.id))) {
-        return null; // UI will handle this failure
-    }
+    if (!user || !(await storageService.canRequest(user.id))) return null;
 
     try {
-        const response = await generateWithRetry(AUDIO_MODEL, {
-            contents: [{ parts: [{ text: text }] }],
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: voiceName }
+        const response = await executeWithRotation(AUDIO_MODELS, async (ai, model) => {
+            return await ai.models.generateContent({
+                model,
+                contents: [{ parts: [{ text: text }] }],
+                config: {
+                    responseModalities: [Modality.AUDIO],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: voiceName }
+                        }
                     }
                 }
-            }
+            });
         });
 
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (!base64Audio) return null;
 
-        // Consume Credit on Success
         await storageService.consumeCredit(user.id);
 
         const binaryString = atob(base64Audio);
@@ -199,48 +248,45 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
         return bytes.buffer;
 
     } catch (e) {
-        console.error("Gemini TTS Error:", e);
+        console.error("TTS Rotation Failed:", e);
+        // Fallback silencieux : retourne null pour que l'UI sache que l'audio a échoué sans crasher
         return null;
     }
 };
 
-// --- VOCABULARY EXTRACTION ---
+// 4. EXTRACTION VOCABULAIRE
 export const extractVocabulary = async (history: ChatMessage[]): Promise<VocabularyItem[]> => {
     const user = await storageService.getCurrentUser();
-    
     if (!user || !(await storageService.canRequest(user.id))) return [];
 
     const context = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
-    
-    const prompt = `Based on the following conversation, extract 3 to 5 key vocabulary words that are useful for the learner.
-    Return a JSON array of objects with keys: word, translation (in the learner's explanation language), and example (a short sentence).
-    Conversation:
-    ${context}`;
+    const prompt = `Based on the following conversation, extract 3 to 5 key vocabulary words. Return JSON array [{word, translation, example}].\n${context}`;
 
     try {
-        const response = await generateWithRetry(TEXT_MODEL, {
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            word: { type: Type.STRING },
-                            translation: { type: Type.STRING },
-                            example: { type: Type.STRING }
+        const response = await executeWithRotation(TEXT_MODELS, async (ai, model) => {
+            return await ai.models.generateContent({
+                model,
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                word: { type: Type.STRING },
+                                translation: { type: Type.STRING },
+                                example: { type: Type.STRING }
+                            }
                         }
                     }
                 }
-            }
+            });
         });
 
+        await storageService.consumeCredit(user.id);
         const rawData = JSON.parse(response.text || "[]");
         
-        // Consume Credit
-        await storageService.consumeCredit(user.id);
-
         return rawData.map((item: any) => ({
             id: crypto.randomUUID(),
             word: item.word,
@@ -255,38 +301,36 @@ export const extractVocabulary = async (history: ChatMessage[]): Promise<Vocabul
     }
 };
 
-// --- EXERCISE GENERATION ---
+// 5. EXERCICES
 export const generateExerciseFromHistory = async (history: ChatMessage[], user: UserProfile): Promise<ExerciseItem[]> => {
     if (!(await storageService.canRequest(user.id))) return [];
 
-    const context = history.slice(-10).map(m => m.text).join("\n");
-    const lessonInfo = `Leçon ${(user.stats.lessonsCompleted || 0) + 1}`;
-    
-    const prompt = `Génère 3 exercices (QCM ou Vrai/Faux) pour un élève de niveau ${user.preferences?.level} apprenant le ${user.preferences?.targetLanguage}.
-    CONTEXTE : L'élève est à la ${lessonInfo}.
-    Format JSON Array attendu.`;
+    const prompt = `Génère 3 exercices (QCM/Vrai-Faux) pour niveau ${user.preferences?.level} (${user.preferences?.targetLanguage}). Format JSON Array.`;
 
     try {
-        const response = await generateWithRetry(TEXT_MODEL, {
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            id: { type: Type.STRING },
-                            type: { type: Type.STRING, enum: ["multiple_choice", "true_false", "fill_blank"] },
-                            question: { type: Type.STRING },
-                            options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                            correctAnswer: { type: Type.STRING },
-                            explanation: { type: Type.STRING }
-                        },
-                        required: ["type", "question", "correctAnswer", "explanation"]
+        const response = await executeWithRotation(TEXT_MODELS, async (ai, model) => {
+            return await ai.models.generateContent({
+                model,
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                id: { type: Type.STRING },
+                                type: { type: Type.STRING, enum: ["multiple_choice", "true_false", "fill_blank"] },
+                                question: { type: Type.STRING },
+                                options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                correctAnswer: { type: Type.STRING },
+                                explanation: { type: Type.STRING }
+                            },
+                            required: ["type", "question", "correctAnswer", "explanation"]
+                        }
                     }
                 }
-            }
+            });
         });
         
         await storageService.consumeCredit(user.id);
@@ -296,7 +340,7 @@ export const generateExerciseFromHistory = async (history: ChatMessage[], user: 
     }
 };
 
-// --- ROLEPLAY GENERATION ---
+// 6. ROLEPLAY
 export const generateRoleplayResponse = async (
     history: ChatMessage[],
     scenarioPrompt: string,
@@ -305,13 +349,11 @@ export const generateRoleplayResponse = async (
     isInitial: boolean = false
 ): Promise<{ aiReply: string; correction?: string; explanation?: string; score?: number; feedback?: string }> => {
     
-    // Strict Credit Check
     if (!(await storageService.canRequest(user.id))) {
         return { aiReply: "⚠️ Crédits insuffisants." };
     }
 
-    const sysInstruct = `Tu es un partenaire de jeu de rôle linguistique. SCENARIO: ${scenarioPrompt}. LANGUE: ${user.preferences?.targetLanguage}. NIVEAU: ${user.preferences?.level}.`;
-
+    const sysInstruct = `Partenaire de jeu de rôle (${user.preferences?.targetLanguage}, ${user.preferences?.level}). Scénario: ${scenarioPrompt}.`;
     const contents = history
         .filter(msg => msg.text && msg.text.trim().length > 0)
         .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
@@ -319,31 +361,32 @@ export const generateRoleplayResponse = async (
     if (isClosing) contents.push({ role: 'user', parts: [{ text: "Evaluation finale" }] });
 
     try {
-        const response = await generateWithRetry(TEXT_MODEL, {
-            contents: contents.length ? contents : [{role:'user', parts:[{text:'Start'}]}],
-            config: {
-                systemInstruction: sysInstruct,
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        aiReply: { type: Type.STRING },
-                        correction: { type: Type.STRING },
-                        explanation: { type: Type.STRING },
-                        score: { type: Type.NUMBER },
-                        feedback: { type: Type.STRING }
-                    },
-                    required: ["aiReply"]
+        const response = await executeWithRotation(TEXT_MODELS, async (ai, model) => {
+            return await ai.models.generateContent({
+                model,
+                contents: contents.length ? contents : [{role:'user', parts:[{text:'Start'}]}],
+                config: {
+                    systemInstruction: sysInstruct,
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            aiReply: { type: Type.STRING },
+                            correction: { type: Type.STRING },
+                            explanation: { type: Type.STRING },
+                            score: { type: Type.NUMBER },
+                            feedback: { type: Type.STRING }
+                        },
+                        required: ["aiReply"]
+                    }
                 }
-            }
+            });
         });
 
-        // Credit consumed only if successful
         await storageService.consumeCredit(user.id);
-        
         return JSON.parse(response.text || "{}");
     } catch (e) {
-        return { aiReply: "Problème technique." };
+        return { aiReply: "Problème technique (Rotation épuisée)." };
     }
 };
 
