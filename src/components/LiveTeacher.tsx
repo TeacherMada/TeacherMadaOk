@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Mic, MicOff, Phone, Wifi, Loader2, SignalHigh, AlertCircle, Volume2 } from 'lucide-react';
+import { X, Mic, MicOff, Phone, Wifi, Loader2, AlertCircle, Volume2 } from 'lucide-react';
 import { UserProfile } from '../types';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai';
 import { storageService } from '../services/storageService';
 
 interface LiveTeacherProps {
@@ -13,14 +13,14 @@ interface LiveTeacherProps {
   onShowPayment: () => void;
 }
 
-// --- CONFIGURATION AUDIO STRICTE ---
-const MODEL_NAME = 'gemini-2.5-flash-native-audio-preview-12-2025';
-const INPUT_SAMPLE_RATE = 16000; // Gemini exige 16kHz en entrée
+// --- CONFIGURATION ---
+const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
+const INPUT_SAMPLE_RATE = 16000; // Gemini attend du 16kHz
 const OUTPUT_SAMPLE_RATE = 24000; // Gemini renvoie du 24kHz
 
-// --- UTILITAIRES AUDIO ---
+// --- UTILS AUDIO ---
 
-// 1. Convertisseur PCM Base64 -> AudioBuffer (Pour écouter l'IA)
+// 1. Conversion PCM Base64 (Sortie IA) -> AudioBuffer (Navigateur)
 const pcmToAudioBuffer = (base64: string, ctx: AudioContext) => {
     const binaryString = atob(base64);
     const len = binaryString.length;
@@ -30,7 +30,6 @@ const pcmToAudioBuffer = (base64: string, ctx: AudioContext) => {
     const pcm16 = new Int16Array(bytes.buffer);
     const float32 = new Float32Array(pcm16.length);
     
-    // Conversion Int16 -> Float32 (-1.0 à 1.0)
     for (let i = 0; i < pcm16.length; i++) {
         float32[i] = pcm16[i] / 32768.0;
     }
@@ -40,27 +39,7 @@ const pcmToAudioBuffer = (base64: string, ctx: AudioContext) => {
     return buffer;
 };
 
-// 2. Convertisseur Float32 -> PCM16 Base64 (Pour parler à l'IA)
-const floatTo16BitPCM = (input: Float32Array) => {
-    const output = new Int16Array(input.length);
-    for (let i = 0; i < input.length; i++) {
-        const s = Math.max(-1, Math.min(1, input[i]));
-        output[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-    }
-    
-    const bytes = new Uint8Array(output.buffer);
-    let binary = '';
-    const len = bytes.byteLength;
-    // Traitement par blocs pour éviter stack overflow sur gros buffers
-    const chunk = 8192;
-    for (let i = 0; i < len; i += chunk) {
-        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, Math.min(i + chunk, len))));
-    }
-    return btoa(binary);
-};
-
-// 3. Downsampling (Le secret pour que ça marche)
-// Convertit n'importe quel taux (ex: 48000Hz) vers 16000Hz proprement
+// 2. Rééchantillonnage (Downsampling) : 48kHz -> 16kHz
 const downsampleBuffer = (buffer: Float32Array, inputRate: number, outputRate: number) => {
     if (inputRate === outputRate) return buffer;
     
@@ -87,28 +66,44 @@ const downsampleBuffer = (buffer: Float32Array, inputRate: number, outputRate: n
     return result;
 };
 
+// 3. Conversion Float32 (Micro) -> PCM16 Base64 (Entrée IA)
+const floatTo16BitPCM = (input: Float32Array) => {
+    const output = new Int16Array(input.length);
+    for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        output[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    
+    const bytes = new Uint8Array(output.buffer);
+    let binary = '';
+    const len = bytes.byteLength;
+    // Chunking pour éviter stack overflow sur gros buffers
+    for (let i = 0; i < len; i += 8192) {
+        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, Math.min(i + 8192, len))));
+    }
+    return btoa(binary);
+};
+
 const getApiKey = () => {
     const keys = (process.env.API_KEY || "").split(',').map(k => k.trim()).filter(k => k.length > 10);
-    return keys[Math.floor(Math.random() * keys.length)]; // Rotation simple
+    return keys[Math.floor(Math.random() * keys.length)];
 };
 
 const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
-  // --- STATE ---
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [subStatus, setSubStatus] = useState('');
-  const [volume, setVolume] = useState(0);
+  const [volume, setVolume] = useState(0); // Pour la visualisation
   const [isMuted, setIsMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   
-  // --- REFS ---
+  // Refs pour gestion mémoire et audio
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
-  const wsSessionRef = useRef<any>(null);
-  const nextStartTimeRef = useRef(0);
+  const wsSessionRef = useRef<any>(null); // Session Gemini
+  const nextStartTimeRef = useRef(0); // Pour coller les morceaux audio sans trous
   const isMountedRef = useRef(true);
 
-  // --- LIFECYCLE ---
   useEffect(() => {
       isMountedRef.current = true;
       return () => {
@@ -117,7 +112,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       };
   }, []);
 
-  // Timer
+  // Timer de facturation
   useEffect(() => {
       let interval: any;
       if (status === 'connected') {
@@ -133,17 +128,14 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   }, [status]);
 
   const handleBilling = async () => {
-      const u = await storageService.deductCreditOrUsage(user.id); // Déduit 1 crédit
+      const u = await storageService.deductCreditOrUsage(user.id);
       if (u) {
           onUpdateUser(u);
-          notify("-1 Crédit (1 min)", "info");
       } else {
           notify("Crédits épuisés !", "error");
           handleHangup();
       }
   };
-
-  // --- CORE CONNECTION LOGIC ---
 
   const startSession = async () => {
       if (!(await storageService.canRequest(user.id, 5))) {
@@ -156,9 +148,9 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       setSubStatus("Initialisation audio...");
 
       try {
-          // 1. Initialiser l'AudioContext (Doit être fait sur un clic utilisateur)
+          // 1. Initialiser l'AudioContext
           const AC = window.AudioContext || (window as any).webkitAudioContext;
-          const ctx = new AC(); // Le navigateur choisit le taux (souvent 44100 ou 48000)
+          const ctx = new AC(); 
           await ctx.resume();
           audioContextRef.current = ctx;
           nextStartTimeRef.current = ctx.currentTime;
@@ -171,17 +163,18 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           
           setSubStatus("Connexion IA...");
           
+          // Prompt système strict pour forcer l'interaction
+          const sysPrompt = `You are a friendly language teacher for ${user.preferences?.targetLanguage || 'English'} (Level: ${user.preferences?.level || 'Beginner'}). 
+          Introduce yourself briefly in 1 sentence and ask a simple question to start the conversation.
+          IMPORTANT: Speak immediately upon connection.`;
+
           const session = await client.live.connect({
-              model: MODEL_NAME,
+              model: LIVE_MODEL,
               config: {
-                  responseModalities: ['AUDIO'],
-                  systemInstruction: {
-                      parts: [{
-                          text: `You are a friendly language teacher for ${user.preferences?.targetLanguage || 'French'}. 
-                          User level: ${user.preferences?.level || 'Beginner'}.
-                          Keep your answers short (1-2 sentences). Correct mistakes gently.
-                          IMPORTANT: Speak clearly and encourage the student.`
-                      }]
+                  responseModalities: [Modality.AUDIO],
+                  systemInstruction: { parts: [{ text: sysPrompt }] },
+                  speechConfig: {
+                      voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
                   }
               },
               callbacks: {
@@ -189,22 +182,23 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       if (isMountedRef.current) {
                           console.log(">>> LIVE CONNECTED");
                           setStatus('connected');
-                          setSubStatus("Connecté");
-                          // Force l'IA à parler en premier
-                          session.send([{ text: "Hello! Please introduce yourself briefly and start the lesson." }]);
+                          setSubStatus("En ligne");
+                          // Note: On ne peut pas envoyer de texte ici avec la version actuelle du SDK Live
+                          // On compte sur le systemInstruction pour déclencher la parole.
                       }
                   },
                   onmessage: async (msg: any) => {
-                      // Réception Audio
+                      // Audio du modèle
                       const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                       if (audioData) {
                           setSubStatus("Teacher parle...");
                           await playAudioChunk(audioData, ctx);
                       }
                       
+                      // Fin du tour
                       if (msg.serverContent?.turnComplete) {
-                          setSubStatus("À vous de parler...");
-                          // Resynchronisation si on a pris du retard
+                          setSubStatus("À vous...");
+                          // Resynchronisation si latence
                           if (nextStartTimeRef.current < ctx.currentTime) {
                               nextStartTimeRef.current = ctx.currentTime;
                           }
@@ -242,7 +236,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   echoCancellation: true,
                   noiseSuppression: true,
                   autoGainControl: true,
-                  sampleRate: INPUT_SAMPLE_RATE // On demande poliment, mais le navigateur décide
+                  sampleRate: INPUT_SAMPLE_RATE // On demande, mais le navigateur peut ignorer
               }
           });
           mediaStreamRef.current = stream;
@@ -260,12 +254,14 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               // 1. Visualizer
               let sum = 0;
               for (let i = 0; i < inputData.length; i += 10) sum += inputData[i] * inputData[i];
-              setVolume(Math.sqrt(sum / (inputData.length / 10)) * 500);
+              const rms = Math.sqrt(sum / (inputData.length / 10));
+              setVolume(Math.min(100, rms * 500));
 
-              // 2. Downsampling CRITIQUE (48k/44.1k -> 16k)
+              // 2. Downsampling CRITIQUE (ex: 48k -> 16k)
+              // C'est ici que la magie opère pour que l'IA comprenne la voix
               const downsampledData = downsampleBuffer(inputData, actualSampleRate, INPUT_SAMPLE_RATE);
 
-              // 3. Envoi
+              // 3. Conversion & Envoi
               const base64Audio = floatTo16BitPCM(downsampledData);
               
               try {
@@ -274,12 +270,12 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       data: base64Audio
                   });
               } catch (err) {
-                  // Session peut être fermée
+                  // Ignore erreurs si session fermée entre temps
               }
           };
 
           source.connect(processor);
-          processor.connect(ctx.destination); // Nécessaire pour que le scriptProcessor tourne (bug Chrome connu)
+          processor.connect(ctx.destination); // Nécessaire pour activer le scriptProcessor
 
       } catch (e) {
           console.error("Mic Error", e);
@@ -296,11 +292,10 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           source.buffer = buffer;
           source.connect(ctx.destination);
 
-          // Gestion du temps pour éviter les "pops" ou les chevauchements
           const now = ctx.currentTime;
-          // Si le prochain temps de départ est dans le passé (latence), on le remet à "maintenant" + petite marge
+          // Gestion file d'attente
           if (nextStartTimeRef.current < now) {
-              nextStartTimeRef.current = now + 0.05;
+              nextStartTimeRef.current = now + 0.05; // Petit buffer de sécurité
           }
 
           source.start(nextStartTimeRef.current);
@@ -312,10 +307,18 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   };
 
   const handleHangup = () => {
-      if (wsSessionRef.current) wsSessionRef.current.close();
-      if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach(t => t.stop());
-      if (processorRef.current) processorRef.current.disconnect();
-      if (audioContextRef.current) audioContextRef.current.close();
+      if (wsSessionRef.current) {
+          try { wsSessionRef.current.close(); } catch(e){}
+      }
+      if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+      if (processorRef.current) {
+          processorRef.current.disconnect();
+      }
+      if (audioContextRef.current) {
+          audioContextRef.current.close().catch(() => {});
+      }
       
       wsSessionRef.current = null;
       mediaStreamRef.current = null;
@@ -327,7 +330,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       }
   };
 
-  // --- RENDER ---
+  // --- RENDER UI ---
 
   if (status === 'idle') {
       return (
@@ -342,7 +345,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   
                   <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-2">Appel Live</h2>
                   <p className="text-slate-500 text-sm mb-6 px-4">
-                      Discutez naturellement avec l'IA. <br/>Correction en temps réel.
+                      Discutez naturellement avec l'IA. <br/>Correction et fluidité en temps réel.
                   </p>
                   
                   <div className="flex flex-col gap-3">
@@ -372,7 +375,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
       );
   }
 
-  // INTERFACE D'APPEL
+  // INTERFACE D'APPEL ACTIF
   return (
       <div className="fixed inset-0 z-[150] bg-slate-950 flex flex-col font-sans overflow-hidden">
           
