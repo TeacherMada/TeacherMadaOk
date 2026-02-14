@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Smartphone, Calculator, ArrowRight, Send, CheckCircle, Copy, Check, Coins, Ticket, Loader2, ChevronLeft, AlertTriangle } from 'lucide-react';
+import { X, Smartphone, Calculator, ArrowRight, Send, CheckCircle, Copy, Check, Coins, Ticket, Loader2, ChevronLeft, AlertTriangle, Hash, Wifi } from 'lucide-react';
 import { ADMIN_CONTACTS, CREDIT_PRICE_ARIARY } from '../constants';
 import { storageService } from '../services/storageService';
 import { UserProfile } from '../types';
@@ -11,6 +11,12 @@ interface PaymentModalProps {
 }
 
 const PRESET_AMOUNTS = [1000, 2000, 5000, 10000];
+
+const OPERATOR_THEMES = {
+    mvola: { color: 'bg-yellow-500', ussd: '#111#', text: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-200' },
+    airtel: { color: 'bg-red-500', ussd: '*128#', text: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' },
+    orange: { color: 'bg-orange-500', ussd: '#144#', text: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200' }
+};
 
 const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   const [activeTab, setActiveTab] = useState<'money' | 'coupon'>('money');
@@ -35,6 +41,8 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   const cleanUsername = user.username.replace(/[^a-zA-Z0-9]/g, '');
   const motifCode = `Crd_${cleanUsername}`.substring(0, 15);
 
+  const currentTheme = OPERATOR_THEMES[selectedOperator];
+
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
@@ -56,7 +64,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
         'credit',
         credits,
         `Mobile Money (${selectedOperator.toUpperCase()}). Réf: ${reference}`,
-        user.phoneNumber || '' // Pass user phone if available
+        user.phoneNumber || '' 
       );
       setIsSuccess(true);
       setTimeout(() => {
@@ -79,7 +87,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
         setCouponStatus('success');
         setCouponMessage(`+${result.amount} Crédits ajoutés !`);
         setTimeout(() => {
-            window.location.reload(); // Simple reload to refresh context
+            window.location.reload(); 
         }, 2000);
       } else {
         setCouponStatus('error');
@@ -100,7 +108,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
       />
 
       {/* Modal Container */}
-      <div className="bg-white dark:bg-[#0F1422] w-full sm:max-w-md h-[85vh] sm:h-auto sm:max-h-[80vh] rounded-t-[2rem] sm:rounded-[2rem] shadow-2xl pointer-events-auto flex flex-col overflow-hidden animate-slide-up border border-slate-200 dark:border-slate-800">
+      <div className="bg-white dark:bg-[#0F1422] w-full sm:max-w-md h-[90vh] sm:h-auto sm:max-h-[85vh] rounded-t-[2rem] sm:rounded-[2rem] shadow-2xl pointer-events-auto flex flex-col overflow-hidden animate-slide-up border border-slate-200 dark:border-slate-800">
         
         {/* Header Gradient */}
         <div className="bg-gradient-to-r from-indigo-600 to-violet-600 p-6 pb-8 relative shrink-0">
@@ -137,11 +145,11 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                 <div className="space-y-6">
                     {/* Step Indicator */}
                     <div className="flex items-center justify-between mb-2 px-2">
-                        <div className={`h-1.5 flex-1 rounded-full ${step >= 1 ? 'bg-indigo-500' : 'bg-slate-100 dark:bg-slate-800'}`}></div>
+                        <div className={`h-1.5 flex-1 rounded-full transition-colors ${step >= 1 ? 'bg-indigo-500' : 'bg-slate-100 dark:bg-slate-800'}`}></div>
                         <div className="w-2"></div>
-                        <div className={`h-1.5 flex-1 rounded-full ${step >= 2 ? 'bg-indigo-500' : 'bg-slate-100 dark:bg-slate-800'}`}></div>
+                        <div className={`h-1.5 flex-1 rounded-full transition-colors ${step >= 2 ? 'bg-indigo-500' : 'bg-slate-100 dark:bg-slate-800'}`}></div>
                         <div className="w-2"></div>
-                        <div className={`h-1.5 flex-1 rounded-full ${step >= 3 ? 'bg-indigo-500' : 'bg-slate-100 dark:bg-slate-800'}`}></div>
+                        <div className={`h-1.5 flex-1 rounded-full transition-colors ${step >= 3 ? 'bg-indigo-500' : 'bg-slate-100 dark:bg-slate-800'}`}></div>
                     </div>
 
                     {/* STEP 1: AMOUNT */}
@@ -183,57 +191,60 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                         </div>
                     )}
 
-                    {/* STEP 2: OPERATOR */}
+                    {/* STEP 2: OPERATOR & GUIDE */}
                     {step === 2 && (
-                        <div className="space-y-5 animate-slide-in-right">
-                            <button onClick={() => setStep(1)} className="text-xs font-bold text-slate-400 flex items-center gap-1 hover:text-indigo-500"><ChevronLeft className="w-4 h-4"/> Modifier montant</button>
+                        <div className="space-y-6 animate-slide-in-right">
+                            <button onClick={() => setStep(1)} className="text-xs font-bold text-slate-400 flex items-center gap-1 hover:text-indigo-500"><ChevronLeft className="w-4 h-4"/> Retour</button>
                             
-                            <h3 className="text-lg font-bold text-slate-800 dark:text-white text-center">Envoyer via Mobile Money</h3>
-                            
-                            <div className="space-y-3">
-                                <OperatorButton 
-                                    name="MVola" 
-                                    color="bg-yellow-500" 
-                                    number={ADMIN_CONTACTS.telma} 
-                                    selected={selectedOperator === 'mvola'} 
-                                    onSelect={() => setSelectedOperator('mvola')}
-                                    onCopy={() => copyToClipboard(ADMIN_CONTACTS.telma, 'mvola')}
-                                    isCopied={copiedKey === 'mvola'}
-                                />
-                                <OperatorButton 
-                                    name="Airtel Money" 
-                                    color="bg-red-500" 
-                                    number={ADMIN_CONTACTS.airtel} 
-                                    selected={selectedOperator === 'airtel'} 
-                                    onSelect={() => setSelectedOperator('airtel')}
-                                    onCopy={() => copyToClipboard(ADMIN_CONTACTS.airtel, 'airtel')}
-                                    isCopied={copiedKey === 'airtel'}
-                                />
-                                <OperatorButton 
-                                    name="Orange Money" 
-                                    color="bg-orange-500" 
-                                    number={ADMIN_CONTACTS.orange} 
-                                    selected={selectedOperator === 'orange'} 
-                                    onSelect={() => setSelectedOperator('orange')}
-                                    onCopy={() => copyToClipboard(ADMIN_CONTACTS.orange, 'orange')}
-                                    isCopied={copiedKey === 'orange'}
-                                />
+                            {/* Operator Selector */}
+                            <div className="grid grid-cols-3 gap-3">
+                                <OperatorMiniBtn name="MVola" active={selectedOperator === 'mvola'} color="bg-yellow-500" onClick={() => setSelectedOperator('mvola')} />
+                                <OperatorMiniBtn name="Airtel" active={selectedOperator === 'airtel'} color="bg-red-500" onClick={() => setSelectedOperator('airtel')} />
+                                <OperatorMiniBtn name="Orange" active={selectedOperator === 'orange'} color="bg-orange-500" onClick={() => setSelectedOperator('orange')} />
                             </div>
 
-                            <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                                <div className="flex justify-between items-center text-sm mb-1">
-                                    <span className="text-slate-500">Nom :</span>
-                                    <span className="font-bold text-slate-800 dark:text-white">TSANTA FIDERANA</span>
+                            {/* Intelligent Guide Card */}
+                            <div className={`rounded-2xl border-2 overflow-hidden ${currentTheme.border} ${currentTheme.bg} bg-opacity-20`}>
+                                <div className={`px-4 py-2 ${currentTheme.bg} flex items-center justify-between`}>
+                                    <span className={`text-xs font-black uppercase tracking-wider ${currentTheme.text} flex items-center gap-1`}>
+                                        <Smartphone className="w-3 h-3" /> Guide {selectedOperator}
+                                    </span>
+                                    <span className="text-[10px] font-bold opacity-60">Code: {currentTheme.ussd}</span>
                                 </div>
-                                <div className="flex justify-between items-center text-sm">
-                                    <span className="text-slate-500">Motif (Important) :</span>
-                                    <button onClick={() => copyToClipboard(motifCode, 'motif')} className="flex items-center gap-1 font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded cursor-pointer hover:bg-indigo-100">
-                                        {motifCode} {copiedKey === 'motif' ? <Check className="w-3 h-3"/> : <Copy className="w-3 h-3"/>}
-                                    </button>
+                                
+                                <div className="p-4 space-y-4">
+                                    {/* Instruction Row 1 */}
+                                    <div className="flex items-start gap-3">
+                                        <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center font-bold text-xs shadow-sm shrink-0 border border-slate-100">1</div>
+                                        <div className="text-sm">
+                                            <p className="text-slate-600 dark:text-slate-300">Envoyez <strong className="text-slate-900 dark:text-white">{amount} Ar</strong> au numéro :</p>
+                                            <button onClick={() => copyToClipboard(ADMIN_CONTACTS[selectedOperator === 'mvola' ? 'telma' : selectedOperator], 'num')} className="mt-1 flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm font-mono font-bold text-slate-800 dark:text-white w-fit active:scale-95 transition-transform">
+                                                {ADMIN_CONTACTS[selectedOperator === 'mvola' ? 'telma' : selectedOperator]}
+                                                {copiedKey === 'num' ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3 text-slate-400"/>}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Instruction Row 2 (Critical) */}
+                                    <div className="flex items-start gap-3 relative overflow-hidden">
+                                        {/* Animated pulse background for emphasis */}
+                                        <div className="absolute inset-0 bg-indigo-500/5 animate-pulse rounded-lg -z-10"></div>
+                                        <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-sm shrink-0 mt-1">2</div>
+                                        <div className="text-sm">
+                                            <p className="text-slate-600 dark:text-slate-300 font-medium">
+                                                Ajoutez impérativement ce <span className="text-indigo-600 dark:text-indigo-400 font-bold">Motif / Raison</span> :
+                                            </p>
+                                            <button onClick={() => copyToClipboard(motifCode, 'motif')} className="mt-1.5 flex items-center gap-2 bg-indigo-600 text-white px-3 py-2 rounded-lg shadow-md shadow-indigo-500/30 font-mono font-bold w-full justify-between hover:bg-indigo-700 active:scale-95 transition-all group">
+                                                <span>{motifCode}</span>
+                                                {copiedKey === 'motif' ? <Check className="w-4 h-4 text-emerald-300"/> : <Copy className="w-4 h-4 text-indigo-200 group-hover:text-white"/>}
+                                            </button>
+                                            <p className="text-[10px] text-slate-400 mt-1 italic">Cela permet de valider vos crédits automatiquement.</p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
-                            <button onClick={() => setStep(3)} className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform">
+                            <button onClick={() => setStep(3)} className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform shadow-lg">
                                 J'ai envoyé l'argent <ArrowRight className="w-5 h-5" />
                             </button>
                         </div>
@@ -248,28 +259,28 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                 <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600">
                                     <Smartphone className="w-8 h-8" />
                                 </div>
-                                <h3 className="text-xl font-bold text-slate-800 dark:text-white">Validation</h3>
-                                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 px-4">Entrez la référence du SMS reçu pour valider vos <strong>{credits} Crédits</strong>.</p>
+                                <h3 className="text-xl font-bold text-slate-800 dark:text-white">Dernière étape</h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 px-4">Entrez la référence de transaction (reçue par SMS) pour débloquer vos <strong>{credits} Crédits</strong>.</p>
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-xs font-bold text-slate-500 uppercase ml-2">Référence de transaction</label>
+                                <label className="text-xs font-bold text-slate-500 uppercase ml-2">Référence SMS</label>
                                 <textarea 
-                                    rows={3}
+                                    rows={2}
                                     value={reference}
                                     onChange={(e) => setReference(e.target.value)}
-                                    placeholder="Collez le SMS ou la référence ici..."
-                                    className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white text-sm"
+                                    placeholder="Ex: 230918054021..."
+                                    className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white text-sm font-medium"
                                 />
                             </div>
 
                             <button 
                                 onClick={handleMoneySubmit} 
                                 disabled={!reference.trim() || isSubmitting}
-                                className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-2xl flex items-center justify-center gap-2 hover:shadow-lg disabled:opacity-70 transition-all"
+                                className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-2xl flex items-center justify-center gap-2 hover:shadow-lg disabled:opacity-70 transition-all active:scale-95"
                             >
                                 {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin"/> : <Send className="w-5 h-5" />}
-                                Envoyer la demande
+                                Valider mes crédits
                             </button>
                         </div>
                     )}
@@ -278,7 +289,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
 
             {isSuccess && (
                 <div className="flex flex-col items-center justify-center h-full text-center space-y-6 animate-scale-in">
-                    <div className="w-24 h-24 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center">
+                    <div className="w-24 h-24 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center border-4 border-emerald-50 dark:border-emerald-900/50">
                         <CheckCircle className="w-12 h-12 text-emerald-500" />
                     </div>
                     <div>
@@ -337,25 +348,14 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   );
 };
 
-const OperatorButton = ({ name, color, number, selected, onSelect, onCopy, isCopied }: any) => (
-    <div 
-        onClick={onSelect}
-        className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex items-center gap-4 ${selected ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/10' : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-200 dark:hover:border-slate-700'}`}
+const OperatorMiniBtn = ({ name, active, color, onClick }: any) => (
+    <button 
+        onClick={onClick}
+        className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${active ? `border-${color.split('-')[1]}-500 bg-white dark:bg-slate-800 shadow-md transform scale-105` : 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 opacity-60 hover:opacity-100'}`}
     >
-        <div className={`w-10 h-10 rounded-full ${color} flex items-center justify-center text-white shadow-sm shrink-0`}>
-            <Smartphone className="w-5 h-5" />
-        </div>
-        <div className="flex-1 min-w-0">
-            <h4 className="font-bold text-slate-800 dark:text-white text-sm">{name}</h4>
-            <div className="flex items-center gap-2 group" onClick={(e) => { e.stopPropagation(); onCopy(); }}>
-                <span className="text-xs font-mono text-slate-500 dark:text-slate-400 group-hover:text-indigo-500 transition-colors">{number}</span>
-                {isCopied ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"/>}
-            </div>
-        </div>
-        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selected ? 'border-indigo-500 bg-indigo-500' : 'border-slate-300 dark:border-slate-600'}`}>
-            {selected && <Check className="w-3 h-3 text-white" />}
-        </div>
-    </div>
+        <div className={`w-3 h-3 rounded-full ${color}`}></div>
+        <span className={`text-xs font-bold ${active ? 'text-slate-900 dark:text-white' : 'text-slate-500'}`}>{name}</span>
+    </button>
 );
 
 export default PaymentModal;
