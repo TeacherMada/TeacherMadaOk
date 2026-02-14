@@ -23,7 +23,6 @@ const LANGUAGES = [
 ];
 
 const LIVE_MODEL = 'gemini-2.0-flash-exp'; 
-const FALLBACK_MODEL = 'gemini-2.0-flash'; 
 
 // --- UTILS ---
 const getApiKeys = () => {
@@ -65,7 +64,7 @@ function floatTo16BitPCM(input: Float32Array) {
 }
 
 const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
-  // Architecture Level: 1=Live, 2=TTS, 3=Text
+  // Architecture Level: 1=Live Only (Test Mode)
   const [archLevel, setArchLevel] = useState<1 | 2 | 3>(1);
   
   // UI States
@@ -75,8 +74,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const [selectedLang, setSelectedLang] = useState(user.preferences?.targetLanguage?.split(' ')[0] || 'Anglais');
   
   // Interaction
-  const [showKeyboard, setShowKeyboard] = useState(false);
-  const [textInput, setTextInput] = useState('');
   const [currentTeacherText, setCurrentTeacherText] = useState('');
   const [showHint, setShowHint] = useState(false);
 
@@ -89,9 +86,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   const liveSessionRef = useRef<any>(null);
   const nextStartTimeRef = useRef(0);
   
-  // Fallback Specific Refs
-  const historyRef = useRef<{role: string, parts: {text: string}[]}[]>([]); 
-
   const mountedRef = useRef(true);
   const TEACHER_AVATAR = "https://i.ibb.co/B2XmRwmJ/logo.png";
 
@@ -168,7 +162,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           playRingingTone(ctx);
       } catch (e) {
           console.error("Audio Context Init Failed", e);
-          // Continue anyway, try fallback later
+          notify("Erreur initialisation Audio. Vérifiez votre navigateur.", "error");
       }
 
       // Attempt Level 1 (Live) after delay
@@ -193,24 +187,23 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
   };
 
   const getSystemPrompt = () => `
-    CONTEXTE: Appel téléphonique.
+    CONTEXTE: Appel téléphonique Vocal Live.
     RÔLE: Professeur de langue natif (${selectedLang}).
     TON: Amical, encourageant, conversationnel.
     RÈGLES:
     1. Réponses COURTES (max 15 mots).
     2. Pose toujours une question de relance.
-    3. Si l'utilisateur parle français, traduis et réponds dans la langue cible.
-    4. IMPÉRATIF: Commence la conversation immédiatement par une salutation chaleureuse et demande comment ça va.
+    3. IMPÉRATIF: PRENDS LA PAROLE IMMÉDIATEMENT (Dis "Bonjour, je suis ton prof ${selectedLang}, on commence ?").
   `;
 
-  // --- LEVEL 1: GEMINI LIVE ---
+  // --- LEVEL 1: GEMINI LIVE ONLY (TEST MODE) ---
 
   const connectLevel1_Live = async () => {
       setStatus('connecting');
       const keys = getApiKeys();
       if (keys.length === 0) {
-          console.warn("No API Keys");
-          fallbackToLevel2();
+          notify("Aucune Clé API trouvée (Mode Test).", "error");
+          setStatus('setup');
           return;
       }
       
@@ -231,7 +224,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
               },
               callbacks: {
                   onopen: () => {
-                      console.log("Live Session Connected");
+                      console.log(">>> LIVE SESSION ESTABLISHED <<<");
                       setStatus('connected');
                   },
                   onmessage: async (msg: any) => {
@@ -266,13 +259,13 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                   },
                   onclose: () => {
                       console.log("Live Session Closed");
-                      if (mountedRef.current && archLevel === 1) {
-                          fallbackToLevel2();
-                      }
+                      notify("Session Live fermée par le serveur.", "info");
+                      onClose(); // Close app, DO NOT FALLBACK
                   },
                   onerror: (err: any) => {
                       console.error("Live Error", err);
-                      if (mountedRef.current) fallbackToLevel2();
+                      notify(`Erreur Live API: ${err.message || 'Inconnue'}`, "error");
+                      // DO NOT FALLBACK - We want to see the error
                   }
               }
           });
@@ -287,9 +280,11 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           setArchLevel(1);
           await setupLiveAudioInput(session);
 
-      } catch (e) {
-          console.warn("Level 1 (Live) failed, falling back to Level 2 (TTS).", e);
-          fallbackToLevel2();
+      } catch (e: any) {
+          console.error("Live Connection Exception:", e);
+          notify(`Echec Connexion Live: ${e.message}`, "error");
+          setStatus('setup');
+          // DO NOT FALLBACK
       }
   };
 
@@ -300,7 +295,9 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           const stream = await navigator.mediaDevices.getUserMedia({ audio: {
               sampleRate: 16000,
               channelCount: 1,
-              echoCancellation: true
+              echoCancellation: true,
+              autoGainControl: true,
+              noiseSuppression: true
           }});
           streamRef.current = stream;
 
@@ -334,136 +331,15 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
           processorRef.current = processor;
       } catch (e) {
           console.error("Mic Error", e);
-          notify("Micro indisponible. Mode écoute seule.", "warning");
-      }
-  };
-
-  // --- LEVEL 2: FALLBACK TTS (Turn-based) ---
-
-  const fallbackToLevel2 = () => {
-      if (archLevel === 2 || !mountedRef.current) return;
-      console.log("Activating Level 2: TTS Fallback");
-      
-      // Cleanup Level 1
-      cleanup();
-      
-      setArchLevel(2);
-      setStatus('connected');
-      
-      // Re-init standard audio context if needed
-      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
-          try {
-              audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
-          } catch(e) {
-              console.warn("Could not re-init audio context for L2");
-          }
-      }
-
-      // Initial Greeting for L2
-      processTurn_L2("Bonjour ! La connexion Live est instable, mais je suis toujours là. On continue ?");
-  };
-
-  const processTurn_L2 = async (inputText: string | Blob) => {
-      setStatus('processing');
-      
-      // 1. Prepare Content
-      let userPart: any;
-      if (typeof inputText === 'string') {
-          userPart = { text: inputText };
-          historyRef.current.push({ role: 'user', parts: [{ text: inputText }] });
-      } else {
-          // In L2, we currently only support Text input for stability if audio failed
-          userPart = { text: "[Audio input not supported in L2]" }; 
-      }
-
-      try {
-          // 2. Consume Credit
-          await consumeCredit();
-
-          // 3. Generate Response
-          const keys = getApiKeys();
-          const ai = new GoogleGenAI({ apiKey: keys[0] });
-          const response = await ai.models.generateContent({
-              model: FALLBACK_MODEL,
-              contents: [...historyRef.current, { role: 'user', parts: [userPart] }],
-              config: { systemInstruction: { parts: [{ text: getSystemPrompt() }] } }
-          });
-
-          const text = response.text || "Je t'écoute.";
-          setCurrentTeacherText(text);
-          historyRef.current.push({ role: 'model', parts: [{ text }] });
-
-          // 4. TTS
-          await speakText_L2(text);
-
-      } catch (e) {
-          console.warn("L2 Generation Failed", e);
-          // Don't crash to "Error Audio", just show UI error
-          setCurrentTeacherText("Désolé, je n'ai pas compris.");
-          setStatus('listening');
-      }
-  };
-
-  const speakText_L2 = async (text: string) => {
-      setStatus('speaking');
-      try {
-          if (!audioCtxRef.current) throw new Error("No Audio Context");
-
-          const keys = getApiKeys();
-          const ai = new GoogleGenAI({ apiKey: keys[0] });
-          const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash-preview-tts',
-              contents: [{ parts: [{ text }] }],
-              config: {
-                  responseModalities: [Modality.AUDIO],
-                  speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } }
-              }
-          });
-
-          const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-          if (!audioData) throw new Error("No audio data");
-
-          const buffer = await base64ToAudioBuffer(audioData, audioCtxRef.current!);
-          const source = audioCtxRef.current!.createBufferSource();
-          source.buffer = buffer;
-          source.connect(audioCtxRef.current!.destination);
-          source.onended = () => setStatus('listening'); 
-          source.start();
-
-      } catch (e) {
-          console.warn("TTS Failed", e);
-          // Silent fallback: just show text and go to listening state
-          // Do not call fallbackToLevel3 to avoid 'Error Audio' screen
-          setStatus('listening');
+          notify("Microphone inaccessible. Vérifiez les permissions.", "error");
       }
   };
 
   // --- UI HANDLERS ---
 
   const handleMicClick = () => {
-      if (archLevel === 1) {
-          // In Live mode, mic is always open.
-          // Optional: Add Mute Toggle logic here
-          notify("Le micro est déjà actif en continu.", "info");
-      } else {
-          // In L2, we could implement Speech-to-Text via browser API
-          // For now, prompt user to use keyboard
-          setShowKeyboard(true);
-          notify("Utilisez le clavier pour répondre.", "info");
-      }
-  };
-
-  const handleTextSubmit = () => {
-      if (!textInput.trim()) return;
-      
-      if (archLevel === 1) {
-          // Live API primarily audio.
-          notify("En mode Live, parlez directement.", "info");
-      } else {
-          processTurn_L2(textInput);
-      }
-      setTextInput('');
-      setShowKeyboard(false);
+      // Mute toggle visualization
+      notify("Micro actif (streaming continu)", "info");
   };
 
   // --- RENDER ---
@@ -477,8 +353,8 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                     <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce-slight">
                         <Settings2 className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
                     </div>
-                    <h2 className="text-2xl font-black text-slate-900 dark:text-white">Configuration</h2>
-                    <p className="text-slate-500 text-sm mt-1">Appel Vocal IA</p>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white">Live Test Mode</h2>
+                    <p className="text-slate-500 text-sm mt-1">Appel Vocal (Strict Live API)</p>
                 </div>
                 <div className="space-y-4">
                     <div>
@@ -490,7 +366,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
                         </div>
                     </div>
                     <button onClick={handleStartCall} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-2xl shadow-lg shadow-emerald-500/30 transform active:scale-95 transition-all flex items-center justify-center gap-2 mt-4">
-                        <Phone className="w-5 h-5 fill-current" /> Démarrer (1 Crd/min)
+                        <Phone className="w-5 h-5 fill-current" /> TESTER LIVE (1 Crd)
                     </button>
                 </div>
             </div>
@@ -502,15 +378,15 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col font-sans overflow-hidden">
         {/* Header */}
         <div className="relative z-10 p-8 pt-10 text-center">
-            <div className="inline-flex items-center gap-2 bg-white/5 px-3 py-1 rounded-full backdrop-blur-md border border-white/10 mb-2">
-                {archLevel === 1 ? <Wifi className="w-3 h-3 text-emerald-400"/> : <WifiOff className="w-3 h-3 text-amber-400"/>}
-                <span className="text-[10px] text-white/60 font-bold uppercase tracking-wider">
-                    {archLevel === 1 ? "LIVE STREAM" : "MODE STANDARD"}
+            <div className="inline-flex items-center gap-2 bg-red-500/20 px-3 py-1 rounded-full backdrop-blur-md border border-red-500/50 mb-2">
+                <Wifi className="w-3 h-3 text-red-400 animate-pulse"/>
+                <span className="text-[10px] text-red-100 font-bold uppercase tracking-wider">
+                    MODE TEST: LIVE ONLY
                 </span>
             </div>
             <h2 className="text-3xl font-black text-white tracking-tight mb-1">Teacher {selectedLang}</h2>
             <p className="text-indigo-300 text-sm font-medium font-mono tracking-widest">
-                {status === 'ringing' ? "Appel entrant..." : status === 'connecting' ? "Connexion..." : `${Math.floor(duration/60)}:${(duration%60).toString().padStart(2,'0')}`}
+                {status === 'ringing' ? "Appel entrant..." : status === 'connecting' ? "Connexion WebSocket..." : `${Math.floor(duration/60)}:${(duration%60).toString().padStart(2,'0')}`}
             </p>
         </div>
 
@@ -530,15 +406,6 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
             </div>
         </div>
 
-        {/* Transcripts / Fallback UI */}
-        {currentTeacherText && (
-            <div className="absolute bottom-32 left-4 right-4 z-50 animate-slide-up">
-                <div className="bg-slate-900/90 backdrop-blur-xl p-4 rounded-3xl border border-white/10 shadow-2xl">
-                    <p className="text-white text-md font-medium text-center">{currentTeacherText}</p>
-                </div>
-            </div>
-        )}
-
         {/* Input Controls */}
         <div className="grid grid-cols-3 gap-8 w-full max-w-xs mx-auto items-center mb-12 relative z-10">
             <button onClick={() => setShowHint(!showHint)} className="flex flex-col items-center gap-2 group">
@@ -548,29 +415,11 @@ const VoiceCall: React.FC<VoiceCallProps> = ({ user, onClose, onUpdateUser, noti
             <button onClick={onClose} className="flex flex-col items-center gap-2 group hover:scale-105 transition-transform">
                 <div className="w-20 h-20 rounded-full bg-red-500 flex items-center justify-center shadow-lg shadow-red-500/40"><Phone className="w-8 h-8 text-white fill-white rotate-[135deg]" /></div>
             </button>
-            <button onClick={() => setShowKeyboard(true)} className="flex flex-col items-center gap-2 group">
+            <button className="flex flex-col items-center gap-2 group opacity-50 cursor-not-allowed">
                 <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center text-white"><Keyboard className="w-6 h-6"/></div>
-                <span className="text-[10px] text-white/50 font-bold uppercase">Clavier</span>
+                <span className="text-[10px] text-white/50 font-bold uppercase">Clavier Off</span>
             </button>
         </div>
-
-        {/* Keyboard Overlay */}
-        {showKeyboard && (
-            <div className="absolute inset-x-0 bottom-0 bg-slate-900 p-4 rounded-t-3xl border-t border-slate-700 z-50 animate-slide-up">
-                <div className="flex gap-2">
-                    <input 
-                        value={textInput} 
-                        onChange={(e) => setTextInput(e.target.value)} 
-                        className="flex-1 bg-slate-800 text-white rounded-xl px-4 py-3 outline-none" 
-                        placeholder="Message..." 
-                        autoFocus
-                        onKeyDown={(e) => e.key === 'Enter' && handleTextSubmit()}
-                    />
-                    <button onClick={handleTextSubmit} className="p-3 bg-indigo-600 rounded-xl text-white"><Send className="w-5 h-5"/></button>
-                    <button onClick={() => setShowKeyboard(false)} className="p-3 text-slate-400"><ChevronDown/></button>
-                </div>
-            </div>
-        )}
     </div>
   );
 };
