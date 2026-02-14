@@ -157,8 +157,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
       try {
           // Init Audio Context (Must be user gesture)
+          // Gemini Live Output is 24kHz. Setting context to 24000 simplifies things, 
+          // but browsers usually prefer 44.1/48k. We'll use default and let AudioBuffer resampling handle it.
           const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          const ctx = new AudioContextClass();
+          const ctx = new AudioContextClass(); // Default rate (e.g. 48000)
+          
           await ctx.resume();
           audioCtxRef.current = ctx;
 
@@ -213,13 +216,12 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                       }
                   },
                   callbacks: {
-                      onopen: async () => {
+                      onopen: () => {
                           console.log(">>> Live Connected <<<");
-                          if (!mountedRef.current) return;
-                          setStatus('connected');
-                          setSubStatus("Connecté");
-                          
-                          await startAudioCapture(ctx, session);
+                          if (mountedRef.current) {
+                              setStatus('connected');
+                              setSubStatus("Connecté");
+                          }
                       },
                       onmessage: async (msg: any) => {
                           if (!mountedRef.current) return;
@@ -232,6 +234,7 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                           // Turn Complete
                           if (msg.serverContent?.turnComplete) {
                               setSubStatus("À vous...");
+                              // Ensure we track time correctly for gapless playback
                               if (ctx.currentTime > nextStartTimeRef.current) {
                                   nextStartTimeRef.current = ctx.currentTime;
                               }
@@ -252,6 +255,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
               liveSessionRef.current = session;
               connected = true;
+              
+              // Start Audio Capture AFTER connection is established
+              // This prevents the race condition where 'session' is undefined
+              await startAudioCapture(ctx, session);
+
               break; // Success, stop rotation
 
           } catch (e: any) {
@@ -273,13 +281,16 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
                   channelCount: 1,
                   echoCancellation: true,
                   noiseSuppression: true,
-                  autoGainControl: true
+                  autoGainControl: true,
+                  sampleRate: 16000 // Request ideal rate for speech
               }
           });
           mediaStreamRef.current = stream;
+          
           const source = ctx.createMediaStreamSource(stream);
           sourceNodeRef.current = source;
           
+          // Use ScriptProcessor for wide compatibility (AudioWorklet is better but requires external file)
           const processor = ctx.createScriptProcessor(4096, 1, 1);
           processorRef.current = processor;
 
@@ -295,36 +306,50 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               setAudioLevel(Math.min(100, rms * 500));
 
               // Convert & Send
+              // We send even low volume to ensure 'presence' and avoid aggressive gating
               const base64Data = floatTo16BitPCM(inputData);
               try {
+                  // Send at current context rate, Gemini Live adapts
                   session.sendRealtimeInput({
                       mimeType: `audio/pcm;rate=${ctx.sampleRate}`,
                       data: base64Data
                   });
               } catch(err) {
                   // Ignore if closed
+                  console.warn("Send failed", err);
               }
           };
 
           source.connect(processor);
-          processor.connect(ctx.destination);
+          processor.connect(ctx.destination); // Essential for ScriptProcessor to run in some browsers
 
       } catch (e: any) {
+          console.error("Mic setup failed", e);
           throw new Error("Microphone inaccessible.");
       }
   };
 
   const playAudioChunk = async (base64: string, ctx: AudioContext) => {
       try {
+          // Ensure AudioContext is running
+          if (ctx.state === 'suspended') {
+              await ctx.resume();
+          }
+
           const buffer = await base64ToAudioBuffer(base64, ctx);
           const source = ctx.createBufferSource();
           source.buffer = buffer;
           source.connect(ctx.destination);
           
           const now = ctx.currentTime;
-          const start = Math.max(now, nextStartTimeRef.current);
-          source.start(start);
-          nextStartTimeRef.current = start + buffer.duration;
+          // Gapless playback logic
+          // If next start time is way in the past (lag), reset to now
+          if (nextStartTimeRef.current < now) {
+              nextStartTimeRef.current = now;
+          }
+          
+          source.start(nextStartTimeRef.current);
+          nextStartTimeRef.current += buffer.duration;
       } catch (e) {
           console.error("Playback error", e);
       }
