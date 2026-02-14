@@ -215,14 +215,13 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
               console.log("Connecting to Gemini Live...");
               const ai = new GoogleGenAI({ apiKey });
               
-              // Note: systemInstruction must be a string for Live API in current SDK
               const sysPrompt = `You are a friendly language teacher helping a student learn ${targetLang} (Level: ${level}). Speak briefly. Correct mistakes gently. Start immediately by saying 'Hello' and asking a simple question in ${targetLang}.`;
 
               const session = await ai.live.connect({
                   model: LIVE_MODEL,
                   config: {
                       responseModalities: [Modality.AUDIO],
-                      systemInstruction: sysPrompt,
+                      systemInstruction: { parts: [{ text: sysPrompt }] }, // FIXED: Content object instead of string
                       speechConfig: {
                           voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
                       }
