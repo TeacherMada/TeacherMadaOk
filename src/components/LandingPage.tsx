@@ -24,20 +24,20 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
   // Stats State
   const [stats, setStats] = useState({ visitors: 14203, students: 850, lessons: 3900 });
 
-  // PWA Install State
+  // PWA Install State - C'est ici qu'on stocke l'événement du navigateur
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', handleScroll);
     
-    // Capture PWA install prompt
+    // LOGIQUE PWA : On écoute l'événement 'beforeinstallprompt'
     const handleBeforeInstallPrompt = (e: Event) => {
-        // Prevent the mini-infobar from appearing on mobile
+        // 1. On empêche la mini-barre par défaut de s'afficher (sur mobile)
         e.preventDefault();
-        // Stash the event so it can be triggered later.
+        // 2. On sauvegarde l'événement pour l'utiliser plus tard lors du clic sur notre bouton
         setDeferredPrompt(e);
-        console.log("PWA Install Prompt captured");
+        console.log("PWA Install Prompt capturé et prêt.");
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -95,19 +95,16 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
       return () => clearInterval(interval);
   }, []);
 
+  // Fonction déclenchée par le clic sur le bouton "Installer"
   const handleInstallClick = async () => {
       if (deferredPrompt) {
-          // Show the install prompt
+          // On déclenche le prompt natif du navigateur
           deferredPrompt.prompt();
-          // Wait for the user to respond to the prompt
+          // On attend la réponse de l'utilisateur (Accepté ou Refusé)
           const { outcome } = await deferredPrompt.userChoice;
-          console.log(`User response to the install prompt: ${outcome}`);
-          // We've used the prompt, and can't use it again, throw it away
+          console.log(`Réponse utilisateur à l'installation: ${outcome}`);
+          // On vide la variable, car le prompt ne peut être utilisé qu'une seule fois
           setDeferredPrompt(null);
-      } else {
-          // Fallback if already installed or not supported (e.g. prompt iOS instructions or just start app)
-          console.log("Install prompt not available");
-          onStart();
       }
   };
 
@@ -141,13 +138,14 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
               >
                   {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
               </button>
+              {/* BOUTON INSTALLER (Visible seulement si l'app est installable) */}
               {deferredPrompt && (
                   <button 
                       onClick={handleInstallClick}
-                      className="hidden sm:flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-full text-xs font-bold transition-colors"
+                      className="hidden sm:flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-full text-xs font-bold transition-colors animate-pulse border border-slate-300 dark:border-slate-600"
                   >
                      <Download className="w-4 h-4" />
-                     Installer
+                     Installer l'App
                   </button>
               )}
               <button 
@@ -197,13 +195,17 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                         Créer mon compte gratuit
                         <ArrowRight className="w-5 h-5" />
                     </button>
-                    <button 
-                        onClick={handleInstallClick}
-                        className="w-full sm:w-auto px-8 py-4 bg-white dark:bg-[#131825] hover:bg-slate-50 dark:hover:bg-[#1A2030] text-slate-800 dark:text-white text-lg font-bold rounded-2xl border border-slate-200 dark:border-white/10 shadow-sm transition-all flex items-center justify-center gap-3"
-                    >
-                        <Download className="w-5 h-5 text-indigo-500" />
-                        {deferredPrompt ? 'Installer cette Application' : 'Ouvrir l\'application'}
-                    </button>
+                    
+                    {/* BOUTON INSTALLER PRINCIPAL (Visible seulement si l'app est installable) */}
+                    {deferredPrompt && (
+                      <button 
+                          onClick={handleInstallClick}
+                          className="w-full sm:w-auto px-8 py-4 bg-white dark:bg-[#131825] hover:bg-slate-50 dark:hover:bg-[#1A2030] text-slate-800 dark:text-white text-lg font-bold rounded-2xl border border-slate-200 dark:border-white/10 shadow-sm transition-all flex items-center justify-center gap-3 animate-bounce-slight"
+                      >
+                          <Download className="w-5 h-5 text-indigo-500" />
+                          Installer l'App
+                      </button>
+                    )}
                 </div>
             </div>
 
