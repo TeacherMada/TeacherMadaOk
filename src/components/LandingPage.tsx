@@ -5,6 +5,8 @@ import LiveChatDemo from './LiveChatDemo';
 import { storageService } from '../services/storageService';
 import { TargetLanguage } from '../types';
 import LegalModal from './LegalModals';
+import { getFlagUrl } from '../constants'; // Import du helper
+
 
 interface LandingPageProps {
   onStart: () => void;
