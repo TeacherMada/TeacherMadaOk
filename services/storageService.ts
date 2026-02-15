@@ -1,27 +1,20 @@
-
 import { supabase } from "../lib/supabase";
 import { UserProfile, UserPreferences, LearningSession, AdminRequest, SystemSettings, CouponCode } from "../types";
 
+const LOCAL_STORAGE_KEY = 'teachermada_user_data';
 const SESSION_PREFIX = 'tm_v3_session_';
 const SETTINGS_KEY = 'tm_system_settings';
-const SUPPORT_QUOTA_KEY = 'tm_support_quota';
+const REQUESTS_KEY = 'tm_requests_data';
 
-// --- EVENT BUS FOR REAL-TIME UPDATES ---
-type UserUpdateListener = (user: UserProfile) => void;
-let userListeners: UserUpdateListener[] = [];
-
-const notifyListeners = (user: UserProfile) => {
-    userListeners.forEach(listener => listener(user));
-};
-
-// Helper to map Supabase DB shape to UserProfile
+// --- HELPER: MAP DB TO FRONTEND TYPE ---
 const mapProfile = (data: any): UserProfile => ({
     id: data.id,
-    username: data.username,
+    username: data.username || "Utilisateur",
     email: data.email,
     phoneNumber: data.phone_number,
-    role: data.role,
-    credits: data.credits,
+    role: data.role || 'user',
+    credits: data.credits ?? 0,
+    xp: data.xp ?? 0,
     stats: {
         lessonsCompleted: data.lessons_completed || 0,
         exercisesCompleted: data.exercises_completed || 0,
@@ -35,7 +28,7 @@ const mapProfile = (data: any): UserProfile => ({
     isSuspended: data.is_suspended
 });
 
-// Helper to handle Login strategy
+// --- HELPER: FORMAT LOGIN ---
 const formatLoginEmail = (input: string) => {
     const trimmed = input.trim();
     if (trimmed.includes('@')) return trimmed;
@@ -43,32 +36,41 @@ const formatLoginEmail = (input: string) => {
     return `${cleanId}@teachermada.com`;
 };
 
-// Helper to create a default profile payload
-const createDefaultProfile = (id: string, username: string, email: string, phone: string = "") => ({
-    id: id,
-    username: username,
-    email: email,
-    phone_number: phone,
-    role: 'user',
-    credits: 10, // Crédits de bienvenue
-    stats: { lessons_completed: 0, exercises_completed: 0, dialogues_completed: 0 },
-    vocabulary: [],
-    preferences: null,
-    free_usage: { count: 0, lastResetWeek: new Date().toISOString() },
-    is_suspended: false,
-    created_at: new Date().toISOString()
-});
+// --- EVENT BUS ---
+type UserUpdateListener = (user: UserProfile) => void;
+let userListeners: UserUpdateListener[] = [];
+const notifyListeners = (user: UserProfile) => {
+    userListeners.forEach(listener => listener(user));
+};
 
 export const storageService = {
-  // --- REAL-TIME SUBSCRIPTION ---
+  // --- SYNC & CACHE ---
   subscribeToUserUpdates: (callback: UserUpdateListener) => {
       userListeners.push(callback);
-      return () => {
-          userListeners = userListeners.filter(cb => cb !== callback);
-      };
+      return () => { userListeners = userListeners.filter(cb => cb !== callback); };
   },
 
-  // --- AUTH (Supabase) ---
+  getLocalUser: (): UserProfile | null => {
+    const data = localStorage.getItem(LOCAL_STORAGE_KEY);
+    return data ? JSON.parse(data) : null;
+  },
+
+  getCurrentUser: (): UserProfile | null => {
+    return storageService.getLocalUser();
+  },
+
+  getUserById: async (id: string): Promise<UserProfile | null> => {
+      const { data, error } = await supabase.from('profiles').select('*').eq('id', id).single();
+      if (data) return mapProfile(data);
+      return null;
+  },
+
+  saveLocalUser: (user: UserProfile) => {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
+    notifyListeners(user);
+  },
+
+  // --- AUTH (SUPABASE + SYNC) ---
   
   login: async (id: string, pass: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
     try {
@@ -81,36 +83,37 @@ export const storageService = {
         if (authError) return { success: false, error: "Identifiants incorrects." };
 
         if (authData.user) {
-            // RETRY LOGIC: Try to fetch profile multiple times
+            // FIX: Force fetch profile from DB immediately after auth
             let user = await storageService.getUserById(authData.user.id);
-            let attempts = 0;
             
-            while (!user && attempts < 3) {
-                await new Promise(resolve => setTimeout(resolve, 800)); // Wait 800ms
-                user = await storageService.getUserById(authData.user.id);
-                attempts++;
-            }
-            
-            // AUTO-HEALING: If still missing, create it
+            // RETRY LOGIC (Race Condition Handler)
             if (!user) {
-                console.warn("⚠️ Profil manquant. Création d'urgence...");
-                const username = authData.user.user_metadata?.username || id.split('@')[0];
-                const phone = authData.user.user_metadata?.phone_number || "";
-                const profilePayload = createDefaultProfile(authData.user.id, username, email, phone);
-                
-                const { error: insertError } = await supabase.from('profiles').insert([profilePayload]);
-                
-                if (!insertError) {
-                    user = mapProfile(profilePayload);
-                } else {
-                    return { success: false, error: "Impossible de charger le profil." };
-                }
+                console.warn("Profil introuvable, nouvelle tentative...");
+                await new Promise(r => setTimeout(r, 1000));
+                user = await storageService.getUserById(authData.user.id);
             }
 
-            if (user?.isSuspended) return { success: false, error: "Compte suspendu par l'administrateur." };
-            if (user) return { success: true, user };
+            // AUTO-HEALING (Create if missing)
+            if (!user) {
+                console.warn("Auto-creation du profil manquant...");
+                const newProfile = {
+                    id: authData.user.id,
+                    username: id.includes('@') ? id.split('@')[0] : id,
+                    email: email,
+                    role: 'user',
+                    credits: 10,
+                    stats: { lessons_completed: 0, exercises_completed: 0, dialogues_completed: 0 }
+                };
+                const { error: insErr } = await supabase.from('profiles').insert([newProfile]);
+                if (!insErr) user = mapProfile(newProfile);
+                else return { success: false, error: "Impossible de récupérer ou créer le profil." };
+            }
+
+            if (user?.isSuspended) return { success: false, error: "Compte suspendu." };
             
-            return { success: false, error: "Erreur critique de profil." };
+            // IMPORTANT: Cache locally for the app to use
+            storageService.saveLocalUser(user);
+            return { success: true, user };
         }
         return { success: false, error: "Erreur inconnue." };
     } catch (e: any) {
@@ -118,65 +121,45 @@ export const storageService = {
     }
   },
 
-  register: async (username: string, password?: string, email?: string, phoneNumber?: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
-    if (!password) return { success: false, error: "Mot de passe requis." };
-    if (!username) return { success: false, error: "Nom d'utilisateur requis." };
-
-    let finalEmail = email?.trim() || "";
-    if (!finalEmail) finalEmail = formatLoginEmail(username);
-
+  register: async (username: string, pass: string, email?: string, phone?: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
+    const finalEmail = email || formatLoginEmail(username);
+    
     try {
-        // 1. Create Auth User
         const { data: authData, error: authError } = await supabase.auth.signUp({
             email: finalEmail,
-            password: password,
-            options: {
-                data: {
-                    username: username.trim(),
-                    phone_number: phoneNumber?.trim() || ""
-                }
-            }
+            password: pass,
+            options: { data: { username, phone_number: phone } }
         });
 
-        if (authError) {
-            if (authError.message.includes("already registered")) {
-                return { success: false, error: "Ce nom ou cet email est déjà pris." };
+        if (authError) return { success: false, error: authError.message };
+        if (!authData.user) return { success: false, error: "Erreur création compte." };
+
+        // Explicit Profile Creation
+        const profilePayload = {
+            id: authData.user.id,
+            username,
+            email: finalEmail,
+            phone_number: phone || "",
+            role: 'user',
+            credits: 10,
+            stats: { lessons_completed: 0, exercises_completed: 0, dialogues_completed: 0 }
+        };
+
+        const { error: dbError } = await supabase.from('profiles').insert([profilePayload]);
+        
+        // Handle race condition if trigger already created it
+        if (dbError) {
+            const existing = await storageService.getUserById(authData.user.id);
+            if (existing) {
+                storageService.saveLocalUser(existing);
+                return { success: true, user: existing };
             }
-            return { success: false, error: authError.message };
-        }
-        
-        if (!authData.user) return { success: false, error: "Erreur de création Auth." };
-
-        // 2. EXPLICITLY Create Profile Row
-        const profilePayload = createDefaultProfile(
-            authData.user.id, 
-            username.trim(), 
-            finalEmail, 
-            phoneNumber?.trim() || ""
-        );
-
-        const { error: profileError } = await supabase.from('profiles').insert([profilePayload]);
-
-        // 3. ROBUST FETCH with RETRY
-        // If insert failed (duplicate) OR succeeded, we want to return the profile object from DB
-        // We wait a bit to ensure DB consistency
-        
-        let existingUser = null;
-        if (profileError) {
-             // If duplicate key error, we just fetch
-             // But we add retry logic here too
-             for (let i = 0; i < 4; i++) {
-                 await new Promise(r => setTimeout(r, 1000)); // Wait 1s between tries
-                 existingUser = await storageService.getUserById(authData.user.id);
-                 if (existingUser) break;
-             }
-             
-             if (existingUser) return { success: true, user: existingUser };
-             return { success: false, error: "Compte créé, mais délai de base de données. Veuillez vous connecter." };
+            return { success: false, error: "Erreur DB: " + dbError.message };
         }
 
-        // If insert succeeded, return the payload mapped immediately (optimistic)
-        return { success: true, user: mapProfile(profilePayload) };
+        const user = mapProfile(profilePayload);
+        storageService.saveLocalUser(user);
+        return { success: true, user };
 
     } catch (e: any) {
         return { success: false, error: e.message };
@@ -185,32 +168,21 @@ export const storageService = {
 
   logout: async () => {
       await supabase.auth.signOut();
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
       localStorage.removeItem('tm_v3_current_user_id'); 
   },
 
-  getCurrentUser: async (): Promise<UserProfile | null> => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
-      return storageService.getUserById(user.id);
-  },
-
-  getUserById: async (id: string): Promise<UserProfile | null> => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', id)
-        .single();
-      
-      if (error || !data) return null;
-      return mapProfile(data);
-  },
-
-  // --- DATA SYNC ---
+  // --- DATA MANAGEMENT ---
 
   saveUserProfile: async (user: UserProfile) => {
+      // Optimistic update
+      storageService.saveLocalUser(user);
+      
+      // Async DB update
       const updates = {
           username: user.username,
           credits: user.credits,
+          xp: user.xp,
           lessons_completed: user.stats.lessonsCompleted,
           exercises_completed: user.stats.exercisesCompleted,
           dialogues_completed: user.stats.dialoguesCompleted,
@@ -219,13 +191,7 @@ export const storageService = {
           free_usage: user.freeUsage,
           is_suspended: user.isSuspended
       };
-
-      const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
-      if (error) {
-          console.error("Save User Error:", error.message);
-      } else {
-          notifyListeners(user);
-      }
+      await supabase.from('profiles').update(updates).eq('id', user.id);
   },
 
   getAllUsers: async (): Promise<UserProfile[]> => {
@@ -233,142 +199,65 @@ export const storageService = {
       return data ? data.map(mapProfile) : [];
   },
 
-  // --- LOGIC: CREDITS & USAGE ---
+  // --- CREDITS & FEATURES ---
 
-  // Checks support agent daily quota (100/day) - Local Storage based for simplicity and device limiting
   canUseSupportAgent: (): boolean => {
       const today = new Date().toDateString();
-      const raw = localStorage.getItem(SUPPORT_QUOTA_KEY);
+      const raw = localStorage.getItem('tm_support_quota');
       let data = raw ? JSON.parse(raw) : { date: today, count: 0 };
-
-      if (data.date !== today) {
-          data = { date: today, count: 0 };
-      }
-
-      if (data.count < 100) {
-          return true;
-      }
-      return false;
+      if (data.date !== today) data = { date: today, count: 0 };
+      return data.count < 100;
   },
 
   incrementSupportUsage: () => {
       const today = new Date().toDateString();
-      const raw = localStorage.getItem(SUPPORT_QUOTA_KEY);
+      const raw = localStorage.getItem('tm_support_quota');
       let data = raw ? JSON.parse(raw) : { date: today, count: 0 };
-
-      if (data.date !== today) {
-          data = { date: today, count: 0 };
-      }
+      if (data.date !== today) data = { date: today, count: 0 };
       data.count++;
-      localStorage.setItem(SUPPORT_QUOTA_KEY, JSON.stringify(data));
+      localStorage.setItem('tm_support_quota', JSON.stringify(data));
   },
 
   canRequest: async (userId: string, minCredits: number = 1): Promise<boolean> => {
-      const user = await storageService.getUserById(userId);
+      // Check local cache first for speed, or sync
+      const user = storageService.getLocalUser(); 
       if (!user) return false;
       if (user.role === 'admin') return true;
-      if (user.isSuspended) return false;
-      
       return user.credits >= minCredits;
   },
 
-  consumeCredit: async (userId: string): Promise<boolean> => {
+  consumeCredit: async (userId: string) => {
       return storageService.deductCredits(userId, 1);
   },
 
   deductCredits: async (userId: string, amount: number): Promise<boolean> => {
-      const user = await storageService.getUserById(userId);
-      if (!user) return false;
+      const user = storageService.getLocalUser();
+      if (!user || user.credits < amount) return false;
       if (user.role === 'admin') return true;
-      if (user.isSuspended) return false;
 
-      if (user.credits < amount) return false;
-
-      const newCredits = Math.max(0, user.credits - amount);
+      user.credits -= amount;
+      storageService.saveLocalUser(user); // Optimistic Update UI
       
-      // Optimistic update
-      const updatedUser = { ...user, credits: newCredits };
-      notifyListeners(updatedUser);
-      
-      const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
-      
-      if (error) {
-          // Rollback on error
-          notifyListeners(user);
-          return false;
-      }
+      await supabase.from('profiles').update({ credits: user.credits }).eq('id', userId);
       return true;
   },
 
   addCredits: async (userId: string, amount: number): Promise<boolean> => {
-      const { data: user, error: fetchError } = await supabase
-          .from('profiles')
-          .select('credits')
-          .eq('id', userId)
-          .single();
-
-      if (fetchError || !user) return false;
-
-      const newCredits = (user.credits || 0) + amount;
-      const { error: updateError } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
+      const { data: user } = await supabase.from('profiles').select('credits').eq('id', userId).single();
+      if (!user) return false;
       
-      if (updateError) return false;
-
-      const updatedUser = await storageService.getUserById(userId);
-      if (updatedUser) notifyListeners(updatedUser);
-
+      const newCredits = (user.credits || 0) + amount;
+      await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
       return true;
   },
 
-  redeemCode: async (userId: string, inputCode: string): Promise<{ success: boolean; amount?: number; message?: string }> => {
-      try {
-          const code = inputCode.trim().toUpperCase();
-          const settings = await storageService.loadSystemSettings();
-          const validRefs = settings.validTransactionRefs || [];
-          
-          const couponIndex = validRefs.findIndex(c => c.code.toUpperCase() === code);
-
-          if (couponIndex !== -1) {
-              const coupon = validRefs[couponIndex];
-              const amountToAdd = Number(coupon.amount) || 0;
-
-              const creditAdded = await storageService.addCredits(userId, amountToAdd);
-              if (!creditAdded) return { success: false, message: "Erreur technique lors de l'ajout." };
-              
-              const newRefs = [...validRefs];
-              newRefs.splice(couponIndex, 1);
-              
-              await storageService.updateSystemSettings({ ...settings, validTransactionRefs: newRefs });
-              
-              return { success: true, amount: amountToAdd };
-          }
-
-          return { success: false, message: "Code invalide ou déjà utilisé." };
-
-      } catch (e: any) {
-          return { success: false, message: "Erreur technique." };
-      }
-  },
-
-  // --- SESSIONS ---
-  getSessionKey: (userId: string, prefs: UserPreferences) => {
-    const cleanMode = prefs.mode.replace(/\s/g, '_');
-    const cleanLang = prefs.targetLanguage.split(' ')[0];
-    return `${SESSION_PREFIX}${userId}_${cleanLang}_${prefs.level}_${cleanMode}`;
-  },
-
+  // --- OTHER ---
   getOrCreateSession: (userId: string, prefs: UserPreferences): LearningSession => {
-    const key = storageService.getSessionKey(userId, prefs);
+    const key = `${SESSION_PREFIX}${userId}_${prefs.targetLanguage.split(' ')[0]}_${prefs.level}`;
     const data = localStorage.getItem(key);
     if (data) return JSON.parse(data);
-
-    const newSession: LearningSession = {
-      id: key,
-      messages: [],
-      progress: 0,
-      score: 0
-    };
-    storageService.saveSession(newSession);
+    const newSession: LearningSession = { id: key, messages: [], progress: 0, score: 0 };
+    localStorage.setItem(key, JSON.stringify(newSession));
     return newSession;
   },
 
@@ -376,57 +265,31 @@ export const storageService = {
     localStorage.setItem(session.id, JSON.stringify(session));
   },
 
-  getChatHistory: (lang: string): any[] => {
-    return [];
-  },
+  getChatHistory: (lang: string): any[] => [],
 
-  // --- ADMIN REQUESTS ---
+  // --- ADMIN ---
   getAdminRequests: async (): Promise<AdminRequest[]> => {
-      try {
-          const { data, error } = await supabase
-              .from('admin_requests')
-              .select('*')
-              .order('created_at', { ascending: false });
-          
-          if (error) return [];
-
-          return data ? data.map(d => ({
-              id: d.id,
-              userId: d.user_id,
-              username: d.username,
-              type: d.type,
-              amount: d.amount,
-              message: d.message,
-              status: d.status,
-              createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now()
-          })) : [];
-      } catch (e) {
-          return [];
-      }
+      const { data } = await supabase.from('admin_requests').select('*').order('created_at', { ascending: false });
+      return data ? data.map(d => ({
+          id: d.id,
+          userId: d.user_id,
+          username: d.username,
+          type: d.type,
+          amount: d.amount,
+          message: d.message,
+          status: d.status,
+          createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now()
+      })) : [];
   },
 
-  cleanupOldRequests: async () => {
-      try {
-          const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-          await supabase.from('admin_requests').delete().lt('created_at', oneWeekAgo);
-      } catch (e) {}
-  },
-
-  sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'password_reset' | 'message', amount?: number, message?: string, contact?: string): Promise<{ status: 'pending' | 'approved' }> => {
+  sendAdminRequest: async (userId: string, username: string, type: string, amount?: number, message?: string, contact?: string) => {
       const fullMessage = contact ? `${message} [Contact: ${contact}]` : message;
-      const newReq = {
-          user_id: userId,
-          username,
-          type,
-          amount,
-          message: fullMessage,
-          status: 'pending'
-      };
-      await supabase.from('admin_requests').insert([newReq]);
-      return { status: 'pending' };
+      await supabase.from('admin_requests').insert([{
+          user_id: userId, username, type, amount, message: fullMessage, status: 'pending'
+      }]);
   },
 
-  resolveRequest: async (reqId: string, status: 'approved' | 'rejected') => {
+  resolveRequest: async (reqId: string, status: string) => {
       if (status === 'approved') {
           const { data: req } = await supabase.from('admin_requests').select('*').eq('id', reqId).single();
           if (req && req.type === 'credit' && req.amount) {
@@ -436,104 +299,71 @@ export const storageService = {
       await supabase.from('admin_requests').update({ status }).eq('id', reqId);
   },
 
+  cleanupOldRequests: async () => {},
+
   // --- SETTINGS ---
   loadSystemSettings: async (): Promise<SystemSettings> => {
-      try {
-          const { data, error } = await supabase.from('system_settings').select('*').single();
-          
-          if (!error && data) {
-              let normalizedCoupons: CouponCode[] = [];
-              if (Array.isArray(data.valid_transaction_refs)) {
-                  normalizedCoupons = data.valid_transaction_refs.map((r: any) => {
-                      if (typeof r === 'string') {
-                          try { return JSON.parse(r); } catch (e) { return { code: r, amount: 0, createdAt: new Date().toISOString() }; }
-                      }
-                      return r;
-                  }).filter((c: any) => c && c.code);
-              }
-
-              const settings: SystemSettings = {
-                  apiKeys: data.api_keys || [],
-                  activeModel: data.active_model || 'gemini-3-flash-preview',
-                  creditPrice: data.credit_price || 50,
-                  customLanguages: data.custom_languages || [],
-                  validTransactionRefs: normalizedCoupons,
-                  adminContact: data.admin_contact || { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
-              };
-              localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-              return settings;
-          }
-      } catch (e) {}
-      return storageService.getSystemSettings();
+      const { data } = await supabase.from('system_settings').select('*').single();
+      return data ? {
+          apiKeys: data.api_keys || [],
+          activeModel: 'gemini-3-flash-preview',
+          creditPrice: data.credit_price || 50,
+          customLanguages: data.custom_languages || [],
+          validTransactionRefs: data.valid_transaction_refs || [],
+          adminContact: data.admin_contact || { telma: "", airtel: "", orange: "" }
+      } : storageService.getSystemSettings();
   },
 
   getSystemSettings: (): SystemSettings => {
       const local = localStorage.getItem(SETTINGS_KEY);
-      if (local) return JSON.parse(local);
-      return {
-          apiKeys: [],
-          activeModel: 'gemini-3-flash-preview',
-          creditPrice: 50,
-          customLanguages: [],
-          validTransactionRefs: [],
-          adminContact: { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
-      };
+      return local ? JSON.parse(local) : { apiKeys: [], activeModel: '', customLanguages: [], validTransactionRefs: [], adminContact: { telma: "", airtel: "", orange: "" } };
   },
 
-  updateSystemSettings: async (settings: SystemSettings): Promise<boolean> => {
+  updateSystemSettings: async (settings: SystemSettings) => {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-      const payload = {
-          id: 1,
-          api_keys: settings.apiKeys,
-          active_model: settings.activeModel,
-          credit_price: settings.creditPrice,
-          custom_languages: settings.customLanguages,
-          valid_transaction_refs: settings.validTransactionRefs,
-          admin_contact: settings.adminContact
-      };
-      const { error } = await supabase.from('system_settings').upsert(payload);
-      return !error;
-  },
-  
-  // This helper attempts to deduct and returns the NEW user profile if successful, or null if failed
-  deductCreditOrUsage: async (userId: string) => {
-      const success = await storageService.consumeCredit(userId);
-      if (success) {
-          return storageService.getUserById(userId);
-      }
-      return null;
-  },
-  
-  canPerformRequest: async (userId: string) => {
-      const allowed = await storageService.canRequest(userId);
-      return { allowed };
+      await supabase.from('system_settings').upsert({ id: 1, api_keys: settings.apiKeys, valid_transaction_refs: settings.validTransactionRefs });
+      return true;
   },
 
-  exportData: async (user: UserProfile) => {
-      const blob = new Blob([JSON.stringify(user, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `teachermada_${user.username}_backup.json`;
-      a.click();
-  },
+  // Helpers needed for UI
+  canPerformRequest: async (userId: string) => ({ allowed: await storageService.canRequest(userId) }),
   
-  importData: async (file: File, currentUserId: string): Promise<boolean> => { 
+  deductCreditOrUsage: async (userId: string) => {
+      const success = await storageService.deductCredits(userId, 1);
+      return success ? storageService.getLocalUser() : null;
+  },
+
+  exportData: (user: UserProfile) => {},
+  importData: async (file: File, id: string) => false,
+  
+  redeemCode: async (userId: string, code: string): Promise<{ success: true; amount: number } | { success: false; message: string }> => {
       try {
-          const text = await file.text();
-          const data = JSON.parse(text);
-          if (data.username && data.stats) {
-              // Only merge safe fields
-              const updated = {
-                  username: data.username,
-                  stats: data.stats,
-                  vocabulary: data.vocabulary,
-                  preferences: data.preferences
-              };
-              const { error } = await supabase.from('profiles').update(updated).eq('id', currentUserId);
-              return !error;
+          const { data: settingsData, error } = await supabase.from('system_settings').select('id, valid_transaction_refs').single();
+          
+          if (error || !settingsData) return { success: false, message: "Système indisponible." };
+
+          const validRefs = (settingsData.valid_transaction_refs || []) as CouponCode[];
+          const normalizedCode = code.trim().toUpperCase();
+          const couponIndex = validRefs.findIndex(c => c.code === normalizedCode);
+
+          if (couponIndex === -1) {
+              return { success: false, message: "Code invalide." };
           }
-      } catch (e) {}
-      return false; 
+
+          const coupon = validRefs[couponIndex];
+
+          // Add credits
+          const creditAdded = await storageService.addCredits(userId, coupon.amount);
+          if (!creditAdded) return { success: false, message: "Erreur compte utilisateur." };
+
+          // Remove used coupon (or mark as used if we wanted history, but for now simple removal)
+          const newRefs = validRefs.filter((_, i) => i !== couponIndex);
+          await supabase.from('system_settings').update({ valid_transaction_refs: newRefs }).eq('id', settingsData.id);
+
+          return { success: true, amount: coupon.amount };
+      } catch (e) {
+          console.error(e);
+          return { success: false, message: "Erreur technique." };
+      }
   }
 };
