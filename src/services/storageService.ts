@@ -1,4 +1,3 @@
-
 import { supabase } from "../lib/supabase";
 import { UserProfile, UserPreferences, LearningSession, AdminRequest, SystemSettings, CouponCode } from "../types";
 
@@ -7,7 +6,7 @@ const SESSION_PREFIX = 'tm_v3_session_';
 const SETTINGS_KEY = 'tm_system_settings';
 const SUPPORT_QUOTA_KEY = 'tm_support_quota';
 
-// --- EVENT BUS FOR REAL-TIME UPDATES ---
+// --- EVENT BUS FOR REAL-TIME UPDATES v ---
 type UserUpdateListener = (user: UserProfile) => void;
 let userListeners: UserUpdateListener[] = [];
 
@@ -37,7 +36,6 @@ const mapProfile = (data: any): UserProfile => ({
     isSuspended: data.is_suspended
 });
 
-// Helper to handle Login strategy
 const formatLoginEmail = (input: string) => {
     const trimmed = input.trim();
     if (trimmed.includes('@')) return trimmed;
@@ -45,14 +43,14 @@ const formatLoginEmail = (input: string) => {
     return `${cleanId}@teachermada.com`;
 };
 
-// Helper to create a default profile payload
-const createDefaultProfile = (id: string, username: string, email: string, phone: string = "") => ({
+// Helper pour créer un profil DB
+const createDefaultProfilePayload = (id: string, username: string, email: string, phone: string = "") => ({
     id: id,
     username: username,
     email: email,
     phone_number: phone,
     role: 'user',
-    credits: 10, // Crédits de bienvenue
+    credits: 5, // Crédits de bienvenue (Serveur seulement)
     xp: 0,
     stats: { lessons_completed: 0, exercises_completed: 0, dialogues_completed: 0 },
     vocabulary: [],
@@ -63,7 +61,6 @@ const createDefaultProfile = (id: string, username: string, email: string, phone
 });
 
 export const storageService = {
-  // --- REAL-TIME SUBSCRIPTION ---
   subscribeToUserUpdates: (callback: UserUpdateListener) => {
       userListeners.push(callback);
       return () => {
@@ -71,11 +68,13 @@ export const storageService = {
       };
   },
 
-  // --- AUTH (Supabase) ---
+  // --- AUTH ---
   
   login: async (id: string, pass: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
     try {
         const email = formatLoginEmail(id);
+        
+        // 1. Auth Supabase
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
             email: email, 
             password: pass
@@ -84,47 +83,35 @@ export const storageService = {
         if (authError) return { success: false, error: "Identifiants incorrects." };
 
         if (authData.user) {
-            // RETRY LOGIC: Try to fetch profile multiple times to handle DB replication lag
+            // 2. Fetch Profile (Strict : Pas de fallback local ici)
             let user = await storageService.getUserById(authData.user.id);
-            let attempts = 0;
             
+            // Retry logic si la DB est lente à répondre après création compte
+            let attempts = 0;
             while (!user && attempts < 3) {
-                await new Promise(resolve => setTimeout(resolve, 800)); // Reduced wait time slightly
+                await new Promise(resolve => setTimeout(resolve, 800));
                 user = await storageService.getUserById(authData.user.id);
                 attempts++;
             }
             
-            // AUTO-HEALING & SAFE FALLBACK
+            // Si pas de profil, tentative de création (Self-healing)
             if (!user) {
-                console.warn("⚠️ Profil manquant. Tentative de réparation/fallback...");
                 const username = authData.user.user_metadata?.username || id.split('@')[0];
                 const phone = authData.user.user_metadata?.phone_number || "";
+                const payload = createDefaultProfilePayload(authData.user.id, username, email, phone);
                 
-                const profilePayload = createDefaultProfile(authData.user.id, username, email, phone);
+                const { error: insertError } = await supabase.from('profiles').insert([payload]);
                 
-                // Tentative d'insertion (peut échouer si le profil existe mais que le fetch précédent a raté)
-                const { error: insertError } = await supabase.from('profiles').insert([profilePayload]);
-                
-                if (!insertError) {
-                    // Succès création
-                    user = mapProfile(profilePayload);
-                } else {
-                    // Échec création (Probablement Duplicate Key). 
-                    // CRUCIAL : On ne bloque pas l'utilisateur. On utilise les données Auth pour créer un objet User valide.
-                    // Cela permet d'entrer dans l'app même si la DB a un hoquet. La synchro se fera plus tard.
-                    console.log("Utilisation du profil fallback (Offline/Race condition)", insertError.message);
-                    user = mapProfile(profilePayload);
-                }
+                // Re-fetch après insertion
+                if (!insertError) user = mapProfile(payload);
             }
 
-            if (user?.isSuspended) return { success: false, error: "Compte suspendu par l'administrateur." };
+            if (!user) return { success: false, error: "Impossible de charger le profil (Erreur Réseau/DB)." };
+            if (user.isSuspended) return { success: false, error: "Compte suspendu par l'administrateur." };
             
-            if (user) {
-                storageService.saveLocalUser(user); // Cache locally
-                return { success: true, user };
-            }
-            
-            return { success: false, error: "Erreur critique de profil." };
+            // 3. Sauvegarde locale SEULEMENT si succès DB
+            storageService.saveLocalUser(user); 
+            return { success: true, user };
         }
         return { success: false, error: "Erreur inconnue." };
     } catch (e: any) {
@@ -140,54 +127,23 @@ export const storageService = {
     if (!finalEmail) finalEmail = formatLoginEmail(username);
 
     try {
-        // 1. Create Auth User
         const { data: authData, error: authError } = await supabase.auth.signUp({
             email: finalEmail,
             password: password,
-            options: {
-                data: {
-                    username: username.trim(),
-                    phone_number: phoneNumber?.trim() || ""
-                }
-            }
+            options: { data: { username: username.trim(), phone_number: phoneNumber?.trim() || "" } }
         });
 
-        if (authError) {
-            if (authError.message.includes("already registered")) {
-                return { success: false, error: "Ce nom ou cet email est déjà pris." };
-            }
-            return { success: false, error: authError.message };
-        }
-        
-        if (!authData.user) return { success: false, error: "Erreur de création Auth." };
+        if (authError) return { success: false, error: authError.message };
+        if (!authData.user) return { success: false, error: "Erreur création compte." };
 
-        // 2. EXPLICITLY Create Profile Row (Ne pas attendre le Trigger)
-        const profilePayload = createDefaultProfile(
-            authData.user.id, 
-            username.trim(), 
-            finalEmail, 
-            phoneNumber?.trim() || ""
-        );
+        // Création explicite du profil
+        const payload = createDefaultProfilePayload(authData.user.id, username.trim(), finalEmail, phoneNumber?.trim() || "");
+        await supabase.from('profiles').insert([payload]);
 
-        await supabase.from('profiles').insert([profilePayload]);
-
-        // 3. ROBUST FETCH with RETRY
-        let existingUser = null;
-        for (let i = 0; i < 3; i++) {
-             existingUser = await storageService.getUserById(authData.user.id);
-             if (existingUser) break;
-             await new Promise(r => setTimeout(r, 800)); // Wait between tries
-        }
-             
-        if (existingUser) {
-            storageService.saveLocalUser(existingUser);
-            return { success: true, user: existingUser };
-        }
-        
-        // Fallback: return the payload we just tried to insert (Optimistic response)
-        const optimisticUser = mapProfile(profilePayload);
-        storageService.saveLocalUser(optimisticUser);
-        return { success: true, user: optimisticUser };
+        // Vérification
+        const newUser = mapProfile(payload);
+        storageService.saveLocalUser(newUser);
+        return { success: true, user: newUser };
 
     } catch (e: any) {
         return { success: false, error: e.message };
@@ -200,15 +156,22 @@ export const storageService = {
       localStorage.removeItem('tm_v3_current_user_id'); 
   },
 
+  // Récupère toujours la version la plus fraîche si en ligne
   getCurrentUser: async (): Promise<UserProfile | null> => {
-      // Try local first for speed
-      const local = storageService.getLocalUser();
-      if (local) return local;
-
-      // Fallback to Supabase session
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
-      return storageService.getUserById(user.id);
+      // 1. Check Auth Session
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user) {
+          // Si connecté, on force le fetch DB pour avoir les vrais crédits
+          const dbUser = await storageService.getUserById(session.user.id);
+          if (dbUser) {
+              storageService.saveLocalUser(dbUser); // Mise à jour cache
+              return dbUser;
+          }
+      }
+      
+      // Fallback local (Offline only)
+      return storageService.getLocalUser();
   },
 
   getLocalUser: (): UserProfile | null => {
@@ -222,38 +185,39 @@ export const storageService = {
   },
 
   getUserById: async (id: string): Promise<UserProfile | null> => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', id)
-        .single();
-      
-      if (error || !data) return null;
-      return mapProfile(data);
+      try {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', id)
+            .single();
+          
+          if (error || !data) return null;
+          return mapProfile(data);
+      } catch {
+          return null;
+      }
   },
 
-  // --- DATA SYNC ---
-
+  // --- SYNC ---
   saveUserProfile: async (user: UserProfile) => {
-      storageService.saveLocalUser(user); // Optimistic
+      // Optimistic update for UI speed
+      storageService.saveLocalUser(user); 
 
+      // Background Sync
       const updates = {
           username: user.username,
-          credits: user.credits,
+          // Ne PAS envoyer les crédits ici pour éviter d'écraser la DB avec une vieille valeur locale
           xp: user.xp,
           lessons_completed: user.stats.lessonsCompleted,
           exercises_completed: user.stats.exercisesCompleted,
           dialogues_completed: user.stats.dialoguesCompleted,
           vocabulary: user.vocabulary,
           preferences: user.preferences,
-          free_usage: user.freeUsage,
-          is_suspended: user.isSuspended
+          free_usage: user.freeUsage
       };
 
-      const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
-      if (error) {
-          console.error("Save User Error:", error.message);
-      }
+      await supabase.from('profiles').update(updates).eq('id', user.id);
   },
 
   getAllUsers: async (): Promise<UserProfile[]> => {
@@ -261,44 +225,17 @@ export const storageService = {
       return data ? data.map(mapProfile) : [];
   },
 
-  // --- LOGIC: CREDITS & USAGE ---
-
-  // Checks support agent daily quota (100/day) - Local Storage based for simplicity and device limiting
-  canUseSupportAgent: (): boolean => {
-      const today = new Date().toDateString();
-      const raw = localStorage.getItem(SUPPORT_QUOTA_KEY);
-      let data = raw ? JSON.parse(raw) : { date: today, count: 0 };
-
-      if (data.date !== today) {
-          data = { date: today, count: 0 };
-      }
-
-      return data.count < 100;
-  },
-
-  incrementSupportUsage: () => {
-      const today = new Date().toDateString();
-      const raw = localStorage.getItem(SUPPORT_QUOTA_KEY);
-      let data = raw ? JSON.parse(raw) : { date: today, count: 0 };
-
-      if (data.date !== today) {
-          data = { date: today, count: 0 };
-      }
-      data.count++;
-      localStorage.setItem(SUPPORT_QUOTA_KEY, JSON.stringify(data));
-  },
+  // --- CREDITS (SECURE) ---
 
   canRequest: async (userId: string, minCredits: number = 1): Promise<boolean> => {
-      // Check local first
-      const user = storageService.getLocalUser();
-      if (user && user.id === userId) {
-          if (user.role === 'admin') return true;
-          return user.credits >= minCredits;
-      }
-      
-      // Fallback DB check
+      // Always fetch fresh credits from DB to prevent PWA cache cheating
       const dbUser = await storageService.getUserById(userId);
+      
       if (!dbUser) return false;
+      
+      // Sync local with fresh DB data
+      storageService.saveLocalUser(dbUser);
+      
       if (dbUser.role === 'admin') return true;
       if (dbUser.isSuspended) return false;
       
@@ -310,48 +247,67 @@ export const storageService = {
   },
 
   deductCredits: async (userId: string, amount: number): Promise<boolean> => {
-      const user = storageService.getLocalUser();
-      if (!user) return false;
-      if (user.role === 'admin') return true;
-
-      if (user.credits < amount) return false;
-
-      const newCredits = Math.max(0, user.credits - amount);
-      
-      // Optimistic update
-      const updatedUser = { ...user, credits: newCredits };
-      storageService.saveLocalUser(updatedUser);
-      
-      const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
-      
-      if (error) {
-          // Rollback on critical error (optional, usually we trust optimistic UI)
-          return false;
-      }
-      return true;
-  },
-
-  addCredits: async (userId: string, amount: number): Promise<boolean> => {
+      // 1. Fetch Fresh Data FIRST
       const { data: user, error: fetchError } = await supabase
           .from('profiles')
-          .select('credits')
+          .select('credits, role')
           .eq('id', userId)
           .single();
 
       if (fetchError || !user) return false;
+      if (user.role === 'admin') return true;
 
-      const newCredits = (user.credits || 0) + amount;
-      const { error: updateError } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
+      // 2. Check Real DB Balance
+      if (user.credits < amount) {
+          // Force update local UI to show 0 if they thought they had credits
+          const local = storageService.getLocalUser();
+          if (local) storageService.saveLocalUser({ ...local, credits: user.credits });
+          return false;
+      }
+
+      // 3. Perform Atomic Update
+      const newCredits = user.credits - amount;
+      const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ credits: newCredits })
+          .eq('id', userId);
       
       if (updateError) return false;
 
-      // Update local if it's current user
-      const currentUser = storageService.getLocalUser();
-      if (currentUser && currentUser.id === userId) {
-          storageService.saveLocalUser({ ...currentUser, credits: newCredits });
-      }
-
+      // 4. Update Local UI only after success
+      const local = storageService.getLocalUser();
+      if (local) storageService.saveLocalUser({ ...local, credits: newCredits });
+      
       return true;
+  },
+
+  addCredits: async (userId: string, amount: number): Promise<boolean> => {
+      // Fetch current to allow atomic add
+      const { data: user } = await supabase.from('profiles').select('credits').eq('id', userId).single();
+      if (!user) return false;
+
+      const newCredits = (user.credits || 0) + amount;
+      const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
+      
+      return !error;
+  },
+
+  // --- OTHERS ---
+  canUseSupportAgent: (): boolean => {
+      const today = new Date().toDateString();
+      const raw = localStorage.getItem(SUPPORT_QUOTA_KEY);
+      let data = raw ? JSON.parse(raw) : { date: today, count: 0 };
+      if (data.date !== today) data = { date: today, count: 0 };
+      return data.count < 100;
+  },
+
+  incrementSupportUsage: () => {
+      const today = new Date().toDateString();
+      const raw = localStorage.getItem(SUPPORT_QUOTA_KEY);
+      let data = raw ? JSON.parse(raw) : { date: today, count: 0 };
+      if (data.date !== today) data = { date: today, count: 0 };
+      data.count++;
+      localStorage.setItem(SUPPORT_QUOTA_KEY, JSON.stringify(data));
   },
 
   redeemCode: async (userId: string, inputCode: string): Promise<{ success: boolean; amount?: number; message?: string }> => {
@@ -367,19 +323,16 @@ export const storageService = {
               const amountToAdd = Number(coupon.amount) || 0;
 
               const creditAdded = await storageService.addCredits(userId, amountToAdd);
-              if (!creditAdded) return { success: false, message: "Erreur technique lors de l'ajout." };
+              if (!creditAdded) return { success: false, message: "Erreur technique." };
               
               const newRefs = [...validRefs];
               newRefs.splice(couponIndex, 1);
-              
               await storageService.updateSystemSettings({ ...settings, validTransactionRefs: newRefs });
               
               return { success: true, amount: amountToAdd };
           }
-
           return { success: false, message: "Code invalide ou déjà utilisé." };
-
-      } catch (e: any) {
+      } catch {
           return { success: false, message: "Erreur technique." };
       }
   },
@@ -396,12 +349,7 @@ export const storageService = {
     const data = localStorage.getItem(key);
     if (data) return JSON.parse(data);
 
-    const newSession: LearningSession = {
-      id: key,
-      messages: [],
-      progress: 0,
-      score: 0
-    };
+    const newSession: LearningSession = { id: key, messages: [], progress: 0, score: 0 };
     storageService.saveSession(newSession);
     return newSession;
   },
@@ -410,52 +358,31 @@ export const storageService = {
     localStorage.setItem(session.id, JSON.stringify(session));
   },
 
-  getChatHistory: (lang: string): any[] => {
-    return [];
-  },
+  getChatHistory: (lang: string): any[] => [],
 
-  // --- ADMIN REQUESTS ---
+  // --- ADMIN ---
   getAdminRequests: async (): Promise<AdminRequest[]> => {
       try {
-          const { data, error } = await supabase
-              .from('admin_requests')
-              .select('*')
-              .order('created_at', { ascending: false });
-          
-          if (error) return [];
-
+          const { data } = await supabase.from('admin_requests').select('*').order('created_at', { ascending: false });
+          // Map DB snake_case to CamelCase
           return data ? data.map(d => ({
-              id: d.id,
-              userId: d.user_id,
-              username: d.username,
-              type: d.type,
-              amount: d.amount,
-              message: d.message,
-              status: d.status,
+              id: d.id, userId: d.user_id, username: d.username, type: d.type,
+              amount: d.amount, message: d.message, status: d.status,
               createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now()
           })) : [];
-      } catch (e) {
-          return [];
-      }
+      } catch { return []; }
   },
 
   cleanupOldRequests: async () => {
       try {
           const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
           await supabase.from('admin_requests').delete().lt('created_at', oneWeekAgo);
-      } catch (e) {}
+      } catch {}
   },
 
   sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'password_reset' | 'message', amount?: number, message?: string, contact?: string): Promise<{ status: 'pending' | 'approved' }> => {
       const fullMessage = contact ? `${message} [Contact: ${contact}]` : message;
-      const newReq = {
-          user_id: userId,
-          username,
-          type,
-          amount,
-          message: fullMessage,
-          status: 'pending'
-      };
+      const newReq = { user_id: userId, username, type, amount, message: fullMessage, status: 'pending' };
       await supabase.from('admin_requests').insert([newReq]);
       return { status: 'pending' };
   },
@@ -474,13 +401,13 @@ export const storageService = {
   loadSystemSettings: async (): Promise<SystemSettings> => {
       try {
           const { data, error } = await supabase.from('system_settings').select('*').single();
-          
           if (!error && data) {
+              // Normalize data
               let normalizedCoupons: CouponCode[] = [];
               if (Array.isArray(data.valid_transaction_refs)) {
                   normalizedCoupons = data.valid_transaction_refs.map((r: any) => {
                       if (typeof r === 'string') {
-                          try { return JSON.parse(r); } catch (e) { return { code: r, amount: 0, createdAt: new Date().toISOString() }; }
+                          try { return JSON.parse(r); } catch { return { code: r, amount: 0, createdAt: new Date().toISOString() }; }
                       }
                       return r;
                   }).filter((c: any) => c && c.code);
@@ -497,7 +424,7 @@ export const storageService = {
               localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
               return settings;
           }
-      } catch (e) {}
+      } catch {}
       return storageService.getSystemSettings();
   },
 
@@ -505,12 +432,8 @@ export const storageService = {
       const local = localStorage.getItem(SETTINGS_KEY);
       if (local) return JSON.parse(local);
       return {
-          apiKeys: [],
-          activeModel: 'gemini-3-flash-preview',
-          creditPrice: 50,
-          customLanguages: [],
-          validTransactionRefs: [],
-          adminContact: { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
+          apiKeys: [], activeModel: 'gemini-3-flash-preview', creditPrice: 50, customLanguages: [],
+          validTransactionRefs: [], adminContact: { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
       };
   },
 
@@ -518,24 +441,17 @@ export const storageService = {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
       const payload = {
           id: 1,
-          api_keys: settings.apiKeys,
-          active_model: settings.activeModel,
-          credit_price: settings.creditPrice,
-          custom_languages: settings.customLanguages,
-          valid_transaction_refs: settings.validTransactionRefs,
+          api_keys: settings.apiKeys, active_model: settings.activeModel, credit_price: settings.creditPrice,
+          custom_languages: settings.customLanguages, valid_transaction_refs: settings.validTransactionRefs,
           admin_contact: settings.adminContact
       };
       const { error } = await supabase.from('system_settings').upsert(payload);
       return !error;
   },
   
-  // This helper attempts to deduct and returns the NEW user profile if successful, or null if failed
   deductCreditOrUsage: async (userId: string) => {
       const success = await storageService.consumeCredit(userId);
-      if (success) {
-          // If successful, return updated local user
-          return storageService.getLocalUser();
-      }
+      if (success) return storageService.getLocalUser();
       return null;
   },
   
@@ -548,8 +464,7 @@ export const storageService = {
       const blob = new Blob([JSON.stringify(user, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `teachermada_${user.username}_backup.json`;
+      a.href = url; a.download = `teachermada_${user.username}_backup.json`;
       a.click();
   },
   
@@ -558,17 +473,13 @@ export const storageService = {
           const text = await file.text();
           const data = JSON.parse(text);
           if (data.username && data.stats) {
-              // Only merge safe fields
               const updated = {
-                  username: data.username,
-                  stats: data.stats,
-                  vocabulary: data.vocabulary,
-                  preferences: data.preferences
+                  username: data.username, stats: data.stats, vocabulary: data.vocabulary, preferences: data.preferences
               };
               const { error } = await supabase.from('profiles').update(updated).eq('id', currentUserId);
               return !error;
           }
-      } catch (e) {}
+      } catch {}
       return false; 
   }
 };
