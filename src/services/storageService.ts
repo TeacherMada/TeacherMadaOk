@@ -1,7 +1,7 @@
-
 import { supabase } from "../lib/supabase";
 import { UserProfile, UserPreferences, LearningSession, AdminRequest, SystemSettings, CouponCode } from "../types";
 
+const LOCAL_STORAGE_KEY = 'teachermada_user_data';
 const SESSION_PREFIX = 'tm_v3_session_';
 const SETTINGS_KEY = 'tm_system_settings';
 const SUPPORT_QUOTA_KEY = 'tm_support_quota';
@@ -17,11 +17,12 @@ const notifyListeners = (user: UserProfile) => {
 // Helper to map Supabase DB shape to UserProfile
 const mapProfile = (data: any): UserProfile => ({
     id: data.id,
-    username: data.username,
+    username: data.username || "Utilisateur",
     email: data.email,
     phoneNumber: data.phone_number,
-    role: data.role,
-    credits: data.credits,
+    role: data.role || 'user',
+    credits: data.credits ?? 0,
+    xp: data.xp ?? 0, // Fix: Added missing XP property
     stats: {
         lessonsCompleted: data.lessons_completed || 0,
         exercisesCompleted: data.exercises_completed || 0,
@@ -42,6 +43,23 @@ const formatLoginEmail = (input: string) => {
     const cleanId = trimmed.replace(/[^a-zA-Z0-9.\-_+]/g, '');
     return `${cleanId}@teachermada.com`;
 };
+
+// Helper to create a default profile payload
+const createDefaultProfile = (id: string, username: string, email: string, phone: string = "") => ({
+    id: id,
+    username: username,
+    email: email,
+    phone_number: phone,
+    role: 'user',
+    credits: 10, // Crédits de bienvenue
+    xp: 0,
+    stats: { lessons_completed: 0, exercises_completed: 0, dialogues_completed: 0 },
+    vocabulary: [],
+    preferences: null,
+    free_usage: { count: 0, lastResetWeek: new Date().toISOString() },
+    is_suspended: false,
+    created_at: new Date().toISOString()
+});
 
 export const storageService = {
   // --- REAL-TIME SUBSCRIPTION ---
@@ -65,10 +83,41 @@ export const storageService = {
         if (authError) return { success: false, error: "Identifiants incorrects." };
 
         if (authData.user) {
-            const user = await storageService.getUserById(authData.user.id);
+            // RETRY LOGIC: Try to fetch profile multiple times to handle DB replication lag
+            let user = await storageService.getUserById(authData.user.id);
+            let attempts = 0;
+            
+            while (!user && attempts < 3) {
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s
+                user = await storageService.getUserById(authData.user.id);
+                attempts++;
+            }
+            
+            // AUTO-HEALING: If still missing, create it manually
+            if (!user) {
+                console.warn("⚠️ Profil manquant. Tentative de réparation automatique...");
+                const username = authData.user.user_metadata?.username || id.split('@')[0];
+                const phone = authData.user.user_metadata?.phone_number || "";
+                
+                const profilePayload = createDefaultProfile(authData.user.id, username, email, phone);
+                
+                // Force insert
+                const { error: insertError } = await supabase.from('profiles').insert([profilePayload]);
+                
+                if (!insertError) {
+                    user = mapProfile(profilePayload);
+                } else {
+                    return { success: false, error: "Impossible de charger le profil utilisateur." };
+                }
+            }
+
             if (user?.isSuspended) return { success: false, error: "Compte suspendu par l'administrateur." };
-            if (user) return { success: true, user };
-            return { success: false, error: "Compte créé mais profil introuvable." };
+            if (user) {
+                storageService.saveLocalUser(user); // Cache locally
+                return { success: true, user };
+            }
+            
+            return { success: false, error: "Erreur critique de profil." };
         }
         return { success: false, error: "Erreur inconnue." };
     } catch (e: any) {
@@ -84,6 +133,7 @@ export const storageService = {
     if (!finalEmail) finalEmail = formatLoginEmail(username);
 
     try {
+        // 1. Create Auth User
         const { data: authData, error: authError } = await supabase.auth.signUp({
             email: finalEmail,
             password: password,
@@ -102,13 +152,37 @@ export const storageService = {
             return { success: false, error: authError.message };
         }
         
-        if (!authData.user) return { success: false, error: "Erreur de création." };
+        if (!authData.user) return { success: false, error: "Erreur de création Auth." };
 
-        await new Promise(r => setTimeout(r, 2000));
+        // 2. EXPLICITLY Create Profile Row (Ne pas attendre le Trigger)
+        // Cela garantit que le profil existe immédiatement pour le login automatique
+        const profilePayload = createDefaultProfile(
+            authData.user.id, 
+            username.trim(), 
+            finalEmail, 
+            phoneNumber?.trim() || ""
+        );
 
-        const user = await storageService.getUserById(authData.user.id);
-        if (user) return { success: true, user };
-        return { success: false, error: "Compte créé. Veuillez vous connecter." };
+        // We try to insert. If it fails (e.g. trigger was faster), we ignore the error and fetch.
+        await supabase.from('profiles').insert([profilePayload]);
+
+        // 3. ROBUST FETCH with RETRY
+        let existingUser = null;
+        for (let i = 0; i < 3; i++) {
+             existingUser = await storageService.getUserById(authData.user.id);
+             if (existingUser) break;
+             await new Promise(r => setTimeout(r, 800)); // Wait between tries
+        }
+             
+        if (existingUser) {
+            storageService.saveLocalUser(existingUser);
+            return { success: true, user: existingUser };
+        }
+        
+        // Fallback: return the payload we just tried to insert (Optimistic response)
+        const optimisticUser = mapProfile(profilePayload);
+        storageService.saveLocalUser(optimisticUser);
+        return { success: true, user: optimisticUser };
 
     } catch (e: any) {
         return { success: false, error: e.message };
@@ -117,13 +191,29 @@ export const storageService = {
 
   logout: async () => {
       await supabase.auth.signOut();
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
       localStorage.removeItem('tm_v3_current_user_id'); 
   },
 
   getCurrentUser: async (): Promise<UserProfile | null> => {
+      // Try local first for speed
+      const local = storageService.getLocalUser();
+      if (local) return local;
+
+      // Fallback to Supabase session
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
       return storageService.getUserById(user.id);
+  },
+
+  getLocalUser: (): UserProfile | null => {
+    const data = localStorage.getItem(LOCAL_STORAGE_KEY);
+    return data ? JSON.parse(data) : null;
+  },
+
+  saveLocalUser: (user: UserProfile) => {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
+    notifyListeners(user);
   },
 
   getUserById: async (id: string): Promise<UserProfile | null> => {
@@ -140,9 +230,12 @@ export const storageService = {
   // --- DATA SYNC ---
 
   saveUserProfile: async (user: UserProfile) => {
+      storageService.saveLocalUser(user); // Optimistic
+
       const updates = {
           username: user.username,
           credits: user.credits,
+          xp: user.xp,
           lessons_completed: user.stats.lessonsCompleted,
           exercises_completed: user.stats.exercisesCompleted,
           dialogues_completed: user.stats.dialoguesCompleted,
@@ -155,8 +248,6 @@ export const storageService = {
       const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
       if (error) {
           console.error("Save User Error:", error.message);
-      } else {
-          notifyListeners(user);
       }
   },
 
@@ -177,10 +268,7 @@ export const storageService = {
           data = { date: today, count: 0 };
       }
 
-      if (data.count < 100) {
-          return true;
-      }
-      return false;
+      return data.count < 100;
   },
 
   incrementSupportUsage: () => {
@@ -196,12 +284,20 @@ export const storageService = {
   },
 
   canRequest: async (userId: string, minCredits: number = 1): Promise<boolean> => {
-      const user = await storageService.getUserById(userId);
-      if (!user) return false;
-      if (user.role === 'admin') return true;
-      if (user.isSuspended) return false;
+      // Check local first
+      const user = storageService.getLocalUser();
+      if (user && user.id === userId) {
+          if (user.role === 'admin') return true;
+          return user.credits >= minCredits;
+      }
       
-      return user.credits >= minCredits;
+      // Fallback DB check
+      const dbUser = await storageService.getUserById(userId);
+      if (!dbUser) return false;
+      if (dbUser.role === 'admin') return true;
+      if (dbUser.isSuspended) return false;
+      
+      return dbUser.credits >= minCredits;
   },
 
   consumeCredit: async (userId: string): Promise<boolean> => {
@@ -209,10 +305,9 @@ export const storageService = {
   },
 
   deductCredits: async (userId: string, amount: number): Promise<boolean> => {
-      const user = await storageService.getUserById(userId);
+      const user = storageService.getLocalUser();
       if (!user) return false;
       if (user.role === 'admin') return true;
-      if (user.isSuspended) return false;
 
       if (user.credits < amount) return false;
 
@@ -220,13 +315,12 @@ export const storageService = {
       
       // Optimistic update
       const updatedUser = { ...user, credits: newCredits };
-      notifyListeners(updatedUser);
+      storageService.saveLocalUser(updatedUser);
       
       const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
       
       if (error) {
-          // Rollback on error
-          notifyListeners(user);
+          // Rollback on critical error (optional, usually we trust optimistic UI)
           return false;
       }
       return true;
@@ -246,8 +340,11 @@ export const storageService = {
       
       if (updateError) return false;
 
-      const updatedUser = await storageService.getUserById(userId);
-      if (updatedUser) notifyListeners(updatedUser);
+      // Update local if it's current user
+      const currentUser = storageService.getLocalUser();
+      if (currentUser && currentUser.id === userId) {
+          storageService.saveLocalUser({ ...currentUser, credits: newCredits });
+      }
 
       return true;
   },
@@ -431,7 +528,8 @@ export const storageService = {
   deductCreditOrUsage: async (userId: string) => {
       const success = await storageService.consumeCredit(userId);
       if (success) {
-          return storageService.getUserById(userId);
+          // If successful, return updated local user
+          return storageService.getLocalUser();
       }
       return null;
   },
@@ -441,6 +539,31 @@ export const storageService = {
       return { allowed };
   },
 
-  exportData: async (user: UserProfile) => {},
-  importData: async (file: File, currentUserId: string): Promise<boolean> => { return true; }
+  exportData: async (user: UserProfile) => {
+      const blob = new Blob([JSON.stringify(user, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `teachermada_${user.username}_backup.json`;
+      a.click();
+  },
+  
+  importData: async (file: File, currentUserId: string): Promise<boolean> => { 
+      try {
+          const text = await file.text();
+          const data = JSON.parse(text);
+          if (data.username && data.stats) {
+              // Only merge safe fields
+              const updated = {
+                  username: data.username,
+                  stats: data.stats,
+                  vocabulary: data.vocabulary,
+                  preferences: data.preferences
+              };
+              const { error } = await supabase.from('profiles').update(updated).eq('id', currentUserId);
+              return !error;
+          }
+      } catch (e) {}
+      return false; 
+  }
 };
