@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, AlertTriangle, Check } from 'lucide-react';
-import { UserProfile, ChatMessage, LearningSession } from '../types';
+import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, AlertTriangle, Check, Play } from 'lucide-react';
+import { UserProfile, ChatMessage, LearningSession, ExplanationLanguage } from '../types';
 import { sendMessageStream, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -60,6 +60,9 @@ const ChatInterface: React.FC<Props> = ({
   const [showNextInput, setShowNextInput] = useState(false);
   const [nextLessonInput, setNextLessonInput] = useState('');
   
+  // Welcome State
+  const [showStartButton, setShowStartButton] = useState(false);
+  
   const [showTopMenu, setShowTopMenu] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
 
@@ -74,6 +77,29 @@ const ChatInterface: React.FC<Props> = ({
       }
       return `Leçon ${(user.stats.lessonsCompleted || 0) + 1}`;
   }, [messages, user.stats.lessonsCompleted]);
+
+  // Handle Initial Welcome Message
+  useEffect(() => {
+      if (messages.length === 0) {
+          const isMalagasy = user.preferences?.explanationLanguage === ExplanationLanguage.Malagasy;
+          const targetLang = user.preferences?.targetLanguage || 'Anglais';
+          const level = user.preferences?.level || 'A1';
+
+          const welcomeText = isMalagasy
+              ? `👋 **Tonga soa !**\n\nHianatra **${targetLang}** (Lenta ${level}) isika izao.\n\nIzaho no TeacherMada, mpampianatra anao manokana. Hanome lesona mazava aho, hanitsy ny diso ary hanampy anao hampihatra.\n\nVonona ve ianao ?`
+              : `👋 **Bienvenue !**\n\nNous allons commencer votre cours de **${targetLang}** (Niveau ${level}).\n\nJe suis TeacherMada, votre professeur personnel. Je vais vous donner des leçons structurées, corriger vos phrases et vous aider à pratiquer.\n\nÊtes-vous prêt ?`;
+
+          const initialMsg: ChatMessage = {
+              id: 'welcome_msg',
+              role: 'model',
+              text: welcomeText,
+              timestamp: Date.now()
+          };
+          
+          setMessages([initialMsg]);
+          setShowStartButton(true);
+      }
+  }, []);
 
   // Sync user updates (credits)
   useEffect(() => {
@@ -214,6 +240,9 @@ const ChatInterface: React.FC<Props> = ({
   const processMessage = async (text: string, isAuto: boolean = false) => {
     if (isStreaming) return;
     
+    // Hide welcome button if user types anything
+    setShowStartButton(false);
+
     const canRequest = await storageService.canRequest(user.id);
     if (!canRequest) {
         notify("Crédits insuffisants (1 requête = 1 crédit).", "error");
@@ -221,7 +250,7 @@ const ChatInterface: React.FC<Props> = ({
         return;
     }
 
-    const userDisplayMsg = isAuto ? "Suivant" : text;
+    const userDisplayMsg = text;
     const promptToSend = text;
 
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: userDisplayMsg, timestamp: Date.now() };
@@ -262,6 +291,13 @@ const ChatInterface: React.FC<Props> = ({
 
   const handleSend = () => { if (input.trim()) processMessage(input); };
   
+  const handleStartCourse = () => {
+      const isMalagasy = user.preferences?.explanationLanguage === ExplanationLanguage.Malagasy;
+      const startText = isMalagasy ? "Andao Hiatomboka" : "Commencer";
+      // Sends the text as user, triggers AI generation
+      processMessage(startText);
+  };
+
   const handleNextClick = async () => {
       const allowed = await storageService.canRequest(user.id);
       if(!allowed) {
@@ -280,7 +316,7 @@ const ChatInterface: React.FC<Props> = ({
       }
   };
 
-  useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming]);
+  useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming, showStartButton]);
 
   return (
     <div className="flex flex-col h-[100dvh] bg-[#F0F2F5] dark:bg-[#0B0F19] font-sans transition-colors duration-300 overflow-hidden" onClick={() => setShowTopMenu(false)}>
@@ -380,6 +416,18 @@ const ChatInterface: React.FC<Props> = ({
             </div>
             ))}
             
+            {showStartButton && !isStreaming && (
+                <div className="flex justify-center animate-fade-in-up">
+                    <button 
+                        onClick={handleStartCourse}
+                        className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black rounded-full shadow-xl hover:scale-105 transition-transform flex items-center gap-3 active:scale-95"
+                    >
+                        <Play className="w-5 h-5 fill-current" />
+                        {user.preferences?.explanationLanguage === ExplanationLanguage.Malagasy ? "Andao Hiatomboka" : "Commencer le cours"}
+                    </button>
+                </div>
+            )}
+
             {isStreaming && (
                 <div className="flex justify-start">
                     <div className="w-10 h-10 mr-3"></div>
