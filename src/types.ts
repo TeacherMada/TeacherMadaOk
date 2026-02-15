@@ -83,11 +83,12 @@ export interface UserProfile {
   stats: UserStats;
   vocabulary: VocabularyItem[];
   credits: number;
-  freeUsage: {
+  xp: number;
+  freeUsage?: {
     lastResetWeek: string;
     count: number;
   };
-  aiMemory: string;
+  aiMemory?: string;
   isSuspended?: boolean;
 }
 
@@ -102,7 +103,6 @@ export interface AdminRequest {
   createdAt: number;
 }
 
-// Updated Interface for Coupon
 export interface CouponCode {
   code: string;
   amount: number;
@@ -114,7 +114,6 @@ export interface SystemSettings {
   activeModel: string;
   creditPrice?: number;
   customLanguages?: Array<{code: string, baseName: string, flag: string}>;
-  // Updated to array of objects
   validTransactionRefs?: CouponCode[];
   adminContact: {
     telma: string;
