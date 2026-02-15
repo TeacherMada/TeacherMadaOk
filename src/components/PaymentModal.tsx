@@ -10,7 +10,7 @@ interface PaymentModalProps {
   user: UserProfile;
 }
 
-const PRESET_AMOUNTS = [2000, 5000, 10000, 20000];
+const PRESET_AMOUNTS = [1000, 2000, 5000, 10000];
 
 // Codes USSD mis à jour selon la demande
 const OPERATOR_THEMES = {
@@ -24,7 +24,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   
   // Mobile Money State
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [amount, setAmount] = useState<string>('5000');
+  const [amount, setAmount] = useState<string>('2000');
   const [selectedOperator, setSelectedOperator] = useState<'mvola' | 'airtel' | 'orange'>('mvola');
   const [reference, setReference] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -130,12 +130,23 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
         
         {/* Header Gradient */}
         <div className="bg-gradient-to-r from-indigo-600 to-violet-600 p-6 pb-8 relative shrink-0">
-            <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors">
-                <X className="w-5 h-5" />
-            </button>
-            <div className="text-center">
-                <h2 className="text-2xl font-black text-white tracking-tight mb-1">Portefeuille</h2>
-                <p className="text-indigo-100 text-xs font-medium opacity-80">Gérez vos crédits d'apprentissage</p>
+            <div className="flex items-center justify-between mb-4 relative z-10">
+                {/* Left */}
+                <h2 className="text-lg font-black text-white tracking-tight">Recharger credits</h2>
+                
+                {/* Center */}
+                <div className="flex flex-col items-center">
+                     <span className="text-[10px] text-indigo-200 font-bold uppercase tracking-widest mb-0.5">Solde actuel</span>
+                     <div className="flex items-center gap-1.5 bg-white/20 px-3 py-1 rounded-full backdrop-blur-sm border border-white/10">
+                        <TrendingUp className="w-3 h-3 text-amber-300" />
+                        <span className="text-sm font-black text-white">{user.credits} CRD</span>
+                     </div>
+                </div>
+
+                {/* Right */}
+                <button onClick={onClose} className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors">
+                    <X className="w-5 h-5" />
+                </button>
             </div>
 
             {/* Floating Tabs */}
@@ -172,32 +183,8 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
 
                     {/* STEP 1: AMOUNT */}
                     {step === 1 && (
-                        <div className="space-y-6 animate-fade-in">
+                        <div className="space-y-6 animate-fade-in pt-4">
                             
-                            {/* FANTASTIC CURRENT BALANCE CARD */}
-                            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-[#1e1b4b] to-indigo-900 p-6 text-white shadow-2xl border border-indigo-500/20 group">
-                                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-[50px] -mr-10 -mt-10 group-hover:bg-indigo-500/30 transition-all duration-700"></div>
-                                <div className="absolute bottom-0 left-0 w-24 h-24 bg-purple-500/20 rounded-full blur-[40px] -ml-8 -mb-8"></div>
-                                
-                                <div className="relative z-10 flex items-center justify-between">
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <div className="p-1.5 bg-indigo-500/20 rounded-lg backdrop-blur-sm">
-                                                <TrendingUp className="w-3 h-3 text-indigo-300"/>
-                                            </div>
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200">Solde Actuel</p>
-                                        </div>
-                                        <div className="flex items-baseline gap-1.5">
-                                            <span className="text-4xl font-black tracking-tighter drop-shadow-md">{user.credits}</span>
-                                            <span className="text-sm font-bold text-indigo-300">CRD</span>
-                                        </div>
-                                    </div>
-                                    <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/10 shadow-inner">
-                                        <Sparkles className="w-6 h-6 text-amber-400 fill-amber-400 animate-pulse" />
-                                    </div>
-                                </div>
-                            </div>
-
                             <div className="text-center space-y-4 pt-2">
                                 <div className="relative max-w-[240px] mx-auto group">
                                     
@@ -211,7 +198,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                         </div>
                                     )}
 
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Montant en Ariary</label>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Recharger votre credits ici</label>
                                     <div className="relative">
                                         <input 
                                             type="number" 
@@ -266,7 +253,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                     <span className={`text-xs font-black uppercase tracking-wider ${currentTheme.text} flex items-center gap-1`}>
                                         <Smartphone className="w-3 h-3" /> Guide {selectedOperator}
                                     </span>
-                                    <span className="text-[10px] font-bold opacity-60">Code: {currentTheme.ussd}</span>
+                                    <span className="font-bold bg-indigo-600 text-white px-2 py-0.5 rounded text-[10px]">Code: {currentTheme.ussd}</span>
                                 </div>
                                 
                                 <div className="p-4 space-y-4">
@@ -276,14 +263,13 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                         <div className="text-sm w-full">
                                             <p className="text-slate-600 dark:text-slate-300">Envoyez <strong className="text-slate-900 dark:text-white">{amount} Ar</strong> au numéro :</p>
                                             <div className="flex flex-col gap-2 mt-1">
-                                                 <button onClick={() => copyToClipboard(ADMIN_CONTACTS[selectedOperator === 'mvola' ? 'telma' : selectedOperator], 'num')} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm font-mono font-bold text-slate-800 dark:text-white w-fit active:scale-95 transition-transform">
-                                                    {ADMIN_CONTACTS[selectedOperator === 'mvola' ? 'telma' : selectedOperator]}
-                                                    {copiedKey === 'num' ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3 text-slate-400"/>}
-                                                </button>
-                                                <div className="flex items-center gap-2 text-xs text-slate-500 font-bold bg-white/50 dark:bg-slate-900/30 px-2 py-1 rounded w-fit">
-                                                    <span>Nom :</span>
-                                                    <span className="text-indigo-600 dark:text-indigo-400 uppercase">TSANTA FIDERANA</span>
-                                                </div>
+                                                 <div className="flex flex-wrap items-center gap-2">
+                                                     <button onClick={() => copyToClipboard(ADMIN_CONTACTS[selectedOperator === 'mvola' ? 'telma' : selectedOperator], 'num')} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm font-mono font-bold text-slate-800 dark:text-white w-fit active:scale-95 transition-transform">
+                                                        {ADMIN_CONTACTS[selectedOperator === 'mvola' ? 'telma' : selectedOperator]}
+                                                        {copiedKey === 'num' ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3 text-slate-400"/>}
+                                                    </button>
+                                                    <span className="text-xs font-bold text-slate-500 uppercase">TSANTA FIDERANA</span>
+                                                 </div>
                                             </div>
                                         </div>
                                     </div>
@@ -295,7 +281,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                         <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-sm shrink-0 mt-1">2</div>
                                         <div className="text-sm">
                                             <p className="text-slate-600 dark:text-slate-300 font-medium">
-                                                Ajoutez ce <span className="text-indigo-600 dark:text-indigo-400 font-bold">Motif / Raison</span> dans la transaction :
+                                                Ajoutez ce Motif / Raison dans la transaction :
                                             </p>
                                             <button onClick={() => copyToClipboard(motifCode, 'motif')} className="mt-1.5 flex items-center gap-2 bg-indigo-600 text-white px-3 py-2 rounded-lg shadow-md shadow-indigo-500/30 font-mono font-bold w-full justify-between hover:bg-indigo-700 active:scale-95 transition-all group">
                                                 <span>{motifCode}</span>
@@ -332,7 +318,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                     rows={2}
                                     value={reference}
                                     onChange={(e) => setReference(e.target.value)}
-                                    placeholder="Ex: 1234567890..."
+                                    placeholder="label: 1234567890.."
                                     className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white text-sm font-medium"
                                 />
                             </div>
