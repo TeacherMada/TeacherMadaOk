@@ -4,6 +4,7 @@ import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, Ch
 import { UserProfile, ChatMessage, LearningSession, ExplanationLanguage } from '../types';
 import { sendMessageStream, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
+import { getFlagUrl } from '../constants';
 import MarkdownRenderer from './MarkdownRenderer';
 
 interface Props {
@@ -33,17 +34,9 @@ function pcmToAudioBuffer(data: Uint8Array, ctx: AudioContext, sampleRate: numbe
 }
 
 const ChatInterface: React.FC<Props> = ({ 
-  user, 
-  session, 
-  onShowProfile, 
-  onExit, 
-  onUpdateUser, 
-  onStartPractice, 
-  onStartExercise,
-  onStartVoiceCall, 
-  notify, 
-  onShowPayment,
-  onChangeCourse
+  user, session, onShowProfile, onExit, onUpdateUser, 
+  onStartPractice, onStartExercise, onStartVoiceCall, 
+  notify, onShowPayment, onChangeCourse
 }) => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>(session.messages);
