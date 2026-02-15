@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Smartphone, Calculator, ArrowRight, Send, CheckCircle, Copy, Check, Coins, Ticket, Loader2, ChevronLeft, AlertTriangle, Hash, Wifi } from 'lucide-react';
+import { X, Smartphone, Calculator, ArrowRight, Send, CheckCircle, Copy, Check, Coins, Ticket, Loader2, ChevronLeft, AlertTriangle, Hash, Wifi, Sparkles, TrendingUp } from 'lucide-react';
 import { ADMIN_CONTACTS, CREDIT_PRICE_ARIARY } from '../constants';
 import { storageService } from '../services/storageService';
 import { UserProfile } from '../types';
@@ -12,9 +12,10 @@ interface PaymentModalProps {
 
 const PRESET_AMOUNTS = [2000, 5000, 10000, 20000];
 
+// Codes USSD mis à jour selon la demande
 const OPERATOR_THEMES = {
-    mvola: { color: 'bg-yellow-500', ussd: '#111#', text: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-200' },
-    airtel: { color: 'bg-red-500', ussd: '*128#', text: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' },
+    mvola: { color: 'bg-yellow-500', ussd: '#111*1*2#', text: 'text-yellow-600', bg: 'bg-yellow-50', border: 'border-yellow-200' },
+    airtel: { color: 'bg-red-500', ussd: '*436*2*1#', text: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' },
     orange: { color: 'bg-orange-500', ussd: '#144#', text: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200' }
 };
 
@@ -23,12 +24,15 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
   
   // Mobile Money State
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [amount, setAmount] = useState<string>('2000');
+  const [amount, setAmount] = useState<string>('5000');
   const [selectedOperator, setSelectedOperator] = useState<'mvola' | 'airtel' | 'orange'>('mvola');
   const [reference, setReference] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Tooltip State
+  const [showInputGuide, setShowInputGuide] = useState(false);
 
   // Coupon State
   const [couponCode, setCouponCode] = useState('');
@@ -43,6 +47,19 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
 
   const currentTheme = OPERATOR_THEMES[selectedOperator];
 
+  // Effect for Input Tooltip (Visible for 10s)
+  useEffect(() => {
+      if (activeTab === 'money' && step === 1) {
+          setShowInputGuide(true);
+          const timer = setTimeout(() => {
+              setShowInputGuide(false);
+          }, 10000); // Disparaît après 10 secondes
+          return () => clearTimeout(timer);
+      } else {
+          setShowInputGuide(false);
+      }
+  }, [activeTab, step]);
+
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
@@ -51,6 +68,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
 
   const handleAmountSelect = (val: number) => {
     setAmount(val.toString());
+    setShowInputGuide(false); // Hide tooltip if user interacts
   };
 
   const handleMoneySubmit = async () => {
@@ -117,7 +135,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
             </button>
             <div className="text-center">
                 <h2 className="text-2xl font-black text-white tracking-tight mb-1">Portefeuille</h2>
-                <p className="text-indigo-100 text-xs font-medium">Solde actuel: {user.credits} Crédits</p>
+                <p className="text-indigo-100 text-xs font-medium opacity-80">Gérez vos crédits d'apprentissage</p>
             </div>
 
             {/* Floating Tabs */}
@@ -155,19 +173,58 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                     {/* STEP 1: AMOUNT */}
                     {step === 1 && (
                         <div className="space-y-6 animate-fade-in">
-                            <div className="text-center space-y-2">
-                                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Montant à recharger</label>
-                                <div className="relative max-w-[200px] mx-auto">
-                                    <input 
-                                        type="number" 
-                                        value={amount}
-                                        onChange={(e) => setAmount(e.target.value)}
-                                        className="w-full bg-transparent text-center text-4xl font-black text-slate-800 dark:text-white outline-none placeholder:text-slate-200 pb-2 border-b-2 border-slate-200 dark:border-slate-700 focus:border-indigo-500 transition-colors"
-                                        placeholder="0"
-                                    />
-                                    <span className="absolute right-0 bottom-4 text-sm font-bold text-slate-400">Ar</span>
+                            
+                            {/* FANTASTIC CURRENT BALANCE CARD */}
+                            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-[#1e1b4b] to-indigo-900 p-6 text-white shadow-2xl border border-indigo-500/20 group">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-[50px] -mr-10 -mt-10 group-hover:bg-indigo-500/30 transition-all duration-700"></div>
+                                <div className="absolute bottom-0 left-0 w-24 h-24 bg-purple-500/20 rounded-full blur-[40px] -ml-8 -mb-8"></div>
+                                
+                                <div className="relative z-10 flex items-center justify-between">
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <div className="p-1.5 bg-indigo-500/20 rounded-lg backdrop-blur-sm">
+                                                <TrendingUp className="w-3 h-3 text-indigo-300"/>
+                                            </div>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200">Solde Actuel</p>
+                                        </div>
+                                        <div className="flex items-baseline gap-1.5">
+                                            <span className="text-4xl font-black tracking-tighter drop-shadow-md">{user.credits}</span>
+                                            <span className="text-sm font-bold text-indigo-300">CRD</span>
+                                        </div>
+                                    </div>
+                                    <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/10 shadow-inner">
+                                        <Sparkles className="w-6 h-6 text-amber-400 fill-amber-400 animate-pulse" />
+                                    </div>
                                 </div>
-                                <div className="inline-flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2 rounded-full">
+                            </div>
+
+                            <div className="text-center space-y-4 pt-2">
+                                <div className="relative max-w-[240px] mx-auto group">
+                                    
+                                    {/* TOOLTIP 10s VISIBILITY */}
+                                    {showInputGuide && (
+                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-max z-30 animate-bounce-slight pointer-events-none">
+                                            <div className="bg-amber-500 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-xl relative flex items-center gap-2">
+                                                <span>👇 Tapez le montant souhaité ici</span>
+                                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-amber-500"></div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Montant en Ariary</label>
+                                    <div className="relative">
+                                        <input 
+                                            type="number" 
+                                            value={amount}
+                                            onChange={(e) => { setAmount(e.target.value); setShowInputGuide(false); }}
+                                            className="w-full bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-4 text-center text-3xl font-black text-slate-800 dark:text-white outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-300"
+                                            placeholder="0"
+                                        />
+                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">Ar</span>
+                                    </div>
+                                </div>
+                                
+                                <div className="inline-flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2 rounded-full border border-emerald-100 dark:border-emerald-800/30">
                                     <Coins className="w-4 h-4 text-emerald-500"/>
                                     <span className="font-bold text-emerald-700 dark:text-emerald-400 text-sm">= {credits} Crédits</span>
                                 </div>
@@ -185,7 +242,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                 ))}
                             </div>
 
-                            <button onClick={() => setStep(2)} disabled={numericAmount < 500} className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] transition-transform">
+                            <button onClick={() => setStep(2)} disabled={numericAmount < 500} className="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] transition-transform shadow-lg">
                                 Continuer <ArrowRight className="w-5 h-5" />
                             </button>
                         </div>
@@ -216,13 +273,18 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                     {/* Instruction Row 1 */}
                                     <div className="flex items-start gap-3">
                                         <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center font-bold text-xs shadow-sm shrink-0 border border-slate-100">1</div>
-                                        <div className="text-sm">
+                                        <div className="text-sm w-full">
                                             <p className="text-slate-600 dark:text-slate-300">Envoyez <strong className="text-slate-900 dark:text-white">{amount} Ar</strong> au numéro :</p>
-                                            <button onClick={() => copyToClipboard(ADMIN_CONTACTS[selectedOperator === 'mvola' ? 'telma' : selectedOperator], 'num')} className="mt-1 flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm font-mono font-bold text-slate-800 dark:text-white w-fit active:scale-95 transition-transform">
-                                                {ADMIN_CONTACTS[selectedOperator === 'mvola' ? 'telma' : selectedOperator]}
-                                                {copiedKey === 'num' ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3 text-slate-400"/>}
-                                            </button> 
-                                            <p><strong className="text-slate-900 dark:text-white">TSANTA FIDERANA</strong></p>
+                                            <div className="flex flex-col gap-2 mt-1">
+                                                 <button onClick={() => copyToClipboard(ADMIN_CONTACTS[selectedOperator === 'mvola' ? 'telma' : selectedOperator], 'num')} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm font-mono font-bold text-slate-800 dark:text-white w-fit active:scale-95 transition-transform">
+                                                    {ADMIN_CONTACTS[selectedOperator === 'mvola' ? 'telma' : selectedOperator]}
+                                                    {copiedKey === 'num' ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3 text-slate-400"/>}
+                                                </button>
+                                                <div className="flex items-center gap-2 text-xs text-slate-500 font-bold bg-white/50 dark:bg-slate-900/30 px-2 py-1 rounded w-fit">
+                                                    <span>Nom :</span>
+                                                    <span className="text-indigo-600 dark:text-indigo-400 uppercase">TSANTA FIDERANA</span>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -233,7 +295,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                         <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-sm shrink-0 mt-1">2</div>
                                         <div className="text-sm">
                                             <p className="text-slate-600 dark:text-slate-300 font-medium">
-                                                Ajoutez ce <span className="text-indigo-600 dark:text-indigo-400 font-bold">Motif / Raison</span> dans la transaction:
+                                                Ajoutez ce <span className="text-indigo-600 dark:text-indigo-400 font-bold">Motif / Raison</span> dans la transaction :
                                             </p>
                                             <button onClick={() => copyToClipboard(motifCode, 'motif')} className="mt-1.5 flex items-center gap-2 bg-indigo-600 text-white px-3 py-2 rounded-lg shadow-md shadow-indigo-500/30 font-mono font-bold w-full justify-between hover:bg-indigo-700 active:scale-95 transition-all group">
                                                 <span>{motifCode}</span>
@@ -261,16 +323,16 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
                                     <Smartphone className="w-8 h-8" />
                                 </div>
                                 <h3 className="text-xl font-bold text-slate-800 dark:text-white">Dernière étape</h3>
-                                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 px-4">Entrez la référence ou indices de transaction (reçue par SMS) pour valider automatiquement vos <strong>{credits} Crédits</strong>.</p>
+                                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 px-4">Entrez la référence ou indices de transaction (reçue par SMS) pour valider vos <strong>{credits} Crédits</strong>.</p>
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-xs font-bold text-slate-500 uppercase ml-2">Référence/Indices SMS</label>
+                                <label className="text-xs font-bold text-slate-500 uppercase ml-2">Référence/indices SMS</label>
                                 <textarea 
                                     rows={2}
                                     value={reference}
                                     onChange={(e) => setReference(e.target.value)}
-                                    placeholder="Ex: 230918054021..."
+                                    placeholder="Ex: 1234567890..."
                                     className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white text-sm font-medium"
                                 />
                             </div>
