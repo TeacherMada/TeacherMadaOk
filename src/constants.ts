@@ -1,6 +1,35 @@
 
 import { UserProfile, UserPreferences, LevelDescriptor } from './types';
 
+// Helper pour convertir un nom de langue en code pays ISO 2 lettres pour FlagCDN
+export const getFlagUrl = (langName: string): string => {
+    const map: Record<string, string> = {
+        'Anglais': 'gb', 'English': 'gb',
+        'Français': 'fr', 'French': 'fr',
+        'Chinois': 'cn', 'Mandarin': 'cn',
+        'Espagnol': 'es', 'Spanish': 'es',
+        'Allemand': 'de', 'German': 'de',
+        'Italien': 'it', 'Italian': 'it',
+        'Portugais': 'pt', 'Portuguese': 'pt',
+        'Russe': 'ru', 'Russian': 'ru',
+        'Japonais': 'jp', 'Japanese': 'jp',
+        'Coréen': 'kr', 'Korean': 'kr',
+        'Hindi': 'in',
+        'Arabe': 'sa', 'Arabic': 'sa',
+        'Swahili': 'ke',
+        'Malagasy': 'mg', 'Malgache': 'mg'
+    };
+    
+    // Si c'est déjà un code (ex: 'fr')
+    if (langName.length === 2) return `https://flagcdn.com/w40/${langName.toLowerCase()}.png`;
+    
+    // Extraction du premier mot (ex: "Anglais 🇬🇧" -> "Anglais")
+    const cleanName = langName.split(' ')[0];
+    const code = map[cleanName] || 'un'; // 'un' = United Nations (Drapeau neutre)
+    
+    return `https://flagcdn.com/w40/${code}.png`;
+};
+
 export const SYSTEM_PROMPT_TEMPLATE = (profile: UserProfile, prefs: UserPreferences) => `
 RÔLE:
 Tu es TeacherMada, un éducateur intelligent et bienveillant. Ta mission est de guider ${profile.username} (Niveau: ${prefs.level}) vers la maîtrise du ${prefs.targetLanguage}.
@@ -18,7 +47,7 @@ RÈGLES ABSOLUES DE GÉNÉRATION (IMPORTANT):
    - Progresse par étapes
    
 STRUCTURE OBLIGATOIRE (MARKDOWN):
-Leçon [N] : [Titre clair et engageant]
+**Leçon [N]** : [Titre clair et engageant]
 
 🎯 **Objectif**
 - [Ce que l'utilisateur sera capable de faire concrètement après cette leçon]
@@ -153,6 +182,7 @@ C'est le cœur de l'application où se déroule le cours structuré.
 
 2.  **Zone de Messages (Body) :**
     *   Affiche l'historique de la conversation.
+    *   **Message de bienvenue** au démarrage de nouvau cours ou nouvau avec botoun Commencer
     *   **Messages prof (Leçon):** Formatés en Markdown (Gras, Listes, Titres, Prononciation word).
     *   **Bouton Audio (Haut-parleur) :** Permet d'écouter la prononciation d'un message spécifique.
 
@@ -180,7 +210,7 @@ Le mode le plus avancé pour l'immersion totale.
 Le système suit une méthode strict :
 1.  **Langue :** Parle 90% dans la langue cible.
 2.  **Correction Bienveillante :**
-    *   Si l'élève fait une faute : Encourager ("Good try!") → Corriger ("Say: ...") → Faire répéter ("Repeat please").
+    *   Si l'élève fait une faute : Encourager → Corriger → Faire répéter.
 3.  **Débit :** Le prof parle lentement et articule clairement.
 
 ### 🎨 Interface Visuelle
