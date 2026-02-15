@@ -1,77 +1,353 @@
 
-import { UserProfile, ChatMessage, UserPreferences, SystemSettings, AdminRequest, LearningSession } from "../types";
+import { supabase } from "../lib/supabase";
+import { UserProfile, UserPreferences, LearningSession, AdminRequest, SystemSettings, CouponCode } from "../types";
 
-const LOCAL_STORAGE_KEY = 'teachermada_user_data';
-const CHAT_HISTORY_PREFIX = 'tm_chat_';
-const REQUESTS_KEY = 'tm_requests_data';
+const SESSION_PREFIX = 'tm_v3_session_';
 const SETTINGS_KEY = 'tm_system_settings';
-const SESSION_PREFIX = 'tm_session_';
+const SUPPORT_QUOTA_KEY = 'tm_support_quota';
+
+// --- EVENT BUS FOR REAL-TIME UPDATES ---
+type UserUpdateListener = (user: UserProfile) => void;
+let userListeners: UserUpdateListener[] = [];
+
+const notifyListeners = (user: UserProfile) => {
+    userListeners.forEach(listener => listener(user));
+};
+
+// Helper to map Supabase DB shape to UserProfile
+const mapProfile = (data: any): UserProfile => ({
+    id: data.id,
+    username: data.username,
+    email: data.email,
+    phoneNumber: data.phone_number,
+    role: data.role,
+    credits: data.credits,
+    stats: {
+        lessonsCompleted: data.lessons_completed || 0,
+        exercisesCompleted: data.exercises_completed || 0,
+        dialoguesCompleted: data.dialogues_completed || 0
+    },
+    preferences: data.preferences,
+    vocabulary: data.vocabulary || [],
+    freeUsage: data.free_usage || { count: 0, lastResetWeek: new Date().toISOString() },
+    aiMemory: "Étudiant motivé",
+    createdAt: new Date(data.created_at).getTime(),
+    isSuspended: data.is_suspended
+});
+
+// Helper to handle Login strategy
+const formatLoginEmail = (input: string) => {
+    const trimmed = input.trim();
+    if (trimmed.includes('@')) return trimmed;
+    const cleanId = trimmed.replace(/[^a-zA-Z0-9.\-_+]/g, '');
+    return `${cleanId}@teachermada.com`;
+};
+
+// Helper to create a default profile payload
+const createDefaultProfile = (id: string, username: string, email: string, phone: string = "") => ({
+    id: id,
+    username: username,
+    email: email,
+    phone_number: phone,
+    role: 'user',
+    credits: 10, // Crédits de bienvenue
+    stats: { lessons_completed: 0, exercises_completed: 0, dialogues_completed: 0 },
+    vocabulary: [],
+    preferences: null,
+    free_usage: { count: 0, lastResetWeek: new Date().toISOString() },
+    is_suspended: false,
+    created_at: new Date().toISOString()
+});
 
 export const storageService = {
-  // --- AUTH & USER ---
-  getLocalUser: (): UserProfile | null => {
-    const data = localStorage.getItem(LOCAL_STORAGE_KEY);
-    return data ? JSON.parse(data) : null;
+  // --- REAL-TIME SUBSCRIPTION ---
+  subscribeToUserUpdates: (callback: UserUpdateListener) => {
+      userListeners.push(callback);
+      return () => {
+          userListeners = userListeners.filter(cb => cb !== callback);
+      };
   },
 
-  getCurrentUser: (): UserProfile | null => {
-    return storageService.getLocalUser();
-  },
+  // --- AUTH (Supabase) ---
+  
+  login: async (id: string, pass: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
+    try {
+        const email = formatLoginEmail(id);
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+            email: email, 
+            password: pass
+        });
 
-  getUserById: (id: string): UserProfile | null => {
-    const user = storageService.getLocalUser();
-    return user && user.id === id ? user : null;
-  },
+        if (authError) return { success: false, error: "Identifiants incorrects." };
 
-  saveLocalUser: (user: UserProfile) => {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(user));
-  },
+        if (authData.user) {
+            // RETRY LOGIC: Try to fetch profile multiple times
+            let user = await storageService.getUserById(authData.user.id);
+            let attempts = 0;
+            
+            while (!user && attempts < 3) {
+                await new Promise(resolve => setTimeout(resolve, 800)); // Wait 800ms
+                user = await storageService.getUserById(authData.user.id);
+                attempts++;
+            }
+            
+            // AUTO-HEALING: If still missing, create it
+            if (!user) {
+                console.warn("⚠️ Profil manquant. Création d'urgence...");
+                const username = authData.user.user_metadata?.username || id.split('@')[0];
+                const phone = authData.user.user_metadata?.phone_number || "";
+                const profilePayload = createDefaultProfile(authData.user.id, username, email, phone);
+                
+                const { error: insertError } = await supabase.from('profiles').insert([profilePayload]);
+                
+                if (!insertError) {
+                    user = mapProfile(profilePayload);
+                } else {
+                    return { success: false, error: "Impossible de charger le profil." };
+                }
+            }
 
-  // Added login method required by AuthScreen.tsx
-  login: (username: string, pass: string): { success: boolean; user?: UserProfile; error?: string } => {
-    const user = storageService.getLocalUser();
-    if (user && user.username === username && user.password === pass) {
-      if (user.isSuspended) return { success: false, error: "Compte suspendu." };
-      return { success: true, user };
+            if (user?.isSuspended) return { success: false, error: "Compte suspendu par l'administrateur." };
+            if (user) return { success: true, user };
+            
+            return { success: false, error: "Erreur critique de profil." };
+        }
+        return { success: false, error: "Erreur inconnue." };
+    } catch (e: any) {
+        return { success: false, error: e.message };
     }
-    return { success: false, error: "Identifiants incorrects." };
   },
 
-  // Added register method required by AuthScreen.tsx
-  register: (username: string, pass: string, email?: string): { success: boolean; user?: UserProfile; error?: string } => {
-    const newUser: UserProfile = {
-      id: crypto.randomUUID(),
-      username,
-      password: pass,
-      email,
-      role: 'user',
-      credits: 10,
-      xp: 0,
-      preferences: null,
-      vocabulary: [],
-      createdAt: Date.now()
-    };
-    storageService.saveLocalUser(newUser);
-    return { success: true, user: newUser };
+  register: async (username: string, password?: string, email?: string, phoneNumber?: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
+    if (!password) return { success: false, error: "Mot de passe requis." };
+    if (!username) return { success: false, error: "Nom d'utilisateur requis." };
+
+    let finalEmail = email?.trim() || "";
+    if (!finalEmail) finalEmail = formatLoginEmail(username);
+
+    try {
+        // 1. Create Auth User
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+            email: finalEmail,
+            password: password,
+            options: {
+                data: {
+                    username: username.trim(),
+                    phone_number: phoneNumber?.trim() || ""
+                }
+            }
+        });
+
+        if (authError) {
+            if (authError.message.includes("already registered")) {
+                return { success: false, error: "Ce nom ou cet email est déjà pris." };
+            }
+            return { success: false, error: authError.message };
+        }
+        
+        if (!authData.user) return { success: false, error: "Erreur de création Auth." };
+
+        // 2. EXPLICITLY Create Profile Row
+        const profilePayload = createDefaultProfile(
+            authData.user.id, 
+            username.trim(), 
+            finalEmail, 
+            phoneNumber?.trim() || ""
+        );
+
+        const { error: profileError } = await supabase.from('profiles').insert([profilePayload]);
+
+        // 3. ROBUST FETCH with RETRY
+        // If insert failed (duplicate) OR succeeded, we want to return the profile object from DB
+        // We wait a bit to ensure DB consistency
+        
+        let existingUser = null;
+        if (profileError) {
+             // If duplicate key error, we just fetch
+             // But we add retry logic here too
+             for (let i = 0; i < 4; i++) {
+                 await new Promise(r => setTimeout(r, 1000)); // Wait 1s between tries
+                 existingUser = await storageService.getUserById(authData.user.id);
+                 if (existingUser) break;
+             }
+             
+             if (existingUser) return { success: true, user: existingUser };
+             return { success: false, error: "Compte créé, mais délai de base de données. Veuillez vous connecter." };
+        }
+
+        // If insert succeeded, return the payload mapped immediately (optimistic)
+        return { success: true, user: mapProfile(profilePayload) };
+
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
   },
 
-  logout: () => {
-    localStorage.removeItem(LOCAL_STORAGE_KEY);
-    // Supprimer les historiques de chat
-    Object.keys(localStorage)
-      .filter(k => k.startsWith(CHAT_HISTORY_PREFIX) || k.startsWith(SESSION_PREFIX))
-      .forEach(k => localStorage.removeItem(k));
+  logout: async () => {
+      await supabase.auth.signOut();
+      localStorage.removeItem('tm_v3_current_user_id'); 
   },
 
-  // Added getAllUsers method required by AdminDashboard.tsx
-  getAllUsers: (): UserProfile[] => {
-    const user = storageService.getLocalUser();
-    return user ? [user] : [];
+  getCurrentUser: async (): Promise<UserProfile | null> => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      return storageService.getUserById(user.id);
   },
 
-  // Added saveUserProfile method required by AdminDashboard.tsx
-  saveUserProfile: (user: UserProfile) => {
-    storageService.saveLocalUser(user);
+  getUserById: async (id: string): Promise<UserProfile | null> => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', id)
+        .single();
+      
+      if (error || !data) return null;
+      return mapProfile(data);
+  },
+
+  // --- DATA SYNC ---
+
+  saveUserProfile: async (user: UserProfile) => {
+      const updates = {
+          username: user.username,
+          credits: user.credits,
+          lessons_completed: user.stats.lessonsCompleted,
+          exercises_completed: user.stats.exercisesCompleted,
+          dialogues_completed: user.stats.dialoguesCompleted,
+          vocabulary: user.vocabulary,
+          preferences: user.preferences,
+          free_usage: user.freeUsage,
+          is_suspended: user.isSuspended
+      };
+
+      const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
+      if (error) {
+          console.error("Save User Error:", error.message);
+      } else {
+          notifyListeners(user);
+      }
+  },
+
+  getAllUsers: async (): Promise<UserProfile[]> => {
+      const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+      return data ? data.map(mapProfile) : [];
+  },
+
+  // --- LOGIC: CREDITS & USAGE ---
+
+  // Checks support agent daily quota (100/day) - Local Storage based for simplicity and device limiting
+  canUseSupportAgent: (): boolean => {
+      const today = new Date().toDateString();
+      const raw = localStorage.getItem(SUPPORT_QUOTA_KEY);
+      let data = raw ? JSON.parse(raw) : { date: today, count: 0 };
+
+      if (data.date !== today) {
+          data = { date: today, count: 0 };
+      }
+
+      if (data.count < 100) {
+          return true;
+      }
+      return false;
+  },
+
+  incrementSupportUsage: () => {
+      const today = new Date().toDateString();
+      const raw = localStorage.getItem(SUPPORT_QUOTA_KEY);
+      let data = raw ? JSON.parse(raw) : { date: today, count: 0 };
+
+      if (data.date !== today) {
+          data = { date: today, count: 0 };
+      }
+      data.count++;
+      localStorage.setItem(SUPPORT_QUOTA_KEY, JSON.stringify(data));
+  },
+
+  canRequest: async (userId: string, minCredits: number = 1): Promise<boolean> => {
+      const user = await storageService.getUserById(userId);
+      if (!user) return false;
+      if (user.role === 'admin') return true;
+      if (user.isSuspended) return false;
+      
+      return user.credits >= minCredits;
+  },
+
+  consumeCredit: async (userId: string): Promise<boolean> => {
+      return storageService.deductCredits(userId, 1);
+  },
+
+  deductCredits: async (userId: string, amount: number): Promise<boolean> => {
+      const user = await storageService.getUserById(userId);
+      if (!user) return false;
+      if (user.role === 'admin') return true;
+      if (user.isSuspended) return false;
+
+      if (user.credits < amount) return false;
+
+      const newCredits = Math.max(0, user.credits - amount);
+      
+      // Optimistic update
+      const updatedUser = { ...user, credits: newCredits };
+      notifyListeners(updatedUser);
+      
+      const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
+      
+      if (error) {
+          // Rollback on error
+          notifyListeners(user);
+          return false;
+      }
+      return true;
+  },
+
+  addCredits: async (userId: string, amount: number): Promise<boolean> => {
+      const { data: user, error: fetchError } = await supabase
+          .from('profiles')
+          .select('credits')
+          .eq('id', userId)
+          .single();
+
+      if (fetchError || !user) return false;
+
+      const newCredits = (user.credits || 0) + amount;
+      const { error: updateError } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
+      
+      if (updateError) return false;
+
+      const updatedUser = await storageService.getUserById(userId);
+      if (updatedUser) notifyListeners(updatedUser);
+
+      return true;
+  },
+
+  redeemCode: async (userId: string, inputCode: string): Promise<{ success: boolean; amount?: number; message?: string }> => {
+      try {
+          const code = inputCode.trim().toUpperCase();
+          const settings = await storageService.loadSystemSettings();
+          const validRefs = settings.validTransactionRefs || [];
+          
+          const couponIndex = validRefs.findIndex(c => c.code.toUpperCase() === code);
+
+          if (couponIndex !== -1) {
+              const coupon = validRefs[couponIndex];
+              const amountToAdd = Number(coupon.amount) || 0;
+
+              const creditAdded = await storageService.addCredits(userId, amountToAdd);
+              if (!creditAdded) return { success: false, message: "Erreur technique lors de l'ajout." };
+              
+              const newRefs = [...validRefs];
+              newRefs.splice(couponIndex, 1);
+              
+              await storageService.updateSystemSettings({ ...settings, validTransactionRefs: newRefs });
+              
+              return { success: true, amount: amountToAdd };
+          }
+
+          return { success: false, message: "Code invalide ou déjà utilisé." };
+
+      } catch (e: any) {
+          return { success: false, message: "Erreur technique." };
+      }
   },
 
   // --- SESSIONS ---
@@ -100,146 +376,164 @@ export const storageService = {
     localStorage.setItem(session.id, JSON.stringify(session));
   },
 
-  // --- CHAT HISTORY (Local Only for speed) ---
-  getChatHistory: (lang: string): ChatMessage[] => {
-    const key = `${CHAT_HISTORY_PREFIX}${lang.replace(/\s/g, '')}`;
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : [];
-  },
-
-  saveChatHistory: (lang: string, messages: ChatMessage[]) => {
-    const key = `${CHAT_HISTORY_PREFIX}${lang.replace(/\s/g, '')}`;
-    localStorage.setItem(key, JSON.stringify(messages.slice(-50))); // Garder les 50 derniers
-  },
-
-  // --- SETTINGS (Sync from Admin) ---
-  getSystemSettings: (): SystemSettings => {
-    const data = localStorage.getItem(SETTINGS_KEY);
-    return data ? JSON.parse(data) : {
-      apiKeys: [],
-      activeModel: 'gemini-3-flash-preview',
-      customLanguages: [],
-      adminContact: { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
-    };
-  },
-
-  // Added updateSystemSettings method required by AdminDashboard.tsx
-  updateSystemSettings: (settings: SystemSettings) => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  getChatHistory: (lang: string): any[] => {
+    return [];
   },
 
   // --- ADMIN REQUESTS ---
-  // Added getAdminRequests method required by AdminDashboard.tsx
-  getAdminRequests: (): AdminRequest[] => {
-    const data = localStorage.getItem(REQUESTS_KEY);
-    return data ? JSON.parse(data) : [];
-  },
+  getAdminRequests: async (): Promise<AdminRequest[]> => {
+      try {
+          const { data, error } = await supabase
+              .from('admin_requests')
+              .select('*')
+              .order('created_at', { ascending: false });
+          
+          if (error) return [];
 
-  // Added sendAdminRequest method required by PaymentModal.tsx
-  sendAdminRequest: (userId: string, username: string, type: any, amount?: number, message: string = '') => {
-    const requests = storageService.getAdminRequests();
-    const newReq: AdminRequest = {
-      id: crypto.randomUUID(),
-      userId,
-      username,
-      type,
-      amount,
-      message,
-      status: 'pending',
-      createdAt: Date.now()
-    };
-    requests.push(newReq);
-    localStorage.setItem(REQUESTS_KEY, JSON.stringify(requests));
-  },
-
-  // Added resolveRequest method required by AdminDashboard.tsx
-  resolveRequest: (reqId: string, status: 'approved' | 'rejected') => {
-    const requests = storageService.getAdminRequests();
-    const req = requests.find(r => r.id === reqId);
-    if (req) {
-      req.status = status;
-      if (status === 'approved' && req.type === 'credit' && req.amount) {
-        storageService.addCredits(req.userId, req.amount);
+          return data ? data.map(d => ({
+              id: d.id,
+              userId: d.user_id,
+              username: d.username,
+              type: d.type,
+              amount: d.amount,
+              message: d.message,
+              status: d.status,
+              createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now()
+          })) : [];
+      } catch (e) {
+          return [];
       }
-      localStorage.setItem(REQUESTS_KEY, JSON.stringify(requests));
-    }
   },
 
-  // Added addCredits method required by AdminDashboard.tsx
-  addCredits: (userId: string, amount: number) => {
-    const user = storageService.getLocalUser();
-    if (user && user.id === userId) {
-      user.credits += amount;
-      storageService.saveLocalUser(user);
-    }
+  cleanupOldRequests: async () => {
+      try {
+          const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+          await supabase.from('admin_requests').delete().lt('created_at', oneWeekAgo);
+      } catch (e) {}
   },
 
-  consumeCredit: (userId: string) => {
-    const user = storageService.getLocalUser();
-    if (user && user.id === userId) {
-        if (user.role === 'admin') return;
-        if (user.credits > 0) {
-            user.credits--;
-            storageService.saveLocalUser(user);
-        }
-    }
-  },
-
-  canRequest: (userId: string): boolean => {
-    const user = storageService.getLocalUser();
-    if (!user) return false;
-    if (user.role === 'admin') return true;
-    return user.credits > 0;
-  },
-
-  // Added deductCreditOrUsage method required by DialogueSession.tsx
-  deductCreditOrUsage: (userId: string): UserProfile | null => {
-    const user = storageService.getLocalUser();
-    if (user && user.id === userId) {
-      if (user.role === 'admin') return user;
-      if (user.credits > 0) {
-        user.credits--;
-        storageService.saveLocalUser(user);
-        return user;
-      }
-    }
-    return null;
-  },
-
-  // Added canPerformRequest method required by DialogueSession.tsx
-  canPerformRequest: (userId: string): { allowed: boolean; reason?: string } => {
-    const user = storageService.getLocalUser();
-    if (user && user.id === userId) {
-      if (user.role === 'admin' || user.credits > 0) return { allowed: true };
-    }
-    return { allowed: false, reason: 'insufficient' };
-  },
-
-  // --- EXPORT/IMPORT (PWA Power) ---
-  exportData: () => {
-    const user = storageService.getLocalUser();
-    if (!user) return;
-    const blob = new Blob([JSON.stringify(user)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `teachermada_backup_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-  },
-
-  importData: (file: File): Promise<boolean> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const data = JSON.parse(e.target?.result as string);
-          if (data.id && data.username) {
-            storageService.saveLocalUser(data);
-            resolve(true);
-          } else resolve(false);
-        } catch { resolve(false); }
+  sendAdminRequest: async (userId: string, username: string, type: 'credit' | 'password_reset' | 'message', amount?: number, message?: string, contact?: string): Promise<{ status: 'pending' | 'approved' }> => {
+      const fullMessage = contact ? `${message} [Contact: ${contact}]` : message;
+      const newReq = {
+          user_id: userId,
+          username,
+          type,
+          amount,
+          message: fullMessage,
+          status: 'pending'
       };
-      reader.readAsText(file);
-    });
+      await supabase.from('admin_requests').insert([newReq]);
+      return { status: 'pending' };
+  },
+
+  resolveRequest: async (reqId: string, status: 'approved' | 'rejected') => {
+      if (status === 'approved') {
+          const { data: req } = await supabase.from('admin_requests').select('*').eq('id', reqId).single();
+          if (req && req.type === 'credit' && req.amount) {
+              await storageService.addCredits(req.user_id, req.amount);
+          }
+      }
+      await supabase.from('admin_requests').update({ status }).eq('id', reqId);
+  },
+
+  // --- SETTINGS ---
+  loadSystemSettings: async (): Promise<SystemSettings> => {
+      try {
+          const { data, error } = await supabase.from('system_settings').select('*').single();
+          
+          if (!error && data) {
+              let normalizedCoupons: CouponCode[] = [];
+              if (Array.isArray(data.valid_transaction_refs)) {
+                  normalizedCoupons = data.valid_transaction_refs.map((r: any) => {
+                      if (typeof r === 'string') {
+                          try { return JSON.parse(r); } catch (e) { return { code: r, amount: 0, createdAt: new Date().toISOString() }; }
+                      }
+                      return r;
+                  }).filter((c: any) => c && c.code);
+              }
+
+              const settings: SystemSettings = {
+                  apiKeys: data.api_keys || [],
+                  activeModel: data.active_model || 'gemini-3-flash-preview',
+                  creditPrice: data.credit_price || 50,
+                  customLanguages: data.custom_languages || [],
+                  validTransactionRefs: normalizedCoupons,
+                  adminContact: data.admin_contact || { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
+              };
+              localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+              return settings;
+          }
+      } catch (e) {}
+      return storageService.getSystemSettings();
+  },
+
+  getSystemSettings: (): SystemSettings => {
+      const local = localStorage.getItem(SETTINGS_KEY);
+      if (local) return JSON.parse(local);
+      return {
+          apiKeys: [],
+          activeModel: 'gemini-3-flash-preview',
+          creditPrice: 50,
+          customLanguages: [],
+          validTransactionRefs: [],
+          adminContact: { telma: "0349310268", airtel: "0333878420", orange: "0326979017" }
+      };
+  },
+
+  updateSystemSettings: async (settings: SystemSettings): Promise<boolean> => {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      const payload = {
+          id: 1,
+          api_keys: settings.apiKeys,
+          active_model: settings.activeModel,
+          credit_price: settings.creditPrice,
+          custom_languages: settings.customLanguages,
+          valid_transaction_refs: settings.validTransactionRefs,
+          admin_contact: settings.adminContact
+      };
+      const { error } = await supabase.from('system_settings').upsert(payload);
+      return !error;
+  },
+  
+  // This helper attempts to deduct and returns the NEW user profile if successful, or null if failed
+  deductCreditOrUsage: async (userId: string) => {
+      const success = await storageService.consumeCredit(userId);
+      if (success) {
+          return storageService.getUserById(userId);
+      }
+      return null;
+  },
+  
+  canPerformRequest: async (userId: string) => {
+      const allowed = await storageService.canRequest(userId);
+      return { allowed };
+  },
+
+  exportData: async (user: UserProfile) => {
+      const blob = new Blob([JSON.stringify(user, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `teachermada_${user.username}_backup.json`;
+      a.click();
+  },
+  
+  importData: async (file: File, currentUserId: string): Promise<boolean> => { 
+      try {
+          const text = await file.text();
+          const data = JSON.parse(text);
+          if (data.username && data.stats) {
+              // Only merge safe fields
+              const updated = {
+                  username: data.username,
+                  stats: data.stats,
+                  vocabulary: data.vocabulary,
+                  preferences: data.preferences
+              };
+              const { error } = await supabase.from('profiles').update(updated).eq('id', currentUserId);
+              return !error;
+          }
+      } catch (e) {}
+      return false; 
   }
 };
