@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import LandingPage from './components/LandingPage';
 import AuthScreen from './components/AuthScreen';
@@ -33,6 +32,7 @@ const GUEST_USER: UserProfile = {
   stats: { lessonsCompleted: 0, exercisesCompleted: 0, dialoguesCompleted: 0 },
   vocabulary: [],
   credits: 0,
+  xp: 0, // Fix: Added missing XP
   freeUsage: { lastResetWeek: new Date().toISOString(), count: 0 },
   aiMemory: 'Visiteur curieux'
 };
