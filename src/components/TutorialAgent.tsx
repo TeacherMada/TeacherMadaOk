@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, X, Send, LifeBuoy, Sparkles } from 'lucide-react';
+import { Bot, X, Send, LifeBuoy, Sparkles, Book, ChevronDown } from 'lucide-react';
 import { UserProfile } from '../types';
 import { generateSupportResponse } from '../services/geminiService';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -16,11 +16,20 @@ interface SupportMessage {
   text: string;
 }
 
+const GUIDES = [
+    { label: '🚀 Démarrage', query: "Comment bien commencer avec TeacherMada ?" },
+    { label: '💎 Crédits & Prix', query: "Explique-moi le système de crédits et les prix." },
+    { label: '🎙️ Appel Vocal', query: "Comment fonctionne le Live Teacher (Appel Vocal) ?" },
+    { label: '🇲🇬 Malagasy', query: "Afaka manazava amin'ny teny Malagasy ve ianao ?" },
+    { label: '🔐 Mot de passe', query: "J'ai oublié mon mot de passe." },
+];
+
 const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [showGuides, setShowGuides] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Initial Greeting based on context
@@ -44,21 +53,18 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
     scrollToBottom();
   }, [messages, isTyping]);
 
-  const handleSend = async () => {
-    if (!input.trim() || isTyping) return;
+  const processMessage = async (text: string) => {
+    if (isTyping) return;
 
-    const userText = input;
-    const newMsg: SupportMessage = { id: Date.now().toString(), role: 'user', text: userText };
-    
+    const newMsg: SupportMessage = { id: Date.now().toString(), role: 'user', text };
     setMessages(prev => [...prev, newMsg]);
-    setInput('');
     setIsTyping(true);
 
     try {
       // Filter history for context
       const historyForAI = messages.map(m => ({ role: m.role, text: m.text }));
       
-      const responseText = await generateSupportResponse(userText, context, user, historyForAI);
+      const responseText = await generateSupportResponse(text, context, user, historyForAI);
       
       const aiMsg: SupportMessage = { 
         id: (Date.now() + 1).toString(), 
@@ -72,6 +78,17 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
     } finally {
       setIsTyping(false);
     }
+  };
+
+  const handleSend = () => {
+    if (!input.trim()) return;
+    processMessage(input);
+    setInput('');
+  };
+
+  const handleGuideSelect = (query: string) => {
+      setShowGuides(false);
+      processMessage(query);
   };
 
   return (
@@ -97,7 +114,7 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
         <div className="fixed bottom-48 left-4 w-[90vw] max-w-[320px] h-[450px] max-h-[60vh] bg-white dark:bg-[#1E293B] rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden z-[40] animate-slide-up origin-bottom-left">
           
           {/* Header with Close Button */}
-          <div className="p-4 bg-teal-500 text-white flex items-center justify-between shadow-md">
+          <div className="p-4 bg-teal-500 text-white flex items-center justify-between shadow-md relative">
             <div className="flex items-center gap-3">
                 <div className="p-2 bg-white/20 rounded-xl backdrop-blur-sm">
                     <LifeBuoy className="w-5 h-5" />
@@ -110,6 +127,33 @@ const TutorialAgent: React.FC<TutorialAgentProps> = ({ user, context }) => {
                 </div>
             </div>
             <div className="flex items-center gap-1">
+                {/* Guides Dropdown Trigger */}
+                <div className="relative">
+                    <button 
+                        onClick={() => setShowGuides(!showGuides)}
+                        className="flex items-center gap-1 px-2 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-[10px] font-bold text-white transition-all mr-1"
+                        title="Guides Torolalana"
+                    >
+                        <Book className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Guides</span>
+                        <ChevronDown className={`w-3 h-3 transition-transform ${showGuides ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {showGuides && (
+                        <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden z-50 animate-fade-in-up">
+                            {GUIDES.map((g, i) => (
+                                <button
+                                    key={i}
+                                    onClick={() => handleGuideSelect(g.query)}
+                                    className="w-full text-left px-4 py-3 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700 last:border-0 transition-colors"
+                                >
+                                    {g.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
                 <button 
                     onClick={() => setIsOpen(false)}
                     className="p-1.5 hover:bg-white/20 rounded-full transition-colors"
