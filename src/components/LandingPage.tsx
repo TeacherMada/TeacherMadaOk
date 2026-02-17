@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target, Users, BookOpen, Shield, FileText, Download, Compass, MessageSquareText, Headphones, Award, Map, PhoneCall, Crown } from 'lucide-react';
+import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target, Users, BookOpen, Shield, FileText, Download, Compass, MessageSquareText, Headphones, Award } from 'lucide-react';
 import LiveChatDemo from './LiveChatDemo';
 import { storageService } from '../services/storageService';
 import { TargetLanguage } from '../types';
@@ -149,7 +149,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
             <div className="text-center lg:text-left z-10">
                 <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/50 dark:bg-white/5 border border-slate-200 dark:border-white/10 backdrop-blur-sm mb-6 animate-fade-in-up">
                     <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">PÃ©dagogie 2.0</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">Pédagogie 2.0</span>
                 </div>
                 
                 <h1 className="text-5xl md:text-6xl lg:text-7xl font-black mb-6 tracking-tight leading-[1.1] animate-fade-in-up delay-100 text-slate-900 dark:text-white">
@@ -163,7 +163,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                 </h1>
                 
                 <p className="text-lg md:text-xl text-slate-600 dark:text-slate-400 mb-8 max-w-2xl mx-auto lg:mx-0 leading-relaxed font-medium animate-fade-in-up delay-200">
-                    Imaginez-vous parler Chinois, Anglais ou Allemand avec <span className="text-indigo-600 dark:text-indigo-400 font-bold">confiance dÃ¨s le premier jour</span>. <br className="hidden md:block"/> 
+                    Imaginez-vous parler Chinois, Anglais ou Allemand avec <span className="text-indigo-600 dark:text-indigo-400 font-bold">confiance dès le premier jour</span>. <br className="hidden md:block"/> 
                     TeacherMada est votre professeur personnel : disponible 24/7, patient, et incroyablement efficace.
                 </p>
                 
@@ -172,7 +172,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
                         onClick={onStart}
                         className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-lg font-bold rounded-2xl shadow-xl shadow-indigo-500/30 hover:shadow-indigo-500/50 transition-all transform hover:-translate-y-1 flex items-center justify-center gap-3"
                     >
-                        CrÃ©er mon compte gratuit
+                        Créer mon compte gratuit
                         <ArrowRight className="w-5 h-5" />
                     </button>
                     
@@ -209,8 +209,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
       <section className="max-w-7xl mx-auto px-6 mb-16 animate-fade-in delay-300">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-white/50 dark:bg-slate-800/50 backdrop-blur-xl p-6 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-xl">
               <StatWidget icon={<Globe className="w-6 h-6 text-blue-500" />} value={stats.visitors} label="Visiteurs en direct" live={true} />
-              <StatWidget icon={<GraduationCap className="w-6 h-6 text-emerald-500" />} value={stats.students} label="Ã‰tudiants Inscrits" />
-              <StatWidget icon={<BookOpen className="w-6 h-6 text-amber-500" />} value={stats.lessons} label="LeÃ§ons Disponibles" />
+              <StatWidget icon={<GraduationCap className="w-6 h-6 text-emerald-500" />} value={stats.students} label="Étudiants Inscrits" />
+              <StatWidget icon={<BookOpen className="w-6 h-6 text-amber-500" />} value={stats.lessons} label="Leçons Disponibles" />
           </div>
       </section>
 
@@ -229,106 +229,61 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
           </div>
       </section>
 
-      {/* GUIDE PRO REWORKED - ENFANTIN & ELEGANT */}
-      <section className="py-24 relative overflow-hidden">
-          {/* Fond doux et ludique */}
-          <div className="absolute inset-0 bg-gradient-to-b from-indigo-50/50 to-white dark:from-[#0B0F19] dark:to-[#131825] -z-20"></div>
-          <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 opacity-30 dark:opacity-10">
-              <div className="absolute top-10 left-10 w-64 h-64 bg-purple-300 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
-              <div className="absolute top-10 right-10 w-64 h-64 bg-yellow-300 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-2000"></div>
-              <div className="absolute bottom-10 left-1/2 w-64 h-64 bg-pink-300 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000"></div>
-          </div>
-
+      {/* GUIDE PRO SECTION - NEW */}
+      <section className="py-24 bg-gradient-to-b from-slate-50 to-white dark:from-[#0B0F19] dark:to-[#131825] relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-indigo-500/30 to-transparent"></div>
+          
           <div className="max-w-7xl mx-auto px-6 relative z-10">
-              <div className="text-center mb-20">
-                  <span className="inline-block py-1 px-3 rounded-full bg-white dark:bg-slate-800 border border-indigo-100 dark:border-slate-700 text-indigo-500 font-bold text-xs uppercase tracking-wider mb-4 shadow-sm">
-                      âœ¨ Simple comme bonjour
-                  </span>
-                  <h2 className="text-4xl md:text-5xl font-black text-slate-900 dark:text-white mb-6">
-                      L'apprentissage <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500">Magique</span>.
-                  </h2>
-                  <p className="text-lg text-slate-600 dark:text-slate-300 max-w-xl mx-auto font-medium">
-                      Pas de manuels compliquÃ©s. Juste toi et ton Professeur de poche. Suis ces 4 Ã©tapes simples.
+              <div className="text-center mb-16">
+                  <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 mb-4">
+                        <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                        <span className="text-xs font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400">Guide de Démarrage</span>
+                  </div>
+                  <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white mb-4">L'Expérience <span className="text-indigo-600 dark:text-indigo-400">Complète</span></h2>
+                  <p className="text-slate-600 dark:text-slate-400 max-w-xl mx-auto">
+                      TeacherMada n'est pas une simple app. C'est un écosystème conçu pour vous faire parler couramment. Voici comment ça marche.
                   </p>
               </div>
 
-              {/* Steps Container */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 relative">
-                  {/* Visual Connector Line (Desktop) */}
-                  <div className="hidden lg:block absolute top-16 left-[10%] right-[10%] h-1 bg-gradient-to-r from-indigo-200 via-purple-200 to-amber-200 dark:from-slate-700 dark:to-slate-700 rounded-full -z-10 opacity-50"></div>
+                  {/* Visual Line Connector (Desktop) */}
+                  <div className="hidden lg:block absolute top-12 left-0 w-full h-0.5 bg-dashed border-t-2 border-slate-200 dark:border-slate-800 border-dashed z-0 pointer-events-none" style={{ top: '3rem' }}></div>
 
-                  {/* STEP 1 */}
-                  <div className="group relative" onClick={onStart}>
-                      <div className="absolute inset-0 bg-white dark:bg-slate-800 rounded-[2rem] shadow-xl shadow-indigo-500/10 transform transition-transform group-hover:scale-105 group-hover:-rotate-2 border border-slate-100 dark:border-slate-700"></div>
-                      <div className="relative p-8 text-center flex flex-col items-center h-full">
-                          <div className="w-12 h-12 bg-indigo-600 text-white rounded-full flex items-center justify-center font-black text-xl mb-6 shadow-lg ring-4 ring-indigo-100 dark:ring-indigo-900/50 z-10">1</div>
-                          <div className="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl">
-                              <Map className="w-10 h-10 text-indigo-500" />
-                          </div>
-                          <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Choisis ta destination</h3>
-                          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-                              Dis Ã  TeacherMada quelle langue tu veux explorer. Il s'adapte Ã  ton niveau.
-                          </p>
-                      </div>
-                  </div>
-
-                  {/* STEP 2 */}
-                  <div className="group relative" onClick={onStart}>
-                      <div className="absolute inset-0 bg-white dark:bg-slate-800 rounded-[2rem] shadow-xl shadow-purple-500/10 transform transition-transform group-hover:scale-105 group-hover:rotate-2 border border-slate-100 dark:border-slate-700"></div>
-                      <div className="relative p-8 text-center flex flex-col items-center h-full">
-                          <div className="w-12 h-12 bg-purple-600 text-white rounded-full flex items-center justify-center font-black text-xl mb-6 shadow-lg ring-4 ring-purple-100 dark:ring-purple-900/50 z-10">2</div>
-                          <div className="mb-6 p-4 bg-purple-50 dark:bg-purple-900/30 rounded-2xl">
-                              <MessageCircle className="w-10 h-10 text-purple-500" />
-                          </div>
-                          <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Parle avec le Prof</h3>
-                          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-                              Ã‰cris ou parle. Le professeur t'explique tout et corrige tes phrases gentiment.
-                          </p>
-                      </div>
-                  </div>
-
-                  {/* STEP 3 */}
-                  <div className="group relative" onClick={onStart}>
-                      <div className="absolute inset-0 bg-white dark:bg-slate-800 rounded-[2rem] shadow-xl shadow-pink-500/10 transform transition-transform group-hover:scale-105 group-hover:-rotate-1 border border-slate-100 dark:border-slate-700"></div>
-                      <div className="relative p-8 text-center flex flex-col items-center h-full">
-                          <div className="w-12 h-12 bg-pink-600 text-white rounded-full flex items-center justify-center font-black text-xl mb-6 shadow-lg ring-4 ring-pink-100 dark:ring-pink-900/50 z-10">3</div>
-                          <div className="mb-6 p-4 bg-pink-50 dark:bg-pink-900/30 rounded-2xl">
-                              <PhoneCall className="w-10 h-10 text-pink-500" />
-                          </div>
-                          <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">TÃ©lÃ©phone-lui !</h3>
-                          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-                              Passe un vrai appel vocal. C'est comme avoir un ami natif au bout du fil.
-                          </p>
-                      </div>
-                  </div>
-
-                  {/* STEP 4 */}
-                  <div className="group relative" onClick={onStart}>
-                      <div className="absolute inset-0 bg-white dark:bg-slate-800 rounded-[2rem] shadow-xl shadow-amber-500/10 transform transition-transform group-hover:scale-105 group-hover:rotate-1 border border-slate-100 dark:border-slate-700"></div>
-                      <div className="relative p-8 text-center flex flex-col items-center h-full">
-                          <div className="w-12 h-12 bg-amber-500 text-white rounded-full flex items-center justify-center font-black text-xl mb-6 shadow-lg ring-4 ring-amber-100 dark:ring-amber-900/50 z-10">4</div>
-                          <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/30 rounded-2xl">
-                              <Crown className="w-10 h-10 text-amber-500" />
-                          </div>
-                          <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Gagne des TrophÃ©es</h3>
-                          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-                              Chaque leÃ§on te donne des points. Deviens un expert et remplis ta vitrine !
-                          </p>
-                      </div>
-                  </div>
+                  <GuideStep 
+                      step="01" 
+                      title="Configurez" 
+                      text="Sélectionnez votre langue cible et votre niveau (A1-C2). L'IA calibre immédiatement son vocabulaire."
+                      icon={<Compass className="w-6 h-6" />}
+                      delay={0}
+                  />
+                  <GuideStep 
+                      step="02" 
+                      title="Dialoguez" 
+                      text="Echangez par écrit. Le professeur explique la grammaire, corrige vos phrases et vous donne des exemples."
+                      icon={<MessageSquareText className="w-6 h-6" />}
+                      delay={100}
+                  />
+                  <GuideStep 
+                      step="03" 
+                      title="Immergez" 
+                      text="Activez le mode 'Live'. Parlez oralement avec une IA native ultra-réaliste pour casser la barrière de la langue."
+                      icon={<Headphones className="w-6 h-6" />}
+                      delay={200}
+                  />
+                  <GuideStep 
+                      step="04" 
+                      title="Maîtrisez" 
+                      text="Suivez vos progrès via le Dashboard. Gagnez de l'XP, validez des quiz et débloquez des niveaux supérieurs."
+                      icon={<Award className="w-6 h-6" />}
+                      delay={300}
+                  />
               </div>
 
-              <div className="mt-20 text-center">
-                  <button 
-                    onClick={onStart} 
-                    className="group relative inline-flex items-center gap-3 px-10 py-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-full font-black text-lg shadow-2xl hover:scale-105 transition-all duration-300 hover:shadow-indigo-500/25"
-                  >
-                      <Rocket className="w-6 h-6 group-hover:animate-bounce" />
-                      <span>Commencer l'Aventure</span>
+              <div className="mt-16 text-center">
+                  <button onClick={onStart} className="px-8 py-4 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 hover:scale-105 transition-transform flex items-center gap-2 mx-auto">
+                      <Rocket className="w-5 h-5 text-indigo-500" />
+                      Commencer l'aventure
                   </button>
-                  <p className="mt-4 text-xs font-bold text-slate-400 uppercase tracking-widest">
-                      Gratuit â€¢ Sans Engagement â€¢ Amusant
-                  </p>
               </div>
           </div>
       </section>
@@ -337,13 +292,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
       <section className="py-24 bg-slate-50 dark:bg-[#0B0F19] relative">
          <div className="max-w-7xl mx-auto px-6">
             <div className="text-center mb-16">
-                <h2 className="text-3xl md:text-4xl font-black mb-4 text-slate-900 dark:text-white">Pourquoi Ã§a <span className="text-indigo-600 dark:text-indigo-400">Marche ?</span></h2>
-                <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">Une approche scientifique et interactive pour des rÃ©sultats concrets.</p>
+                <h2 className="text-3xl md:text-4xl font-black mb-4 text-slate-900 dark:text-white">Pourquoi ça <span className="text-indigo-600 dark:text-indigo-400">Marche ?</span></h2>
+                <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">Une approche scientifique et interactive pour des résultats concrets.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <ValueProp icon={<Brain className="w-6 h-6" />} title="Immersion Active" desc="Ne lisez pas seulement. Parlez. Notre technologie vous Ã©coute et vous corrige dÃ¨s la premiÃ¨re seconde pour ancrer les mots." delay={0} />
-                <ValueProp icon={<Target className="w-6 h-6" />} title="Hyper-Personnalisation" desc="Votre cours s'adapte Ã  vous. DÃ©butant ou avancÃ©, le contenu Ã©volue en temps rÃ©el selon vos intÃ©rÃªts et votre vitesse." delay={100} />
-                <ValueProp icon={<Rocket className="w-6 h-6" />} title="Confiance Totale" desc="Brisez la barriÃ¨re de la langue. EntraÃ®nez-vous avec des scÃ©narios de la vie rÃ©elle sans peur du jugement." delay={200} />
+                <ValueProp icon={<Brain className="w-6 h-6" />} title="Immersion Active" desc="Ne lisez pas seulement. Parlez. Notre technologie vous écoute et vous corrige dès la première seconde pour ancrer les mots." delay={0} />
+                <ValueProp icon={<Target className="w-6 h-6" />} title="Hyper-Personnalisation" desc="Votre cours s'adapte à vous. Débutant ou avancé, le contenu évolue en temps réel selon vos intérêts et votre vitesse." delay={100} />
+                <ValueProp icon={<Rocket className="w-6 h-6" />} title="Confiance Totale" desc="Brisez la barrière de la langue. Entraînez-vous avec des scénarios de la vie réelle sans peur du jugement." delay={200} />
             </div>
          </div>
       </section>
@@ -361,7 +316,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
             </div>
             <div className="flex gap-6 items-center">
                 <button onClick={() => setActiveLegal('terms')} className="text-slate-500 hover:text-indigo-600 transition-colors text-sm font-bold">Conditions</button>
-                <button onClick={() => setActiveLegal('privacy')} className="text-slate-500 hover:text-indigo-600 transition-colors text-sm font-bold">ConfidentialitÃ©</button>
+                <button onClick={() => setActiveLegal('privacy')} className="text-slate-500 hover:text-indigo-600 transition-colors text-sm font-bold">Confidentialité</button>
                 <a href="https://www.facebook.com/TeacherMadaFormation" target="_blank" className="text-slate-500 hover:text-blue-600 transition-colors">
                     <Facebook className="w-5 h-5" />
                 </a>
@@ -410,7 +365,23 @@ const LanguageBadge: React.FC<{ flagUrl: string, name: string, onClick?: () => v
     </div>
 );
 
-// GuideStep supprimÃ© car remplacÃ© par le code inline dans le composant principal pour plus de flexibilitÃ© de design (Cards group hover etc.)
+const GuideStep = ({ step, title, text, icon, delay }: { step: string, title: string, text: string, icon: React.ReactNode, delay: number }) => (
+    <div 
+        className="relative bg-white dark:bg-slate-900 p-8 pt-12 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-xl group hover:-translate-y-2 transition-transform duration-300 z-10"
+        style={{ animationDelay: `${delay}ms` }}
+    >
+        <div className="absolute top-6 right-6 text-6xl font-black text-slate-100 dark:text-slate-800 -z-10 group-hover:text-indigo-50 dark:group-hover:text-indigo-900/20 transition-colors">
+            {step}
+        </div>
+        <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-2xl flex items-center justify-center text-white shadow-lg mb-6 group-hover:rotate-6 transition-transform">
+            {icon}
+        </div>
+        <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3">{title}</h3>
+        <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
+            {text}
+        </p>
+    </div>
+);
 
 const ValueProp = ({ icon, title, desc, delay }: { icon: React.ReactNode, title: string, desc: string, delay: number }) => (
     <div className="group p-8 rounded-3xl bg-white dark:bg-[#131825] border border-slate-100 dark:border-white/5 hover:border-indigo-100 dark:hover:border-indigo-500/20 transition-all duration-300 hover:-translate-y-2 shadow-sm hover:shadow-xl hover:shadow-indigo-500/10" style={{ transitionDelay: `${delay}ms` }}>
