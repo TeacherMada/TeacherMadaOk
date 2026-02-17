@@ -1,3 +1,4 @@
+
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -95,16 +96,16 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onPlayAudi
 
             return (
                 <span 
-                    className="inline-flex items-center gap-1 align-middle group/word cursor-pointer bg-indigo-50 dark:bg-indigo-500/10 px-1.5 py-0.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-colors border border-indigo-100 dark:border-indigo-500/20"
+                    className="inline-flex items-center gap-1.5 align-middle group/word cursor-pointer bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all border border-indigo-200 dark:border-indigo-800 active:scale-95 shadow-sm"
                     onClick={(e) => {
                         e.stopPropagation();
                         onPlayAudio(textContent);
                     }}
-                    title="Écouter la prononciation"
+                    title="Écouter"
                     role="button"
                 >
                     <strong className="font-bold text-indigo-700 dark:text-indigo-300" {...props}>{content}</strong>
-                    <Volume2 className="w-3 h-3 text-indigo-400 opacity-0 group-hover/word:opacity-100 transition-opacity" />
+                    <Volume2 className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
                 </span>
             );
           },
