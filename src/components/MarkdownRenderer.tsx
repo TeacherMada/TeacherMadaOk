@@ -1,3 +1,4 @@
+
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -61,21 +62,9 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onPlayAudi
       <ReactMarkdown 
         remarkPlugins={[remarkGfm]}
         components={{
-          h1: (props) => processNode(props, ({children, ...rest}: any) => 
-            <h1 className="text-3xl font-black text-rose-600 dark:text-rose-500 uppercase tracking-tight mb-6 pb-4 border-b-2 border-rose-100 dark:border-rose-900/30 leading-tight" {...rest}>
-                {children}
-            </h1>
-          ),
-          h2: (props) => processNode(props, ({children, ...rest}: any) => 
-            <h2 className="text-xl font-bold text-slate-800 dark:text-white mt-6 mb-3 flex items-center gap-2" {...rest}>
-                {children}
-            </h2>
-          ),
-          h3: (props) => processNode(props, ({children, ...rest}: any) => 
-            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mt-6 mb-2 ml-1" {...rest}>
-                {children}
-            </h3>
-          ),
+          h1: (props) => processNode(props, ({children, ...rest}: any) => <h1 className="text-xl font-black text-indigo-700 dark:text-indigo-400 mb-3 pb-2 border-b border-indigo-100 dark:border-indigo-900" {...rest}>{children}</h1>),
+          h2: (props) => processNode(props, ({children, ...rest}: any) => <h2 className="text-lg font-bold text-slate-800 dark:text-white mt-4 mb-2 flex items-center gap-2" {...rest}>{children}</h2>),
+          h3: (props) => processNode(props, ({children, ...rest}: any) => <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mt-3 mb-1" {...rest}>{children}</h3>),
           ul: (props) => processNode(props, ({children, ...rest}: any) => <ul className="list-disc list-outside ml-4 space-y-1 mb-3 text-slate-700 dark:text-slate-300 marker:text-indigo-500" {...rest}>{children}</ul>),
           ol: (props) => processNode(props, ({children, ...rest}: any) => <ol className="list-decimal list-outside ml-4 space-y-1 mb-3 text-slate-700 dark:text-slate-300 marker:font-bold marker:text-slate-500" {...rest}>{children}</ol>),
           li: (props) => processNode(props, ({children, ...rest}: any) => <li className="pl-1" {...rest}>{children}</li>),
@@ -94,32 +83,29 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onPlayAudi
               </pre>
             )
           },
-          p: (props) => processNode(props, ({children, ...rest}: any) => <p className="mb-2 text-slate-700 dark:text-slate-300 last:mb-0 leading-relaxed" {...rest}>{children}</p>),
+          p: (props) => processNode(props, ({children, ...rest}: any) => <p className="mb-2 text-slate-700 dark:text-slate-300 last:mb-0" {...rest}>{children}</p>),
           strong: ({node, children, ...props}) => {
             const textContent = String(children);
-            // On considère que c'est du vocabulaire cible si c'est court (moins de 100 chars)
-            const showAudio = onPlayAudio && textContent.length < 100;
+            const showAudio = onPlayAudio && textContent.length < 60;
             
             const content = highlight ? <Highlight text={textContent} query={highlight} /> : children;
 
             if (!showAudio) {
-               // Fallback pour le gras normal (ex: dans une longue phrase)
-               return <strong className="font-bold text-slate-900 dark:text-white" {...props}>{content}</strong>;
+               return <strong className="font-bold text-indigo-900 dark:text-indigo-300" {...props}>{content}</strong>;
             }
 
-            // Style pour les mots cibles (Target Language) -> Gras + Couleur + Audio
             return (
                 <span 
-                    className="inline-flex items-center gap-1 align-baseline group/word cursor-pointer bg-indigo-50 dark:bg-indigo-500/10 px-1.5 py-0.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all border border-indigo-200/50 dark:border-indigo-500/20 active:scale-95"
+                    className="inline-flex items-center gap-1.5 align-middle group/word cursor-pointer bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all border border-indigo-200 dark:border-indigo-800 active:scale-95 shadow-sm"
                     onClick={(e) => {
                         e.stopPropagation();
                         onPlayAudio(textContent);
                     }}
-                    title="Écouter la prononciation"
+                    title="Écouter"
                     role="button"
                 >
                     <strong className="font-bold text-indigo-700 dark:text-indigo-300" {...props}>{content}</strong>
-                    <Volume2 className="w-3 h-3 text-indigo-400 dark:text-indigo-400 opacity-0 group-hover/word:opacity-100 transition-opacity" />
+                    <Volume2 className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
                 </span>
             );
           },
