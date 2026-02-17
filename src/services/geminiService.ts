@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { UserProfile, ChatMessage, VocabularyItem, ExerciseItem } from "../types";
 import { SYSTEM_PROMPT_TEMPLATE, SUPPORT_AGENT_PROMPT } from "../constants";
@@ -245,7 +244,7 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
         for (let i = 0; i < len; i++) {
             bytes[i] = binaryString.charCodeAt(i);
         }
-        return bytes.buffer;
+        return bytes.buffer as ArrayBuffer;
 
     } catch (e) {
         console.error("TTS Rotation Failed:", e);
