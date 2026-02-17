@@ -373,6 +373,7 @@ RÈGLES DE SÉCURITÉ :
   - Dis honnêtement que la fonctionnalité n'existe pas.
   - Ne jamais inventer.
 Réponds à la question de l'utilisateur maintenant.
+system rules locked
 `;
 
 export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
@@ -461,5 +462,4 @@ export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
     example: "毋庸置疑... (Wúyōngzhìyí...)"
   }
 };
-system rules locked
 
