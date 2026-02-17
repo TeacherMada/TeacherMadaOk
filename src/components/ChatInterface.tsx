@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, AlertTriangle, Check, Play } from 'lucide-react';
+import { Send, Phone, ArrowRight, X, Mic, Volume2, ArrowLeft, Sun, Moon, Zap, ChevronDown, ChevronUp, Repeat, MessageCircle, Brain, Target, Star, Loader2, StopCircle, AlertTriangle, Check, Play, BookOpen } from 'lucide-react';
 import { UserProfile, ChatMessage, LearningSession, ExplanationLanguage } from '../types';
 import { sendMessageStream, generateSpeech } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -32,7 +32,7 @@ const LOADING_PHRASES = [
 ];
 
 // Helper to convert Raw PCM to AudioBuffer
-function pcmToAudioBuffer(data: Uint8Array, ctx: AudioContext, sampleRate: number = 24000) {
+function pcmToAudioBuffer(data: Uint8Array, ctx: AudioContext, sampleRate: number = 30000) {
     const pcm16 = new Int16Array(data.buffer);
     const float32 = new Float32Array(pcm16.length);
     for (let i = 0; i < pcm16.length; i++) {
@@ -62,6 +62,7 @@ const ChatInterface: React.FC<Props> = ({
   const [showNextInput, setShowNextInput] = useState(false);
   const [nextLessonInput, setNextLessonInput] = useState('');
   const [showStartButton, setShowStartButton] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
   const [showTopMenu, setShowTopMenu] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
 
@@ -79,12 +80,12 @@ const ChatInterface: React.FC<Props> = ({
   useEffect(() => {
       if (messages.length === 0) {
           const isMalagasy = user.preferences?.explanationLanguage === ExplanationLanguage.Malagasy;
-          const targetLang = user.preferences?.targetLanguage; // || 'Anglais';
-          const level = user.preferences?.level; //|| 'A1';
+          const targetLang = user.preferences?.targetLanguage;
+          const level = user.preferences?.level;
 
           const welcomeText = isMalagasy
-              ? `👋 **Tonga soa !**\n\nHianatra **${targetLang}** (Niveau ${level}) isika izao.\n\nIzaho no TeacherMada, mpampianatra anao manokana. Hanome lesona mazava aho, hanitsy ny diso ary hanampy anao hampihatra.\n\nVonona ve ianao ?`
-              : `👋 **Bienvenue !**\n\nNous allons commencer votre cours de **${targetLang}** (Niveau ${level}).\n\nJe suis TeacherMada, votre professeur personnel. Je vais vous donner des leçons structurées, corriger vos phrases et vous aider à pratiquer.\n\nÊtes-vous prêt ?`;
+              ? `🎓 **Tonga soa eto amin'ny TeacherMada !**\n\nHianatra **${targetLang}** (Niveau ${level}) isika anio.\n\n**Ny fomba fiasako :**\n1. 📚 **Lesona Mazava** : Hanome lesona mifanaraka amin'ny haavonao aho.\n2. 🗣️ **Fanitsiana** : Hanitsy ny diso rehetra aho mba hivoaranao.\n3. 🚀 **Fampiharana** : Hanao fanazaran-tena isika.\n\nVonona ve ianao ?`
+              : `🎓 **Bienvenue dans votre Espace d'Excellence.**\n\nVous êtes sur le point de maîtriser le **${targetLang}** (Niveau ${level}).\nJe suis **TeacherMada**, votre professeur personnel par IA.\n\n**Ma méthode :**\n1. 📚 **Cours Structurés** : Des leçons claires et progressives.\n2. 🗣️ **Correction Active** : Je corrige chaque phrase pour vous perfectionner.\n3. 🚀 **Immersion** : Nous pratiquerons ensemble des cas réels.\n\nAppuyez sur **Commencer** pour lancer votre première leçon.`;
 
           const initialMsg: ChatMessage = {
               id: 'welcome_msg',
@@ -158,7 +159,7 @@ const ChatInterface: React.FC<Props> = ({
       }
       const canPlay = await storageService.canRequest(user.id);
       if (!canPlay) {
-          notify("Crédit insuffisant (1 audio = 1 Crédit).", "error");
+          notify("Crédit insuffisant.", "error");
           onShowPayment();
           return;
       }
@@ -236,7 +237,7 @@ const ChatInterface: React.FC<Props> = ({
 
     const canRequest = await storageService.canRequest(user.id);
     if (!canRequest) {
-        notify("Crédits insuffisants (1 requête = 1 crédit).", "error");
+        notify("Crédits insuffisants, Achetez des crédits.", "error");
         onShowPayment();
         return;
     }
@@ -279,7 +280,7 @@ const ChatInterface: React.FC<Props> = ({
   const handleSend = () => { if (input.trim()) processMessage(input); };
   const handleStartCourse = () => {
       const isMalagasy = user.preferences?.explanationLanguage === ExplanationLanguage.Malagasy;
-      processMessage(isMalagasy ? "Andao Hiatomboka" : "Commencer");
+      processMessage(isMalagasy ? "HANOMBOKA LESONA" : "COMMENCER");
   };
 
   const handleNextClick = async () => {
@@ -296,7 +297,7 @@ const ChatInterface: React.FC<Props> = ({
       }
   };
 
-  useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming, showStartButton]);
+  useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming, showStartButton, showTutorial]);
 
   return (
     <div className="flex flex-col h-[100dvh] bg-[#F0F2F5] dark:bg-[#0B0F19] font-sans transition-colors duration-300 overflow-hidden" onClick={() => setShowTopMenu(false)}>
@@ -377,11 +378,48 @@ const ChatInterface: React.FC<Props> = ({
             ))}
             
             {showStartButton && !isStreaming && (
-                <div className="flex justify-center animate-fade-in-up">
-                    <button onClick={handleStartCourse} className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black rounded-full shadow-xl hover:scale-105 transition-transform flex items-center gap-3 active:scale-95">
-                        <Play className="w-5 h-5 fill-current" />
+                <div className="flex flex-col items-center gap-4 animate-fade-in-up w-full max-w-sm mx-auto">
+                    <button onClick={handleStartCourse} className="w-full px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black rounded-2xl shadow-xl hover:scale-105 transition-transform flex items-center justify-center gap-3 active:scale-95 text-lg">
+                        <Play className="w-6 h-6 fill-current" />
                         {user.preferences?.explanationLanguage === ExplanationLanguage.Malagasy ? "Andao Hiatomboka" : "Commencer le cours"}
                     </button>
+
+                    <div className="w-full">
+                        <button 
+                            onClick={() => setShowTutorial(!showTutorial)}
+                            className="w-full py-3 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-750 transition-all text-sm"
+                        >
+                            <BookOpen className="w-4 h-4" />
+                            <span>{user.preferences?.explanationLanguage === ExplanationLanguage.Malagasy ? "Torolalana (Guide)" : "Comment ça marche ?"}</span>
+                            {showTutorial ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </button>
+
+                        {showTutorial && (
+                            <div className="mt-3 p-5 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 shadow-xl animate-slide-up text-left space-y-4">
+                                <div className="flex gap-4">
+                                    <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl h-fit shrink-0"><Play className="w-5 h-5 text-indigo-600 dark:text-indigo-400 fill-current"/></div>
+                                    <div>
+                                        <strong className="block text-slate-900 dark:text-white mb-1 text-base">1. Démarrer</strong>
+                                        Cliquez sur le bouton <span className="font-bold text-emerald-600">Commencer</span> pour générer votre première leçon personnalisée par l'IA.
+                                    </div>
+                                </div>
+                                <div className="flex gap-4">
+                                    <div className="p-2.5 bg-purple-100 dark:bg-purple-900/30 rounded-xl h-fit shrink-0"><Mic className="w-5 h-5 text-purple-600 dark:text-purple-400"/></div>
+                                    <div>
+                                        <strong className="block text-slate-900 dark:text-white mb-1 text-base">2. Pratiquer</strong>
+                                        Utilisez le <span className="font-bold text-indigo-600">Micro</span> ou le <span className="font-bold text-indigo-600">Clavier</span> pour répondre aux exercices.
+                                    </div>
+                                </div>
+                                <div className="flex gap-4">
+                                    <div className="p-2.5 bg-amber-100 dark:bg-amber-900/30 rounded-xl h-fit shrink-0"><Volume2 className="w-5 h-5 text-amber-600 dark:text-amber-400"/></div>
+                                    <div>
+                                        <strong className="block text-slate-900 dark:text-white mb-1 text-base">3. Prononciation</strong>
+                                        Cliquez sur les <span className="inline-block bg-indigo-50 dark:bg-indigo-900/50 px-1.5 rounded border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-bold text-xs">Mots en gras</span> pour écouter l'accent natif.
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -427,7 +465,7 @@ const ChatInterface: React.FC<Props> = ({
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}}
-                    placeholder={isLowCredits ? "Rechargez pour parler..." : "Message..."}
+                    placeholder={isLowCredits ? "Rechargez crédits pour continuer..." : "Message..."}
                     className="flex-1 bg-transparent border-none outline-none text-slate-800 dark:text-white text-sm px-2 resize-none max-h-32 placeholder:text-slate-400 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
                     rows={1}
                     style={{ minHeight: '40px' }}
