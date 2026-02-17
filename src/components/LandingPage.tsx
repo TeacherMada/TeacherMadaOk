@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target, Users, BookOpen, Shield, FileText, Download, Compass, MessageSquareText, Headphones, Award } from 'lucide-react';
+import { ArrowRight, Zap, Sparkles, Layers, Globe, Sun, Moon, CheckCircle2, Play, Facebook, GraduationCap, MessageCircle, Star, Mic, Ear, Rocket, Brain, Target, Users, BookOpen, Shield, FileText, Download, Compass, MessageSquareText, Headphones, Award, Map, PhoneCall, Crown } from 'lucide-react';
 import LiveChatDemo from './LiveChatDemo';
 import { storageService } from '../services/storageService';
 import { TargetLanguage } from '../types';
@@ -229,61 +229,106 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
           </div>
       </section>
 
-      {/* GUIDE PRO SECTION - NEW */}
-      <section className="py-24 bg-gradient-to-b from-slate-50 to-white dark:from-[#0B0F19] dark:to-[#131825] relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-indigo-500/30 to-transparent"></div>
-          
+      {/* GUIDE PRO REWORKED - ENFANTIN & ELEGANT */}
+      <section className="py-24 relative overflow-hidden">
+          {/* Fond doux et ludique */}
+          <div className="absolute inset-0 bg-gradient-to-b from-indigo-50/50 to-white dark:from-[#0B0F19] dark:to-[#131825] -z-20"></div>
+          <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 opacity-30 dark:opacity-10">
+              <div className="absolute top-10 left-10 w-64 h-64 bg-purple-300 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
+              <div className="absolute top-10 right-10 w-64 h-64 bg-yellow-300 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-2000"></div>
+              <div className="absolute bottom-10 left-1/2 w-64 h-64 bg-pink-300 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000"></div>
+          </div>
+
           <div className="max-w-7xl mx-auto px-6 relative z-10">
-              <div className="text-center mb-16">
-                  <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 mb-4">
-                        <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                        <span className="text-xs font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400">Guide de DÃ©marrage</span>
-                  </div>
-                  <h2 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white mb-4">L'ExpÃ©rience <span className="text-indigo-600 dark:text-indigo-400">ComplÃ¨te</span></h2>
-                  <p className="text-slate-600 dark:text-slate-400 max-w-xl mx-auto">
-                      TeacherMada n'est pas une simple app. C'est un Ã©cosystÃ¨me conÃ§u pour vous faire parler couramment. Voici comment Ã§a marche.
+              <div className="text-center mb-20">
+                  <span className="inline-block py-1 px-3 rounded-full bg-white dark:bg-slate-800 border border-indigo-100 dark:border-slate-700 text-indigo-500 font-bold text-xs uppercase tracking-wider mb-4 shadow-sm">
+                      âœ¨ Simple comme bonjour
+                  </span>
+                  <h2 className="text-4xl md:text-5xl font-black text-slate-900 dark:text-white mb-6">
+                      L'apprentissage <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500">Magique</span>.
+                  </h2>
+                  <p className="text-lg text-slate-600 dark:text-slate-300 max-w-xl mx-auto font-medium">
+                      Pas de manuels compliquÃ©s. Juste toi et ton Professeur de poche. Suis ces 4 Ã©tapes simples.
                   </p>
               </div>
 
+              {/* Steps Container */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 relative">
-                  {/* Visual Line Connector (Desktop) */}
-                  <div className="hidden lg:block absolute top-12 left-0 w-full h-0.5 bg-dashed border-t-2 border-slate-200 dark:border-slate-800 border-dashed z-0 pointer-events-none" style={{ top: '3rem' }}></div>
+                  {/* Visual Connector Line (Desktop) */}
+                  <div className="hidden lg:block absolute top-16 left-[10%] right-[10%] h-1 bg-gradient-to-r from-indigo-200 via-purple-200 to-amber-200 dark:from-slate-700 dark:to-slate-700 rounded-full -z-10 opacity-50"></div>
 
-                  <GuideStep 
-                      step="01" 
-                      title="Configurez" 
-                      text="SÃ©lectionnez votre langue cible et votre niveau (A1-C2). L'IA calibre immÃ©diatement son vocabulaire."
-                      icon={<Compass className="w-6 h-6" />}
-                      delay={0}
-                  />
-                  <GuideStep 
-                      step="02" 
-                      title="Dialoguez" 
-                      text="Echangez par Ã©crit. Le professeur explique la grammaire, corrige vos phrases et vous donne des exemples."
-                      icon={<MessageSquareText className="w-6 h-6" />}
-                      delay={100}
-                  />
-                  <GuideStep 
-                      step="03" 
-                      title="Immergez" 
-                      text="Activez le mode 'Live'. Parlez oralement avec une IA native ultra-rÃ©aliste pour casser la barriÃ¨re de la langue."
-                      icon={<Headphones className="w-6 h-6" />}
-                      delay={200}
-                  />
-                  <GuideStep 
-                      step="04" 
-                      title="MaÃ®trisez" 
-                      text="Suivez vos progrÃ¨s via le Dashboard. Gagnez de l'XP, validez des quiz et dÃ©bloquez des niveaux supÃ©rieurs."
-                      icon={<Award className="w-6 h-6" />}
-                      delay={300}
-                  />
+                  {/* STEP 1 */}
+                  <div className="group relative" onClick={onStart}>
+                      <div className="absolute inset-0 bg-white dark:bg-slate-800 rounded-[2rem] shadow-xl shadow-indigo-500/10 transform transition-transform group-hover:scale-105 group-hover:-rotate-2 border border-slate-100 dark:border-slate-700"></div>
+                      <div className="relative p-8 text-center flex flex-col items-center h-full">
+                          <div className="w-12 h-12 bg-indigo-600 text-white rounded-full flex items-center justify-center font-black text-xl mb-6 shadow-lg ring-4 ring-indigo-100 dark:ring-indigo-900/50 z-10">1</div>
+                          <div className="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl">
+                              <Map className="w-10 h-10 text-indigo-500" />
+                          </div>
+                          <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Choisis ta destination</h3>
+                          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+                              Dis Ã  TeacherMada quelle langue tu veux explorer. Il s'adapte Ã  ton niveau.
+                          </p>
+                      </div>
+                  </div>
+
+                  {/* STEP 2 */}
+                  <div className="group relative" onClick={onStart}>
+                      <div className="absolute inset-0 bg-white dark:bg-slate-800 rounded-[2rem] shadow-xl shadow-purple-500/10 transform transition-transform group-hover:scale-105 group-hover:rotate-2 border border-slate-100 dark:border-slate-700"></div>
+                      <div className="relative p-8 text-center flex flex-col items-center h-full">
+                          <div className="w-12 h-12 bg-purple-600 text-white rounded-full flex items-center justify-center font-black text-xl mb-6 shadow-lg ring-4 ring-purple-100 dark:ring-purple-900/50 z-10">2</div>
+                          <div className="mb-6 p-4 bg-purple-50 dark:bg-purple-900/30 rounded-2xl">
+                              <MessageCircle className="w-10 h-10 text-purple-500" />
+                          </div>
+                          <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Parle avec le Prof</h3>
+                          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+                              Ã‰cris ou parle. Le professeur t'explique tout et corrige tes phrases gentiment.
+                          </p>
+                      </div>
+                  </div>
+
+                  {/* STEP 3 */}
+                  <div className="group relative" onClick={onStart}>
+                      <div className="absolute inset-0 bg-white dark:bg-slate-800 rounded-[2rem] shadow-xl shadow-pink-500/10 transform transition-transform group-hover:scale-105 group-hover:-rotate-1 border border-slate-100 dark:border-slate-700"></div>
+                      <div className="relative p-8 text-center flex flex-col items-center h-full">
+                          <div className="w-12 h-12 bg-pink-600 text-white rounded-full flex items-center justify-center font-black text-xl mb-6 shadow-lg ring-4 ring-pink-100 dark:ring-pink-900/50 z-10">3</div>
+                          <div className="mb-6 p-4 bg-pink-50 dark:bg-pink-900/30 rounded-2xl">
+                              <PhoneCall className="w-10 h-10 text-pink-500" />
+                          </div>
+                          <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">TÃ©lÃ©phone-lui !</h3>
+                          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+                              Passe un vrai appel vocal. C'est comme avoir un ami natif au bout du fil.
+                          </p>
+                      </div>
+                  </div>
+
+                  {/* STEP 4 */}
+                  <div className="group relative" onClick={onStart}>
+                      <div className="absolute inset-0 bg-white dark:bg-slate-800 rounded-[2rem] shadow-xl shadow-amber-500/10 transform transition-transform group-hover:scale-105 group-hover:rotate-1 border border-slate-100 dark:border-slate-700"></div>
+                      <div className="relative p-8 text-center flex flex-col items-center h-full">
+                          <div className="w-12 h-12 bg-amber-500 text-white rounded-full flex items-center justify-center font-black text-xl mb-6 shadow-lg ring-4 ring-amber-100 dark:ring-amber-900/50 z-10">4</div>
+                          <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/30 rounded-2xl">
+                              <Crown className="w-10 h-10 text-amber-500" />
+                          </div>
+                          <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Gagne des TrophÃ©es</h3>
+                          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+                              Chaque leÃ§on te donne des points. Deviens un expert et remplis ta vitrine !
+                          </p>
+                      </div>
+                  </div>
               </div>
 
-              <div className="mt-16 text-center">
-                  <button onClick={onStart} className="px-8 py-4 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 hover:scale-105 transition-transform flex items-center gap-2 mx-auto">
-                      <Rocket className="w-5 h-5 text-indigo-500" />
-                      Commencer l'aventure
+              <div className="mt-20 text-center">
+                  <button 
+                    onClick={onStart} 
+                    className="group relative inline-flex items-center gap-3 px-10 py-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-full font-black text-lg shadow-2xl hover:scale-105 transition-all duration-300 hover:shadow-indigo-500/25"
+                  >
+                      <Rocket className="w-6 h-6 group-hover:animate-bounce" />
+                      <span>Commencer l'Aventure</span>
                   </button>
+                  <p className="mt-4 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                      Gratuit â€¢ Sans Engagement â€¢ Amusant
+                  </p>
               </div>
           </div>
       </section>
@@ -365,23 +410,7 @@ const LanguageBadge: React.FC<{ flagUrl: string, name: string, onClick?: () => v
     </div>
 );
 
-const GuideStep = ({ step, title, text, icon, delay }: { step: string, title: string, text: string, icon: React.ReactNode, delay: number }) => (
-    <div 
-        className="relative bg-white dark:bg-slate-900 p-8 pt-12 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-xl group hover:-translate-y-2 transition-transform duration-300 z-10"
-        style={{ animationDelay: `${delay}ms` }}
-    >
-        <div className="absolute top-6 right-6 text-6xl font-black text-slate-100 dark:text-slate-800 -z-10 group-hover:text-indigo-50 dark:group-hover:text-indigo-900/20 transition-colors">
-            {step}
-        </div>
-        <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-2xl flex items-center justify-center text-white shadow-lg mb-6 group-hover:rotate-6 transition-transform">
-            {icon}
-        </div>
-        <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3">{title}</h3>
-        <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
-            {text}
-        </p>
-    </div>
-);
+// GuideStep supprimÃ© car remplacÃ© par le code inline dans le composant principal pour plus de flexibilitÃ© de design (Cards group hover etc.)
 
 const ValueProp = ({ icon, title, desc, delay }: { icon: React.ReactNode, title: string, desc: string, delay: number }) => (
     <div className="group p-8 rounded-3xl bg-white dark:bg-[#131825] border border-slate-100 dark:border-white/5 hover:border-indigo-100 dark:hover:border-indigo-500/20 transition-all duration-300 hover:-translate-y-2 shadow-sm hover:shadow-xl hover:shadow-indigo-500/10" style={{ transitionDelay: `${delay}ms` }}>
