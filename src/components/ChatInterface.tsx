@@ -492,10 +492,11 @@ const ChatInterface: React.FC<Props> = ({
       <textarea
         value={input}
         onChange={(e) => setInput(e.target.value)}
-        onInput={(e) => {
-          e.target.style.height = "auto";
-          e.target.style.height = e.target.scrollHeight + "px";
-        }}
+        onInput={(e: React.FormEvent<HTMLTextAreaElement>) => {
+  const target = e.currentTarget;
+  target.style.height = "auto";
+  target.style.height = target.scrollHeight + "px";
+}}
         placeholder={
           isLowCredits
             ? "Rechargez crédits pour continuer..."
