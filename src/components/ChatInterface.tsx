@@ -386,7 +386,7 @@ const ChatInterface: React.FC<Props> = ({
 
                     <div className="w-full">
                         <button 
-                            onClick={() => setShowTutorial(showTutorial)}
+                            onClick={() => setShowTutorial(!showTutorial)}
                             className="w-full py-3 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-750 transition-all text-sm"
                         >
                             <BookOpen className="w-4 h-4" />
@@ -394,13 +394,13 @@ const ChatInterface: React.FC<Props> = ({
                             {showTutorial ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                         </button>
 
-                        {showTutorial && (
+                        {showTutorialXXX && (
                             <div className="mt-3 p-5 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 shadow-xl animate-slide-up text-left space-y-4">
                                 <div className="flex gap-4">
                                     <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl h-fit shrink-0"><Play className="w-5 h-5 text-indigo-600 dark:text-indigo-400 fill-current"/></div>
                                     <div>
                                         <strong className="block text-slate-900 dark:text-white mb-1 text-base">1. Démarrer</strong>
-                                        Cliquez sur le bouton <span className="font-bold text-emerald-600">Commencer</span> pour votre première leçon personnalisée par le prof.
+                                        Cliquez sur le bouton <span className="font-bold text-emerald-600">{user.preferences?.explanationLanguage === ExplanationLanguage.Malagasy ? "HATOMBOKA NY LESONA" : "COMMENCER LE COURS"}</span> pour votre première leçon personnalisée par le prof.
                                     </div>
                                 </div>
                                 <div className="flex gap-4">
