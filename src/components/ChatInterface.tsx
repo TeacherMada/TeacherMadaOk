@@ -386,7 +386,7 @@ const ChatInterface: React.FC<Props> = ({
 
                     <div className="w-full">
                         <button 
-                            onClick={() => setShowTutorial(!showTutorial)}
+                            onClick={() => setShowTutorial(showTutorial)}
                             className="w-full py-3 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-750 transition-all text-sm"
                         >
                             <BookOpen className="w-4 h-4" />
@@ -407,9 +407,9 @@ const ChatInterface: React.FC<Props> = ({
                                     <div className="p-2.5 bg-purple-100 dark:bg-purple-900/30 rounded-xl h-fit shrink-0"><Mic className="w-5 h-5 text-purple-600 dark:text-purple-400"/></div>
                                     <div>
                                         <strong className="block text-slate-900 dark:text-white mb-1 text-base">2. Pratiquer</strong>
-                                        Utilisez le <span className="font-bold text-indigo-600">Clavier</span> pour répondre aux exercices/questions/messages.<br></br>
-                                        Utilisez le bouton <span className="font-bold text-indigo-600">Appel Vocal</span> pour pratiquer orale en temps réel.<br></br>
-                                        Utilisez le bouton <span className="font-bold text-indigo-600">Dialogue</span> pour la conversation en temps réel.
+                                       ▪️Utilisez le <span className="font-bold text-indigo-600">Clavier</span> pour répondre aux exercices/questions/messages.<br></br>
+                                       ▪️Utilisez le bouton <span className="font-bold text-indigo-600">Appel Vocal</span> pour pratiquer orale en temps réel.<br></br>
+                                       ▪️Utilisez le bouton <span className="font-bold text-indigo-600">Dialogue</span> pour la conversation en temps réel.
                                     </div>
                                 </div>
                                 <div className="flex gap-4">
