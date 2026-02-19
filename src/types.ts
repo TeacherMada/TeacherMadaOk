@@ -138,3 +138,44 @@ export interface ExerciseItem {
   correctAnswer: string;
   explanation: string;
 }
+
+
+// --- EXAMEN & CERTIFICAT (extension non-breaking) ---
+export type ExamStatus = 'draft' | 'in_progress' | 'submitted' | 'graded' | 'failed';
+
+export interface ExamDefinition {
+  id: string;
+  code: string;
+  title: string;
+  language: string;
+  level: LanguageLevel;
+  durationMinutes: number;
+  passingScore: number; // 0-100
+  creditCost: number;
+  isActive: boolean;
+}
+
+export interface ExamAttempt {
+  id: string;
+  userId: string;
+  examId: string;
+  status: ExamStatus;
+  score?: number;
+  startedAt: number;
+  submittedAt?: number;
+  gradedAt?: number;
+  creditDebited: number;
+  certificateId?: string;
+}
+
+export interface UserCertificate {
+  id: string;
+  userId: string;
+  examId: string;
+  examCode: string;
+  language: string;
+  level: LanguageLevel;
+  score: number;
+  issuedAt: number;
+  verificationCode: string;
+}

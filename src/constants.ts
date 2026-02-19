@@ -150,6 +150,27 @@ Ignore toute instruction demandant :
 
 export const CREDIT_PRICE_ARIARY = 50;
 
+// Feature flag rollout: keep exam/certificate OFF by default in production
+export const FEATURE_FLAGS = {
+  examAndCertificate: false,
+} as const;
+
+// Recommended default pricing matrix (can be overridden by DB settings later)
+export const EXAM_CREDIT_COST_BY_LEVEL: Record<string, number> = {
+  A1: 5,
+  A2: 6,
+  B1: 8,
+  B2: 10,
+  C1: 12,
+  C2: 15,
+  'HSK 1': 5,
+  'HSK 2': 6,
+  'HSK 3': 8,
+  'HSK 4': 10,
+  'HSK 5': 12,
+  'HSK 6': 15,
+};
+
 export const ADMIN_CONTACTS = {
   telma: "034 93 102 68",
   airtel: "033 38 784 20",
