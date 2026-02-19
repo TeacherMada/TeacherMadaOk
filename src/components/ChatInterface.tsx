@@ -25,10 +25,10 @@ const LOADING_PHRASES = [
   "TeacherMada réfléchit...",
   "Analyse de votre réponse...",
   "TeacherMada rédige la leçon...",
-  "TeacherMada corrige votre exercice...",
-  "TeacherMada génère des exercices...",
-  "Vérification de la grammaire...",
-  "Recherche d'exemples..."
+  "TeacherMada écrit...",
+  "TeacherMada réfléchit encore...",
+  "Vérification...",
+  "Écrit..."
 ];
 
 // Helper to convert Raw PCM to AudioBuffer
@@ -84,8 +84,8 @@ const ChatInterface: React.FC<Props> = ({
           const level = user.preferences?.level;
 
           const welcomeText = isMalagasy
-              ? `🎓 **Tonga soa eto amin'ny TeacherMada !**\n\nHianatra **${targetLang}** (Niveau ${level}) isika anio.\n\n**Ny fomba fiasako :**\n1. 📚 **Lesona Mazava** : Hanome lesona mifanaraka amin'ny haavonao aho.\n2. 🗣️ **Fanitsiana** : Hanitsy ny diso rehetra aho mba hivoaranao.\n3. 🚀 **Fampiharana** : Hanao fanazaran-tena isika.\n\nVonona ve ianao ?`
-              : `🎓 **Bienvenue dans votre Espace d'Excellence.**\n\nVous êtes sur le point de maîtriser le **${targetLang}** (Niveau ${level}).\nJe suis **TeacherMada**, votre professeur personnel par IA.\n\n**Ma méthode :**\n1. 📚 **Cours Structurés** : Des leçons claires et progressives.\n2. 🗣️ **Correction Active** : Je corrige chaque phrase pour vous perfectionner.\n3. 🚀 **Immersion** : Nous pratiquerons ensemble des cas réels.\n\nAppuyez sur **Commencer** pour lancer votre première leçon.`;
+              ? `🎓 **Tonga soa eto amin'ny TeacherMada !**\n\nHianatra **${targetLang}** (Niveau ${level}) isika anio.\n\n**Ny fomba fiasako :**\n1. 📚 **Lesona Mazava** : Hanome lesona mifanaraka amin'ny Niveau anao aho.\n2. 🗣️ **Fanitsiana** : Hanitsy ny diso rehetra aho mba hivoaranao.\n3. 🚀 **Fampiharana** : Hanao fanazaran-tena isika.\n\nVonona ve ianao ?`
+              : `🎓 **Bienvenue dans votre Espace d'Excellence.**\n\nVous êtes sur le point de maîtriser le **${targetLang}** (Niveau ${level}).\nJe suis **TeacherMada**, votre professeur personnel.\n\n**Ma méthode :**\n1. 📚 **Cours Structurés** : Des leçons claires et progressives.\n2. 🗣️ **Correction Active** : Je corrige chaque phrase pour vous perfectionner.\n3. 🚀 **Immersion** : Nous pratiquerons ensemble des cas réels.\n\nAppuyez sur **Commencer** pour lancer votre première leçon.`;
 
           const initialMsg: ChatMessage = {
               id: 'welcome_msg',
