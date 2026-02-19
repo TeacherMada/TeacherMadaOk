@@ -446,55 +446,120 @@ const ChatInterface: React.FC<Props> = ({
 
       {/* --- FOOTER --- */}
       <footer className="fixed bottom-0 left-0 w-full bg-white/95 dark:bg-[#131825]/95 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 safe-bottom z-30 shadow-2xl">
-        <div className="max-w-3xl mx-auto p-4 flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-3 px-2">
-                <span className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 uppercase min-w-[30px]">{progressData.currentLevel}</span>
-                <div className="flex-1 h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative border border-slate-200 dark:border-slate-700">
-                    <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-1000 ease-out" style={{ width: `${progressData.percentage}%` }} />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-[8px] font-bold text-slate-500 dark:text-slate-400 bg-white/50 dark:bg-black/50 px-1.5 rounded-full backdrop-blur-sm">{progressData.percentage}%</span>
-                    </div>
-                </div>
-                <span className="text-[10px] font-black text-slate-400 uppercase min-w-[30px] text-right">{progressData.nextLevel}</span>
-            </div>
+  <div className="max-w-3xl mx-auto p-4 flex flex-col gap-3">
+    
+    {/* Progress Bar */}
+    <div className="flex items-center justify-between gap-3 px-2">
+      <span className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 uppercase min-w-[30px]">
+        {progressData.currentLevel}
+      </span>
 
-            <div className={`flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border transition-all shadow-inner ${isLowCredits ? 'border-red-500/50' : 'border-transparent focus-within:border-indigo-500/30'}`}>
-                <button onClick={handleVoiceCallClick} className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)] animate-pulse hover:scale-110 transition-transform active:scale-95 border-2 border-white/20" title="Démarrer Appel Vocal">
-                    <Phone className="w-5 h-5 fill-current" />
-                </button>
-
-                <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}}
-                    placeholder={isLowCredits ? "Rechargez crédits pour continuer..." : "Message..."}
-                    className="flex-1 bg-transparent border-none outline-none text-slate-800 dark:text-white text-sm px-2 resize-none max-h-32 placeholder:text-slate-400 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                    rows={1}
-                    style={{ minHeight: '40px' }}
-                    disabled={isLowCredits}
-                />
-                
-                {input.trim().length === 0 ? (
-                    showNextInput ? (
-                        <div className="h-10 flex items-center gap-1 bg-white dark:bg-slate-900 rounded-full px-1 border border-indigo-500/30 animate-fade-in shadow-sm">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase pl-2">Leçon</span>
-                            <input type="number" value={nextLessonInput} onChange={(e) => setNextLessonInput(e.target.value)} className="w-10 bg-transparent font-black text-indigo-600 dark:text-indigo-400 outline-none text-center text-sm" autoFocus onKeyDown={(e) => { if(e.key === 'Enter') confirmNextLesson(); }} />
-                            <button onClick={confirmNextLesson} className="p-1.5 bg-indigo-600 rounded-full text-white hover:bg-indigo-700 transition-colors"><Check size={14}/></button>
-                            <button onClick={() => setShowNextInput(false)} className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"><X size={14}/></button>
-                        </div>
-                    ) : (
-                        <button onClick={handleNextClick} disabled={isStreaming} className="h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full font-bold text-xs shadow-md transition-all active:scale-95 flex items-center gap-1.5 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
-                            Suivant <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                    )
-                ) : (
-                    <button onClick={handleSend} disabled={isStreaming} className="h-10 w-10 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-md transition-all active:scale-95 flex items-center justify-center shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
-                        <Send className="w-4 h-4 ml-0.5" />
-                    </button>
-                )}
-            </div>
+      <div className="flex-1 h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative border border-slate-200 dark:border-slate-700">
+        <div
+          className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-1000 ease-out"
+          style={{ width: `${progressData.percentage}%` }}
+        />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-[8px] font-bold text-slate-500 dark:text-slate-400 bg-white/50 dark:bg-black/50 px-1.5 rounded-full backdrop-blur-sm">
+            {progressData.percentage}%
+          </span>
         </div>
-      </footer>
+      </div>
+
+      <span className="text-[10px] font-black text-slate-400 uppercase min-w-[30px] text-right">
+        {progressData.nextLevel}
+      </span>
+    </div>
+
+    {/* Input Zone */}
+    <div
+      className={`flex items-end gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-[1.5rem] border transition-all shadow-inner ${
+        isLowCredits
+          ? "border-red-500/50"
+          : "border-transparent focus-within:border-indigo-500/30"
+      }`}
+    >
+      {/* Voice Button */}
+      <button
+        onClick={handleVoiceCallClick}
+        className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)] hover:scale-110 transition-transform active:scale-95 border-2 border-white/20"
+        title="Démarrer Appel Vocal"
+      >
+        <Phone className="w-5 h-5 fill-current" />
+      </button>
+
+      {/* Textarea */}
+      <textarea
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onInput={(e) => {
+          e.target.style.height = "auto";
+          e.target.style.height = e.target.scrollHeight + "px";
+        }}
+        placeholder={
+          isLowCredits
+            ? "Rechargez crédits pour continuer..."
+            : "Message..."
+        }
+        className="flex-1 bg-transparent border-none outline-none text-slate-800 dark:text-white text-sm px-2 resize-none max-h-40 overflow-y-auto placeholder:text-slate-400 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+        style={{ minHeight: "40px" }}
+        disabled={isLowCredits}
+      />
+
+      {/* Right Action */}
+      {input.trim().length === 0 ? (
+        showNextInput ? (
+          <div className="h-10 flex items-center gap-1 bg-white dark:bg-slate-900 rounded-full px-1 border border-indigo-500/30 animate-fade-in shadow-sm">
+            <span className="text-[10px] font-bold text-slate-400 uppercase pl-2">
+              Leçon
+            </span>
+
+            <input
+              type="number"
+              value={nextLessonInput}
+              onChange={(e) => setNextLessonInput(e.target.value)}
+              className="w-10 bg-transparent font-black text-indigo-600 dark:text-indigo-400 outline-none text-center text-sm"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmNextLesson();
+              }}
+            />
+
+            <button
+              onClick={confirmNextLesson}
+              className="p-1.5 bg-indigo-600 rounded-full text-white hover:bg-indigo-700 transition-colors"
+            >
+              <Check size={14} />
+            </button>
+
+            <button
+              onClick={() => setShowNextInput(false)}
+              className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleNextClick}
+            disabled={isStreaming}
+            className="h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full font-bold text-xs shadow-md transition-all active:scale-95 flex items-center gap-1.5 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Suivant <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        )
+      ) : (
+        <button
+          onClick={handleSend}
+          disabled={isStreaming}
+          className="h-10 w-10 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-md transition-all active:scale-95 flex items-center justify-center shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Send className="w-4 h-4 ml-0.5" />
+        </button>
+      )}
+    </div>
+  </div>
+</footer>
     </div>
   );
 };
