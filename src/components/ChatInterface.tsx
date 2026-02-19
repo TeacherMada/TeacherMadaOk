@@ -23,7 +23,7 @@ interface Props {
 
 const LOADING_PHRASES = [
   "TeacherMada réfléchit...",
-  "Analyse de votre réponse...",
+  "Analyse de votre message...",
   "TeacherMada rédige la leçon...",
   "TeacherMada écrit...",
   "TeacherMada réfléchit encore...",
@@ -381,7 +381,7 @@ const ChatInterface: React.FC<Props> = ({
                 <div className="flex flex-col items-center gap-4 animate-fade-in-up w-full max-w-sm mx-auto">
                     <button onClick={handleStartCourse} className="w-full px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black rounded-2xl shadow-xl hover:scale-105 transition-transform flex items-center justify-center gap-3 active:scale-95 text-lg">
                         <Play className="w-6 h-6 fill-current" />
-                        {user.preferences?.explanationLanguage === ExplanationLanguage.Malagasy ? "Andao Hiatomboka" : "Commencer le cours"}
+                        {user.preferences?.explanationLanguage === ExplanationLanguage.Malagasy ? "HATOMBOKA NY LESONA" : "COMMENCER LE COURS"}
                     </button>
 
                     <div className="w-full">
@@ -400,14 +400,16 @@ const ChatInterface: React.FC<Props> = ({
                                     <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl h-fit shrink-0"><Play className="w-5 h-5 text-indigo-600 dark:text-indigo-400 fill-current"/></div>
                                     <div>
                                         <strong className="block text-slate-900 dark:text-white mb-1 text-base">1. Démarrer</strong>
-                                        Cliquez sur le bouton <span className="font-bold text-emerald-600">Commencer</span> pour générer votre première leçon personnalisée par l'IA.
+                                        Cliquez sur le bouton <span className="font-bold text-emerald-600">Commencer</span> pour votre première leçon personnalisée par le prof.
                                     </div>
                                 </div>
                                 <div className="flex gap-4">
                                     <div className="p-2.5 bg-purple-100 dark:bg-purple-900/30 rounded-xl h-fit shrink-0"><Mic className="w-5 h-5 text-purple-600 dark:text-purple-400"/></div>
                                     <div>
                                         <strong className="block text-slate-900 dark:text-white mb-1 text-base">2. Pratiquer</strong>
-                                        Utilisez le <span className="font-bold text-indigo-600">Micro</span> ou le <span className="font-bold text-indigo-600">Clavier</span> pour répondre aux exercices.
+                                        Utilisez le <span className="font-bold text-indigo-600">Clavier</span> pour répondre aux exercices/questions/messages.<br></br>
+                                        Utilisez le bouton <span className="font-bold text-indigo-600">Appel Vocal</span> pour pratiquer orale en temps réel.<br></br>
+                                        Utilisez le bouton <span className="font-bold text-indigo-600">Dialogue</span> pour la conversation en temps réel.
                                     </div>
                                 </div>
                                 <div className="flex gap-4">
