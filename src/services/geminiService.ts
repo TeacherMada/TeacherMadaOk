@@ -6,17 +6,17 @@ import { storageService } from "./storageService";
 // --- CONFIGURATION DE LA ROTATION ---
 
 // Ordre de priorité des modèles (Textes & Raisonnement)
-const TEXT_MODELS = [
+export const TEXT_MODELS = [
     'gemini-3-flash-preview',
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-2.0-flash'
+    'gemini-3.1-pro-preview',
+    'gemini-flash-latest',
+    'gemini-flash-lite-latest'
 ];
 
 // Ordre de priorité des modèles (Support / Tâches simples)
 const SUPPORT_MODELS = [
-    'gemini-2.5-flash-lite',
-    'gemini-2.0-flash'
+    'gemini-flash-lite-latest',
+    'gemini-flash-latest'
 ];
 
 // Ordre de priorité des modèles (Audio / TTS)
@@ -39,7 +39,7 @@ const getApiKeys = () => {
  * 2. Pour chaque clé, itère sur chaque MODÈLE de la liste.
  * 3. Ne change de clé que si tous les modèles ont échoué.
  */
-const executeWithRotation = async (
+export const executeWithRotation = async (
     modelList: string[], 
     requestFn: (ai: GoogleGenAI, model: string) => Promise<any>
 ): Promise<any> => {
@@ -132,7 +132,7 @@ export const generateSupportResponse = async (
 
     const systemInstruction = SUPPORT_AGENT_PROMPT(context, user);
     
-    const contents = history.map(msg => ({
+    const contents = history.slice(-6).map(msg => ({
         role: msg.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: msg.text }]
     }));
@@ -145,7 +145,7 @@ export const generateSupportResponse = async (
                 contents,
                 config: {
                     systemInstruction,
-                    maxOutputTokens: 1000, 
+                    maxOutputTokens: 2000, 
                     temperature: 0.5
                 }
             });
@@ -172,6 +172,7 @@ export async function* sendMessageStream(
   }
 
   const contents = history
+    .slice(-8) // COMPRESSION: Keep only the last 8 messages to save tokens
     .filter(msg => msg.text && msg.text.trim().length > 0)
     .map(msg => ({
       role: msg.role === 'user' ? 'user' : 'model',
@@ -185,9 +186,9 @@ export async function* sendMessageStream(
           model,
           contents,
           config: {
-            systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!),
+            systemInstruction: SYSTEM_PROMPT_TEMPLATE(user, user.preferences!, user.aiMemory),
             temperature: 0.7,
-            maxOutputTokens: 2000,
+            maxOutputTokens: 8192, // Increased from 2000 to prevent cut-off responses
           }
       });
   });
@@ -212,8 +213,16 @@ export async function* sendMessageStream(
   }
 }
 
+// Cache in-memory pour le TTS (limité à 50 entrées pour ne pas saturer la RAM)
+const ttsCache = new Map<string, ArrayBuffer>();
+
 // 3. TEXT-TO-SPEECH (TTS) - AVEC FALLBACK SILENCIEUX
 export const generateSpeech = async (text: string, voiceName: string = 'Kore'): Promise<ArrayBuffer | null> => {
+    const cacheKey = `${voiceName}:${text}`;
+    if (ttsCache.has(cacheKey)) {
+        return ttsCache.get(cacheKey)!;
+    }
+
     const user = await storageService.getCurrentUser();
     if (!user || !(await storageService.canRequest(user.id))) return null;
 
@@ -244,7 +253,17 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
         for (let i = 0; i < len; i++) {
             bytes[i] = binaryString.charCodeAt(i);
         }
-        return bytes.buffer as ArrayBuffer;
+        
+        const buffer = bytes.buffer as ArrayBuffer;
+        
+        // Gestion du cache (FIFO si > 50)
+        if (ttsCache.size >= 50) {
+            const firstKey = ttsCache.keys().next().value;
+            if (firstKey) ttsCache.delete(firstKey);
+        }
+        ttsCache.set(cacheKey, buffer);
+
+        return buffer;
 
     } catch (e) {
         console.error("TTS Rotation Failed:", e);
@@ -354,6 +373,7 @@ export const generateRoleplayResponse = async (
 
     const sysInstruct = `Partenaire de jeu de rôle (${user.preferences?.targetLanguage}, ${user.preferences?.level}). Scénario: ${scenarioPrompt}.`;
     const contents = history
+        .slice(-8) // COMPRESSION: Keep only the last 8 messages
         .filter(msg => msg.text && msg.text.trim().length > 0)
         .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
     

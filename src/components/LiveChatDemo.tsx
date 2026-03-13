@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 
 // --- DATA ---
@@ -65,36 +65,49 @@ const LiveChatDemo: React.FC = () => {
     const [messages, setMessages] = useState<typeof MOCK_USERS>([]);
     const [queueIndex, setQueueIndex] = useState(0);
     const [isTyping, setIsTyping] = useState(false);
+    const isMounted = useRef(true);
 
     useEffect(() => {
-        // Start the loop
-        addNextMessage();
-        // eslint-disable-next-line
+        isMounted.current = true;
+        return () => { isMounted.current = false; };
     }, []);
 
-    const addNextMessage = () => {
-        if (isTyping) return;
-
-        const nextUser = MOCK_USERS[queueIndex % MOCK_USERS.length];
-        setIsTyping(true);
-
-        setMessages(prev => {
-            // Keep only last 3 messages to keep DOM light and visual clean
-            const newHistory = [...prev, { ...nextUser, id: Date.now().toString() }]; // Unique ID for key
-            if (newHistory.length > 3) return newHistory.slice(newHistory.length - 3);
-            return newHistory;
+    const addNextMessage = useCallback(() => {
+        if (!isMounted.current) return;
+        
+        setQueueIndex(prevIndex => {
+            const nextUser = MOCK_USERS[prevIndex % MOCK_USERS.length];
+            
+            setMessages(prevMessages => {
+                // Generate a truly unique ID to prevent key collisions
+                const uniqueId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const newHistory = [...prevMessages, { ...nextUser, id: uniqueId }];
+                if (newHistory.length > 3) return newHistory.slice(newHistory.length - 3);
+                return newHistory;
+            });
+            
+            setIsTyping(true);
+            return prevIndex + 1;
         });
+    }, []);
 
-        setQueueIndex(prev => prev + 1);
-    };
-
-    const handleTypingComplete = () => {
+    const handleTypingComplete = useCallback(() => {
+        if (!isMounted.current) return;
         setIsTyping(false);
         // Wait a bit before starting the next one to simulate reading time
         setTimeout(() => {
-            addNextMessage();
+            if (isMounted.current) {
+                addNextMessage();
+            }
         }, 2000);
-    };
+    }, [addNextMessage]);
+
+    // Initial start
+    useEffect(() => {
+        if (messages.length === 0 && !isTyping) {
+            addNextMessage();
+        }
+    }, [addNextMessage, messages.length, isTyping]);
 
     return (
         <div className="w-full max-w-md mx-auto relative perspective-1000">

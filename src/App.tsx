@@ -6,15 +6,19 @@ import ChatInterface from './components/ChatInterface';
 import SmartDashboard from './components/SmartDashboard';
 import ExerciseSession from './components/ExerciseSession';
 import DialogueSession from './components/DialogueSession';
+// import ExamHub from './modules/SmartExam'; // Lazy Loaded below
 import PaymentModal from './components/PaymentModal';
 import AdminDashboard from './components/AdminDashboard';
 import TutorialAgent from './components/TutorialAgent';
-import LiveTeacher from './components/LiveTeacher'; // Import ajouté
+import LiveTeacher from './components/LiveTeacher'; 
 import { UserProfile, LearningSession, ExerciseItem, UserStats, LearningMode } from './types';
 import { storageService } from './services/storageService';
-import { generateExerciseFromHistory } from './services/geminiService';
+import { generateExerciseFromHistory } from './services/geminiService'; // Added
 import { Toaster, toast } from './components/Toaster';
 import { Loader2 } from 'lucide-react';
+
+// Lazy Load Heavy Modules
+const ExamHub = React.lazy(() => import('./modules/SmartExam'));
 
 // Mock Guest User for Landing Page Chatbot
 const GUEST_USER: UserProfile = {
@@ -34,7 +38,16 @@ const GUEST_USER: UserProfile = {
   credits: 0,
   xp: 0, // Fix: Added missing XP
   freeUsage: { lastResetWeek: new Date().toISOString(), count: 0 },
-  aiMemory: 'Visiteur curieux'
+  aiMemory: {
+    masteredVocabulary: [],
+    frequentErrors: [],
+    completedConcepts: [],
+    currentDifficulties: [],
+    lastLesson: "Introduction",
+    weeklyGoal: "Découverte",
+    successRate: 100,
+    lastUpdate: Date.now()
+  }
 };
 
 const App: React.FC = () => {
@@ -47,7 +60,7 @@ const App: React.FC = () => {
   const [showVoiceCall, setShowVoiceCall] = useState(false); // State remonté
   
   // Modes
-  const [activeMode, setActiveMode] = useState<'chat' | 'exercise' | 'practice'>('chat');
+  const [activeMode, setActiveMode] = useState<'chat' | 'exercise' | 'practice' | 'exam'>('chat');
   const [currentExercises, setCurrentExercises] = useState<ExerciseItem[]>([]);
   const [isGeneratingExercise, setIsGeneratingExercise] = useState(false);
 
@@ -57,7 +70,14 @@ const App: React.FC = () => {
   useEffect(() => {
     const init = async () => {
         const curr = await storageService.getCurrentUser();
-        if (curr) setUser(curr);
+        if (curr) {
+            setUser(curr);
+            // AUTO-RESUME SESSION: Si l'utilisateur a déjà un cours en cours, on le reprend direct
+            if (curr.preferences && curr.preferences.targetLanguage) {
+                const session = storageService.getOrCreateSession(curr.id, curr.preferences);
+                setCurrentSession(session);
+            }
+        }
     };
     init();
     
@@ -81,6 +101,20 @@ const App: React.FC = () => {
         unsubscribe();
     };
   }, [isDarkMode]);
+
+  // Offline Detection
+  useEffect(() => {
+      const handleOffline = () => toast.error("Vous êtes hors ligne. Vérifiez votre connexion.");
+      const handleOnline = () => toast.success("Connexion rétablie !");
+      
+      window.addEventListener('offline', handleOffline);
+      window.addEventListener('online', handleOnline);
+      
+      return () => {
+          window.removeEventListener('offline', handleOffline);
+          window.removeEventListener('online', handleOnline);
+      };
+  }, []);
 
   // Refresh User Data on Focus
   useEffect(() => {
@@ -194,6 +228,11 @@ const App: React.FC = () => {
       }
   };
 
+  const startExam = () => {
+      setShowDashboard(false);
+      setActiveMode('exam');
+  };
+
   const finishExercise = async (score: number, total: number) => {
       if (user) {
           const newStats = {
@@ -236,6 +275,11 @@ const App: React.FC = () => {
       startExercise();
   };
 
+  const handleStartExamFromDash = () => {
+      setShowDashboard(false);
+      startExam();
+  };
+
   const needsOnboarding = !user?.preferences || !user?.preferences?.targetLanguage;
 
   const getAgentContext = () => {
@@ -245,6 +289,7 @@ const App: React.FC = () => {
       if (showPayment) return "Rechargement de Crédits";
       if (showDashboard) return "Profil Utilisateur & Statistiques";
       if (activeMode === 'exercise') return "Session d'Exercices (Quiz)";
+      if (activeMode === 'exam') return "Examen Final & Certification";
       if (activeMode === 'practice') return "Session de Dialogue (Roleplay)";
       if (showVoiceCall) return "Appel Vocal en Direct (TeacherMada Live)";
       return `Chat Principal - Apprentissage du ${user.preferences?.targetLanguage || 'Language'}`;
@@ -328,6 +373,7 @@ const App: React.FC = () => {
                 }}
                 onStartPractice={() => setActiveMode('practice')}
                 onStartExercise={startExercise}
+                onStartExam={startExam}
                 notify={notify}
                 onShowPayment={() => setShowPayment(true)}
                 onChangeCourse={handleChangeCourse}
@@ -341,6 +387,22 @@ const App: React.FC = () => {
                   onClose={() => setActiveMode('chat')}
                   onComplete={finishExercise}
               />
+          )}
+
+          {activeMode === 'exam' && (
+              <React.Suspense fallback={
+                  <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-white">
+                      <Loader2 className="w-12 h-12 animate-spin mb-4 text-indigo-500" />
+                      <p className="font-bold text-lg">Chargement du module Examen...</p>
+                  </div>
+              }>
+                  <ExamHub 
+                      user={user}
+                      onClose={() => setActiveMode('chat')}
+                      onUpdateUser={setUser}
+                      onShowPayment={() => setShowPayment(true)}
+                  />
+              </React.Suspense>
           )}
 
           {activeMode === 'practice' && (
@@ -369,6 +431,7 @@ const App: React.FC = () => {
               onStartPractice={handleStartPractice}
               onStartExercise={handleStartExerciseFromDash}
               onStartVoice={handleStartVoiceCall}
+              onStartExam={handleStartExamFromDash}
             />
           )}
 

@@ -73,6 +73,8 @@ const floatTo16BitPCM = (input: Float32Array) => {
 };
 
 const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
+  if (!user) return null;
+
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [subStatus, setSubStatus] = useState('');
   const [volume, setVolume] = useState(0); 

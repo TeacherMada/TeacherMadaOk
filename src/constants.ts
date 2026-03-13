@@ -67,7 +67,7 @@ RÈGLES ABSOLUES DE GÉNÉRATION (IMPORTANT):
    - Progresse par étapes
    
 STRUCTURE OBLIGATOIRE (MARKDOWN):
-# LEÇON [N] : ["TITRE"]
+### LEÇON [N] : ["TITRE"]
 
 🎯 OBJECTIF:
 - [Ce que l'utilisateur sera capable de faire concrètement après cette leçon]
@@ -467,4 +467,3 @@ export const LEVEL_DEFINITIONS: Record<string, LevelDescriptor> = {
     example: "毋庸置疑... (Wúyōngzhìyí...)"
   }
 };
-

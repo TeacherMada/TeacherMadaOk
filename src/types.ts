@@ -71,6 +71,46 @@ export interface LearningSession {
   score: number;
 }
 
+export type NotificationType = 'credit' | 'admin' | 'achievement' | 'system' | 'info' | 'warning';
+
+export interface SmartNotification {
+    id: string;
+    userId: string;
+    type: NotificationType;
+    title: string;
+    message: string;
+    read: boolean;
+    createdAt: number;
+    data?: any;
+}
+
+export interface LearningBrainScore {
+  pronunciation: number;
+  grammar: number;
+  vocabulary: number;
+  fluency: number;
+  structure: number;
+  overall: number;
+}
+
+export interface LearningProfile {
+  brainScore: LearningBrainScore;
+  weaknesses: string[];
+  strengths: string[];
+  lastAnalysisTimestamp: number;
+}
+
+export interface LearningMemory {
+  masteredVocabulary: string[];
+  frequentErrors: string[];
+  completedConcepts: string[];
+  currentDifficulties: string[];
+  lastLesson: string;
+  weeklyGoal: string;
+  successRate: number;
+  lastUpdate: number;
+}
+
 export interface UserProfile {
   id: string;
   username: string;
@@ -88,8 +128,9 @@ export interface UserProfile {
     lastResetWeek: string;
     count: number;
   };
-  aiMemory?: string;
+  aiMemory?: LearningMemory; // Changed from string
   isSuspended?: boolean;
+  learningProfile?: LearningProfile;
 }
 
 export interface AdminRequest {
@@ -137,4 +178,30 @@ export interface ExerciseItem {
   options?: string[];
   correctAnswer: string;
   explanation: string;
+}
+
+export interface ExamResult {
+  id: string;
+  userId: string;
+  language: string;
+  level: string;
+  score: number;
+  totalQuestions: number;
+  passed: boolean;
+  date: number;
+  details: {
+    questionId: string;
+    userAnswer: string;
+    correct: boolean;
+  }[];
+}
+
+export interface Certificate {
+  id: string;
+  userId: string;
+  userName: string;
+  language: string;
+  level: string;
+  issueDate: number;
+  examId: string;
 }

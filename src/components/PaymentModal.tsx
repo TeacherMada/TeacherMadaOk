@@ -20,6 +20,8 @@ const OPERATOR_THEMES = {
 };
 
 const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, user }) => {
+  if (!user) return null;
+
   const [activeTab, setActiveTab] = useState<'money' | 'coupon'>('money');
   
   // Mobile Money State

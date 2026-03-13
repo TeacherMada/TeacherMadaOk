@@ -16,6 +16,7 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ exercises, onClose, o
   const [isChecked, setIsChecked] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
   const [score, setScore] = useState(0);
+  const [streak, setStreak] = useState(0);
   const [showSummary, setShowSummary] = useState(false);
 
   const currentExercise = exercises[currentIndex];
@@ -62,7 +63,12 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ exercises, onClose, o
     }
 
     setIsCorrect(correct);
-    if (correct) setScore(prev => prev + 1);
+    if (correct) {
+        setScore(prev => prev + 1);
+        setStreak(prev => prev + 1);
+    } else {
+        setStreak(0);
+    }
     setIsChecked(true);
   };
 
@@ -141,6 +147,11 @@ const ExerciseSession: React.FC<ExerciseSessionProps> = ({ exercises, onClose, o
             </div>
         </div>
         <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold">
+            {streak > 1 && (
+                <div className="flex items-center gap-1 text-orange-500 animate-bounce mr-2">
+                    <span className="text-xs">🔥 {streak}</span>
+                </div>
+            )}
             <span className="text-sm">{score}</span>
             <Trophy className="w-4 h-4" />
         </div>

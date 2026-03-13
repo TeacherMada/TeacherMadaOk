@@ -69,7 +69,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, isDarkMode, toggleTh
       // 2. Fetch real students count and add to base
       const loadStats = async () => {
           const users = await storageService.getAllUsers();
-          const baseStudents = 850;
+          const baseStudents = 250;
           setStats(prev => ({ 
               ...prev, 
               students: baseStudents + users.length 
