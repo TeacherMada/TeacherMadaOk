@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import LandingPage from './components/LandingPage';
 import AuthScreen from './components/AuthScreen';
 import Onboarding from './components/Onboarding';
@@ -6,16 +6,18 @@ import ChatInterface from './components/ChatInterface';
 import SmartDashboard from './components/SmartDashboard';
 import ExerciseSession from './components/ExerciseSession';
 import DialogueSession from './components/DialogueSession';
-// import ExamHub from './modules/SmartExam'; // Lazy Loaded below
 import PaymentModal from './components/PaymentModal';
 import AdminDashboard from './components/AdminDashboard';
 import TutorialAgent from './components/TutorialAgent';
 import LiveTeacher from './components/LiveTeacher'; 
-import { UserProfile, LearningSession, ExerciseItem, UserStats, LearningMode } from './types';
+import ResetPasswordScreen from './components/ResetPasswordScreen';
+import { UserProfile, UserStats, LearningMode } from './types';
 import { storageService } from './services/storageService';
-import { generateExerciseFromHistory } from './services/geminiService'; // Added
+import { generateExerciseFromHistory } from './services/geminiService';
 import { Toaster, toast } from './components/Toaster';
 import { Loader2 } from 'lucide-react';
+import { useAppStore } from './store/useAppStore';
+import { supabase } from './lib/supabase';
 
 // Lazy Load Heavy Modules
 const ExamHub = React.lazy(() => import('./modules/SmartExam'));
@@ -51,20 +53,20 @@ const GUEST_USER: UserProfile = {
 };
 
 const App: React.FC = () => {
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [currentSession, setCurrentSession] = useState<LearningSession | null>(null);
-  const [showAuth, setShowAuth] = useState(false);
-  const [showDashboard, setShowDashboard] = useState(false);
-  const [showPayment, setShowPayment] = useState(false);
-  const [showAdmin, setShowAdmin] = useState(false);
-  const [showVoiceCall, setShowVoiceCall] = useState(false); // State remonté
-  
-  // Modes
-  const [activeMode, setActiveMode] = useState<'chat' | 'exercise' | 'practice' | 'exam'>('chat');
-  const [currentExercises, setCurrentExercises] = useState<ExerciseItem[]>([]);
-  const [isGeneratingExercise, setIsGeneratingExercise] = useState(false);
-
-  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('tm_theme') === 'dark');
+  const {
+    user, setUser, updateUser, logout,
+    currentSession, setCurrentSession,
+    showAuth, setShowAuth,
+    showDashboard, setShowDashboard,
+    showPayment, setShowPayment,
+    showAdmin, setShowAdmin,
+    showVoiceCall, setShowVoiceCall,
+    showResetPassword, setShowResetPassword,
+    isDarkMode, toggleDarkMode,
+    activeMode, setActiveMode,
+    currentExercises, setCurrentExercises,
+    isGeneratingExercise, setIsGeneratingExercise
+  } = useAppStore();
 
   // Load User & Theme & Subscribe to Updates
   useEffect(() => {
@@ -83,24 +85,29 @@ const App: React.FC = () => {
     
     // Global Event Listener for User Updates (Credits, Stats, etc.)
     const unsubscribe = storageService.subscribeToUserUpdates((updatedUser) => {
-        setUser((currentUser) => {
-            // FIX: Sticky Preferences Protection
-            if (currentUser && currentUser.id === updatedUser.id) {
-                if (currentUser.preferences && (!updatedUser.preferences || !updatedUser.preferences.targetLanguage)) {
-                    return { ...updatedUser, preferences: currentUser.preferences };
-                }
+        const currentUser = useAppStore.getState().user;
+        // FIX: Sticky Preferences Protection
+        if (currentUser && currentUser.id === updatedUser.id) {
+            if (currentUser.preferences && (!updatedUser.preferences || !updatedUser.preferences.targetLanguage)) {
+                updatedUser.preferences = currentUser.preferences;
             }
-            return updatedUser;
-        });
+        }
+        setUser(updatedUser);
     });
     
     document.documentElement.classList.toggle('dark', isDarkMode);
-    localStorage.setItem('tm_theme', isDarkMode ? 'dark' : 'light');
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+            setShowResetPassword(true);
+        }
+    });
 
     return () => {
         unsubscribe();
+        authListener.subscription.unsubscribe();
     };
-  }, [isDarkMode]);
+  }, []);
 
   // Offline Detection
   useEffect(() => {
@@ -119,16 +126,17 @@ const App: React.FC = () => {
   // Refresh User Data on Focus
   useEffect(() => {
       const handleFocus = async () => {
-          if (user) {
-              const updated = await storageService.getUserById(user.id);
+          const currentUser = useAppStore.getState().user;
+          if (currentUser) {
+              const updated = await storageService.getUserById(currentUser.id);
               if (updated) {
-                  if (user.preferences && (!updated.preferences || !updated.preferences.targetLanguage)) {
+                  if (currentUser.preferences && (!updated.preferences || !updated.preferences.targetLanguage)) {
                       return;
                   }
                   if (
-                      updated.credits !== user.credits || 
-                      updated.isSuspended !== user.isSuspended ||
-                      JSON.stringify(updated.stats) !== JSON.stringify(user.stats)
+                      updated.credits !== currentUser.credits || 
+                      updated.isSuspended !== currentUser.isSuspended ||
+                      JSON.stringify(updated.stats) !== JSON.stringify(currentUser.stats)
                   ) {
                       setUser(updated);
                       if(updated.isSuspended) toast.info("Votre compte a été mis à jour.");
@@ -138,7 +146,7 @@ const App: React.FC = () => {
       };
       window.addEventListener('focus', handleFocus);
       return () => window.removeEventListener('focus', handleFocus);
-  }, [user]);
+  }, []);
 
   const notify = (msg: string, type: string = 'info') => {
     if (type === 'error') toast.error(msg);
@@ -173,8 +181,7 @@ const App: React.FC = () => {
               history: currentHistory
           }
       };
-      setUser(updatedUser);
-      await storageService.saveUserProfile(updatedUser);
+      await updateUser(updatedUser);
       setCurrentSession(null);
   };
 
@@ -195,19 +202,13 @@ const App: React.FC = () => {
             history: history
         } 
     };
-    setUser(updated);
-    await storageService.saveUserProfile(updated);
+    await updateUser(updated);
     const session = storageService.getOrCreateSession(user.id, updated.preferences!);
     setCurrentSession(session);
   };
 
-  const handleLogout = async () => {
-    await storageService.logout();
-    setUser(null);
-    setCurrentSession(null);
-    setShowDashboard(false);
-    setShowAdmin(false);
-    setActiveMode('chat');
+  const handleLogout = () => {
+    logout();
   };
 
   const startExercise = async () => {
@@ -252,8 +253,7 @@ const App: React.FC = () => {
                   history: currentHistory
               }
           };
-          await storageService.saveUserProfile(updatedUser);
-          setUser(updatedUser);
+          await updateUser(updatedUser);
           toast.success(`Exercice terminé ! Score : ${score}/${total}`);
       }
       setActiveMode('chat');
@@ -331,7 +331,7 @@ const App: React.FC = () => {
               user={user} 
               onClose={() => setShowVoiceCall(false)} 
               onUpdateUser={(updated) => {
-                  setUser(prev => prev ? { ...updated, preferences: prev.preferences } : updated);
+                  updateUser(updated);
               }} 
               notify={notify}
               onShowPayment={() => setShowPayment(true)}
@@ -339,7 +339,7 @@ const App: React.FC = () => {
       )}
 
       {!user && !showAuth && (
-        <LandingPage onStart={() => setShowAuth(true)} isDarkMode={isDarkMode} toggleTheme={() => setIsDarkMode(!isDarkMode)} />
+        <LandingPage onStart={() => setShowAuth(true)} isDarkMode={isDarkMode} toggleTheme={toggleDarkMode} />
       )}
 
       {!user && showAuth && (
@@ -347,7 +347,7 @@ const App: React.FC = () => {
           onAuthSuccess={handleAuthSuccess} 
           onBack={() => setShowAuth(false)} 
           isDarkMode={isDarkMode} 
-          toggleTheme={() => setIsDarkMode(!isDarkMode)} 
+          toggleTheme={toggleDarkMode} 
           notify={notify} 
         />
       )}
@@ -356,7 +356,7 @@ const App: React.FC = () => {
         <Onboarding 
           onComplete={handleOnboardingComplete} 
           isDarkMode={isDarkMode} 
-          toggleTheme={() => setIsDarkMode(!isDarkMode)} 
+          toggleTheme={toggleDarkMode} 
         />
       )}
 
@@ -369,7 +369,7 @@ const App: React.FC = () => {
                 onShowProfile={() => setShowDashboard(true)}
                 onExit={() => setCurrentSession(null)}
                 onUpdateUser={(updated) => {
-                    setUser(prev => prev ? { ...updated, preferences: prev.preferences } : updated);
+                    updateUser(updated);
                 }}
                 onStartPractice={() => setActiveMode('practice')}
                 onStartExercise={startExercise}
@@ -410,7 +410,7 @@ const App: React.FC = () => {
                   user={user}
                   onClose={() => setActiveMode('chat')}
                   onUpdateUser={(updated) => {
-                      setUser(prev => prev ? { ...updated, preferences: prev.preferences } : updated);
+                      updateUser(updated);
                   }}
                   notify={notify}
                   onShowPayment={() => setShowPayment(true)}
@@ -421,10 +421,10 @@ const App: React.FC = () => {
             <SmartDashboard 
               user={user} 
               onClose={() => setShowDashboard(false)} 
-              onUpdateUser={setUser} 
+              onUpdateUser={updateUser} 
               onLogout={handleLogout}
               isDarkMode={isDarkMode} 
-              toggleTheme={() => setIsDarkMode(!isDarkMode)}
+              toggleTheme={toggleDarkMode}
               messages={currentSession.messages}
               onOpenAdmin={() => { setShowDashboard(false); setShowAdmin(true); }}
               onShowPayment={() => { setShowDashboard(false); setShowPayment(true); }}
@@ -469,6 +469,8 @@ const App: React.FC = () => {
            </div>
         </div>
       )}
+
+      {showResetPassword && <ResetPasswordScreen />}
     </div>
   );
 };

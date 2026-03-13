@@ -72,6 +72,35 @@ const floatTo16BitPCM = (input: Float32Array) => {
     return btoa(binary);
 };
 
+// --- AUDIO WORKLET CODE ---
+const workletCode = `
+class AudioCaptureWorklet extends AudioWorkletProcessor {
+  process(inputs, outputs, parameters) {
+    const input = inputs[0];
+    if (!input || !input[0]) return true;
+    
+    const channelData = input[0];
+    
+    // Calculate RMS for volume visualization
+    let sum = 0;
+    for (let i = 0; i < channelData.length; i += 10) {
+        sum += channelData[i] * channelData[i];
+    }
+    const rms = Math.sqrt(sum / (channelData.length / 10));
+
+    // Send data to main thread
+    this.port.postMessage({
+      event: 'data',
+      channelData: channelData,
+      rms: rms
+    });
+    
+    return true;
+  }
+}
+registerProcessor('audio-capture-worklet', AudioCaptureWorklet);
+`;
+
 const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, notify, onShowPayment }) => {
   if (!user) return null;
 
@@ -79,12 +108,17 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
   const [subStatus, setSubStatus] = useState('');
   const [volume, setVolume] = useState(0); 
   const [isMuted, setIsMuted] = useState(false);
+  const isMutedRef = useRef(isMuted);
+
+  useEffect(() => {
+      isMutedRef.current = isMuted;
+  }, [isMuted]);
   const [duration, setDuration] = useState(0);
   const [teacherSpeaking, setTeacherSpeaking] = useState(false);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const nextStartTimeRef = useRef(0);
   const isMountedRef = useRef(true);
 
@@ -258,37 +292,42 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
           mediaStreamRef.current = stream;
 
           const source = ctx.createMediaStreamSource(stream);
-          const processor = ctx.createScriptProcessor(4096, 1, 1);
-          processorRef.current = processor;
+          
+          // Load AudioWorklet
+          const blob = new Blob([workletCode], { type: 'application/javascript' });
+          const workletUrl = URL.createObjectURL(blob);
+          await ctx.audioWorklet.addModule(workletUrl);
+          
+          const workletNode = new AudioWorkletNode(ctx, 'audio-capture-worklet');
+          workletNodeRef.current = workletNode;
 
-          processor.onaudioprocess = (e) => {
-              if (isMuted) return;
-
-              const inputData = e.inputBuffer.getChannelData(0);
+          // Handle messages from the worklet
+          workletNode.port.onmessage = (e) => {
+              if (isMutedRef.current) return;
               
-              let sum = 0;
-              for (let i = 0; i < inputData.length; i += 10) sum += inputData[i] * inputData[i];
-              const rms = Math.sqrt(sum / (inputData.length / 10));
-              
-              setVolume(v => v * 0.8 + (rms * 100) * 0.2);
-
-              const downsampledData = downsampleBuffer(inputData, e.inputBuffer.sampleRate, INPUT_SAMPLE_RATE);
-              const base64Audio = floatTo16BitPCM(downsampledData);
-              
-              try {
-                  session.sendRealtimeInput({
-                      media: {
-                          mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
-                          data: base64Audio
-                      }
-                  });
-              } catch (err) {}
+              const { event, channelData, rms } = e.data;
+              if (event === 'data') {
+                  setVolume(v => v * 0.8 + (rms * 100) * 0.2);
+                  
+                  // Downsample and convert to PCM
+                  const downsampledData = downsampleBuffer(channelData, ctx.sampleRate, INPUT_SAMPLE_RATE);
+                  const base64Audio = floatTo16BitPCM(downsampledData);
+                  
+                  try {
+                      session.sendRealtimeInput({
+                          media: {
+                              mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
+                              data: base64Audio
+                          }
+                      });
+                  } catch (err) {}
+              }
           };
 
-          source.connect(processor);
+          source.connect(workletNode);
           const muteNode = ctx.createGain();
           muteNode.gain.value = 0;
-          processor.connect(muteNode);
+          workletNode.connect(muteNode);
           muteNode.connect(ctx.destination);
 
       } catch (e) {
@@ -317,11 +356,11 @@ const LiveTeacher: React.FC<LiveTeacherProps> = ({ user, onClose, onUpdateUser, 
 
   const handleHangup = () => {
       if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach(t => t.stop());
-      if (processorRef.current) processorRef.current.disconnect();
+      if (workletNodeRef.current) workletNodeRef.current.disconnect();
       if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
       
       mediaStreamRef.current = null;
-      processorRef.current = null;
+      workletNodeRef.current = null;
       audioContextRef.current = null;
       
       if (isMountedRef.current && status !== 'error') onClose();

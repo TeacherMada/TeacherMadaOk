@@ -94,6 +94,7 @@ export const storageService = {
   login: async (id: string, pass: string): Promise<{success: boolean, user?: UserProfile, error?: string}> => {
     if (!isSupabaseConfigured()) return { success: false, error: "Supabase non configuré (Mode hors ligne)." };
     try {
+        const isUsername = !id.includes('@');
         const email = formatLoginEmail(id);
         
         // 1. Auth Supabase
@@ -102,7 +103,13 @@ export const storageService = {
             password: pass
         });
 
-        if (authError) return { success: false, error: "Identifiants incorrects." };
+        if (authError) {
+            let errMsg = "Identifiants ou mot de passe incorrects.";
+            if (isUsername) {
+                errMsg = "Identifiants incorrects. Astuce : Si vous avez fourni un email lors de l'inscription, utilisez votre email pour vous connecter.";
+            }
+            return { success: false, error: errMsg };
+        }
 
         if (authData.user) {
             // 2. Fetch Profile (Strict : Pas de fallback local ici)
@@ -171,6 +178,36 @@ export const storageService = {
     } catch (e: any) {
         return { success: false, error: e.message };
     }
+  },
+
+  resetPassword: async (identifier: string): Promise<{success: boolean, message: string}> => {
+      if (!isSupabaseConfigured()) return { success: false, message: "Mode hors ligne." };
+      try {
+          const email = formatLoginEmail(identifier);
+          if (email.endsWith('@teachermada.com') && !identifier.includes('@')) {
+              return { success: false, message: "Ce compte n'a pas d'email. Utilisez l'option WhatsApp." };
+          }
+          
+          const { error } = await supabase.auth.resetPasswordForEmail(email, {
+              redirectTo: window.location.origin,
+          });
+          
+          if (error) return { success: false, message: error.message };
+          return { success: true, message: "Un lien de réinitialisation a été envoyé à votre adresse email." };
+      } catch (e: any) {
+          return { success: false, message: e.message };
+      }
+  },
+
+  updatePassword: async (newPassword: string): Promise<{success: boolean, error?: string}> => {
+      if (!isSupabaseConfigured()) return { success: false, error: "Mode hors ligne." };
+      try {
+          const { error } = await supabase.auth.updateUser({ password: newPassword });
+          if (error) return { success: false, error: error.message };
+          return { success: true };
+      } catch (e: any) {
+          return { success: false, error: e.message };
+      }
   },
 
   logout: async () => {
