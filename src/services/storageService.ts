@@ -95,11 +95,43 @@ export const storageService = {
     if (!isSupabaseConfigured()) return { success: false, error: "Supabase non configuré (Mode hors ligne)." };
     try {
         const isUsername = !id.includes('@');
-        const email = formatLoginEmail(id);
+        let emailToUse = id;
+
+        if (isUsername) {
+            // 1. Try secure RPC first (if configured by user)
+            let { data: rpcEmail, error: rpcError } = await supabase.rpc('get_email_by_identifier', { identifier: id.trim() });
+            
+            if (rpcEmail && !rpcError) {
+                emailToUse = rpcEmail;
+            } else {
+                // 2. Fallback to direct query (might be blocked by RLS)
+                let { data } = await supabase
+                    .from('profiles')
+                    .select('email')
+                    .eq('username', id.trim())
+                    .maybeSingle();
+                
+                if (!data?.email) {
+                    const { data: phoneData } = await supabase
+                        .from('profiles')
+                        .select('email')
+                        .eq('phone_number', id.trim())
+                        .maybeSingle();
+                    data = phoneData;
+                }
+
+                if (data && data.email) {
+                    emailToUse = data.email;
+                } else {
+                    // 3. Ultimate fallback
+                    emailToUse = formatLoginEmail(id);
+                }
+            }
+        }
         
         // 1. Auth Supabase
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-            email: email, 
+            email: emailToUse, 
             password: pass
         });
 
@@ -112,7 +144,7 @@ export const storageService = {
         }
 
         if (authData.user) {
-            // 2. Fetch Profile (Strict : Pas de fallback local ici)
+            // 2. Fetch Profile
             let user = await storageService.getUserById(authData.user.id);
             
             // Retry logic si la DB est lente à répondre après création compte
@@ -123,22 +155,24 @@ export const storageService = {
                 attempts++;
             }
             
-            // Si pas de profil, tentative de création (Self-healing)
+            // Si pas de profil, tentative de création
             if (!user) {
                 const username = authData.user.user_metadata?.username || id.split('@')[0];
                 const phone = authData.user.user_metadata?.phone_number || "";
-                const payload = createDefaultProfilePayload(authData.user.id, username, email, phone);
+                const payload = createDefaultProfilePayload(authData.user.id, username, emailToUse, phone);
                 
                 const { error: insertError } = await supabase.from('profiles').insert([payload]);
                 
-                // Re-fetch après insertion
-                if (!insertError) user = mapProfile(payload);
+                if (!insertError) {
+                    user = mapProfile(payload);
+                } else {
+                    return { success: false, error: "Impossible de charger le profil (Erreur Réseau/DB)." };
+                }
             }
 
-            if (!user) return { success: false, error: "Impossible de charger le profil (Erreur Réseau/DB)." };
             if (user.isSuspended) return { success: false, error: "Compte suspendu par l'administrateur." };
             
-            // 3. Sauvegarde locale SEULEMENT si succès DB
+            // 3. Sauvegarde locale
             storageService.saveLocalUser(user); 
             return { success: true, user };
         }
@@ -168,7 +202,11 @@ export const storageService = {
 
         // Création explicite du profil
         const payload = createDefaultProfilePayload(authData.user.id, username.trim(), finalEmail, phoneNumber?.trim() || "");
-        await supabase.from('profiles').insert([payload]);
+        const { error: insertError } = await supabase.from('profiles').insert([payload]);
+
+        if (insertError) {
+            return { success: false, error: "Erreur lors de la création du profil en base de données." };
+        }
 
         // Vérification
         const newUser = mapProfile(payload);
@@ -183,12 +221,46 @@ export const storageService = {
   resetPassword: async (identifier: string): Promise<{success: boolean, message: string}> => {
       if (!isSupabaseConfigured()) return { success: false, message: "Mode hors ligne." };
       try {
-          const email = formatLoginEmail(identifier);
-          if (email.endsWith('@teachermada.com') && !identifier.includes('@')) {
+          const isUsername = !identifier.includes('@');
+          let emailToUse = identifier;
+
+          if (isUsername) {
+              // 1. Try secure RPC first (if configured by user)
+              let { data: rpcEmail, error: rpcError } = await supabase.rpc('get_email_by_identifier', { identifier: identifier.trim() });
+              
+              if (rpcEmail && !rpcError) {
+                  emailToUse = rpcEmail;
+              } else {
+                  // 2. Fallback to direct query (might be blocked by RLS)
+                  let { data } = await supabase
+                      .from('profiles')
+                      .select('email')
+                      .eq('username', identifier.trim())
+                      .maybeSingle();
+                  
+                  if (!data?.email) {
+                      const { data: phoneData } = await supabase
+                          .from('profiles')
+                          .select('email')
+                          .eq('phone_number', identifier.trim())
+                          .maybeSingle();
+                      data = phoneData;
+                  }
+
+                  if (data && data.email) {
+                      emailToUse = data.email;
+                  } else {
+                      // 3. Ultimate fallback
+                      emailToUse = formatLoginEmail(identifier);
+                  }
+              }
+          }
+
+          if (emailToUse.endsWith('@teachermada.com') && !identifier.includes('@')) {
               return { success: false, message: "Ce compte n'a pas d'email. Utilisez l'option WhatsApp." };
           }
           
-          const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          const { error } = await supabase.auth.resetPasswordForEmail(emailToUse, {
               redirectTo: window.location.origin,
           });
           

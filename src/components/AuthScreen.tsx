@@ -215,7 +215,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
                                <button onClick={() => setForgotMethod('email')} className="w-full p-4 border border-slate-200 dark:border-slate-700 rounded-2xl flex items-center gap-4 hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-all text-left group">
                                    <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-500/20 rounded-full flex items-center justify-center text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform"><Mail className="w-5 h-5"/></div>
                                    <div>
-                                       <div className="font-bold text-slate-800 dark:text-white">J'ai une adresse email</div>
+                                       <div className="font-bold text-slate-800 dark:text-white">J'ai un email lié à mon compte</div>
                                        <div className="text-xs text-slate-500">Récupération automatique par lien</div>
                                    </div>
                                </button>
@@ -230,11 +230,11 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack, isDarkMo
                        </>
                    ) : forgotMethod === 'email' ? (
                        <form onSubmit={handleForgotPassword} className="space-y-6 animate-fade-in">
-                           <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">Entrez l'adresse email liée à votre compte pour recevoir un lien de réinitialisation.</p>
+                           <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">Entrez l'adresse email, le nom d'utilisateur ou le numéro de téléphone lié à votre compte pour recevoir un lien de réinitialisation.</p>
                            <div>
                                <div className="relative group">
-                                   <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors"><Mail className="w-full h-full" /></div>
-                                   <input type="email" required value={forgotIdentifier} onChange={(e) => setForgotIdentifier(e.target.value)} placeholder="votre@email.com" className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium" />
+                                   <div className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors"><User className="w-full h-full" /></div>
+                                   <input type="text" required value={forgotIdentifier} onChange={(e) => setForgotIdentifier(e.target.value)} placeholder="Email, nom ou téléphone" className="w-full bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-white rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 transition-all border border-slate-200 dark:border-slate-700 font-medium" />
                                </div>
                            </div>
                            <button type="submit" disabled={isLoading} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg hover:shadow-indigo-500/30 transition-all disabled:opacity-70 flex items-center justify-center gap-2">
